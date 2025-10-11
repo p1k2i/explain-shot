@@ -3,3 +3,4 @@ keyboard==0.13.5
 Pillow==11.3.0
 PyQt6==6.9.1
 ollama==0.6.0
+asyncio==4.0.0
