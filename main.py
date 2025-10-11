@@ -1,0 +1,417 @@
+"""
+Main Application Entry Point
+
+Implements the async main function with signal handling, module initialization,
+and PyInstaller compatibility for the Explain Screenshot application.
+"""
+
+import asyncio
+import logging
+import signal
+import sys
+from pathlib import Path
+from typing import Optional
+import argparse
+
+# Import core modules
+from src.controllers.event_bus import get_event_bus, EventBus
+from src.utils.logging_config import setup_logging, get_logger
+from src.models.settings_manager import SettingsManager
+from src.views.tray_manager import TrayManager
+from src.utils.auto_start import get_auto_start_manager, AutoStartManager
+from src import EventTypes, AppState, APP_NAME, APP_VERSION
+
+logger = get_logger(__name__)
+
+
+class Application:
+    """
+    Main application class that orchestrates all components.
+
+    Handles initialization, lifecycle management, and graceful shutdown
+    of all application modules following the MVC pattern.
+    """
+
+    def __init__(self):
+        """Initialize the application."""
+        self.app_name = APP_NAME
+        self.version = APP_VERSION
+        self.state = AppState.STARTING
+
+        # Core components
+        self.event_bus: Optional[EventBus] = None
+        self.settings_manager: Optional[SettingsManager] = None
+        self.tray_manager: Optional[TrayManager] = None
+        self.auto_start_manager: Optional[AutoStartManager] = None
+
+        # Control flags
+        self.shutdown_requested = False
+        self.initialization_complete = False
+
+        # Signal handling
+        self.original_handlers = {}
+
+    async def initialize(self) -> bool:
+        """
+        Initialize all application components.
+
+        Returns:
+            True if initialization was successful
+        """
+        try:
+            logger.info("Initializing %s v%s", self.app_name, self.version)
+
+            # Initialize EventBus
+            self.event_bus = get_event_bus()
+            await self._subscribe_to_events()
+
+            # Initialize SettingsManager
+            self.settings_manager = SettingsManager()
+            await self.settings_manager.initialize_database()
+            settings = await self.settings_manager.load_settings()
+
+            # Apply settings to logging if needed
+            if settings.debug_mode:
+                logging.getLogger().setLevel(logging.DEBUG)
+                logger.debug("Debug mode enabled")
+
+            # Initialize AutoStartManager
+            self.auto_start_manager = get_auto_start_manager(self.app_name)
+
+            # Check and configure auto-start if enabled
+            if settings.auto_start.enabled:
+                await self._configure_auto_start()
+
+            # Initialize TrayManager
+            self.tray_manager = TrayManager(
+                app_name=self.app_name,
+                tooltip=f"{self.app_name} v{self.version}"
+            )
+
+            if not await self.tray_manager.initialize_async():
+                logger.warning("Tray manager initialization failed - continuing without tray")
+
+            # Setup signal handlers
+            self._setup_signal_handlers()
+
+            # Mark initialization complete
+            self.initialization_complete = True
+            self.state = AppState.READY
+
+            # Emit ready event
+            await self.event_bus.emit(
+                EventTypes.APP_READY,
+                {'state': self.state},
+                source="application"
+            )
+
+            logger.info("Application initialization complete")
+            return True
+
+        except Exception as e:
+            logger.error("Application initialization failed: %s", e)
+            self.state = AppState.ERROR
+            return False
+
+    async def _subscribe_to_events(self) -> None:
+        """Subscribe to application-level events."""
+        if self.event_bus is None:
+            raise RuntimeError("EventBus not initialized")
+
+        await self.event_bus.subscribe(
+            EventTypes.APP_SHUTDOWN_REQUESTED,
+            self._handle_shutdown_request
+        )
+
+        await self.event_bus.subscribe(
+            EventTypes.SETTINGS_UPDATED,
+            self._handle_settings_updated
+        )
+
+    async def _configure_auto_start(self) -> None:
+        """Configure auto-start if enabled in settings."""
+        if self.auto_start_manager is None:
+            logger.warning("Auto-start manager not initialized")
+            return
+
+        try:
+            # Check current auto-start status
+            status = await self.auto_start_manager.get_auto_start_status()
+
+            if status['overall_status'].value != 'enabled':
+                logger.info("Configuring auto-start...")
+
+                # Enable auto-start with minimal startup options
+                success, method = await self.auto_start_manager.enable_auto_start(
+                    args="--minimized"
+                )
+
+                if success:
+                    logger.info("Auto-start configured successfully using %s", method.value)
+                else:
+                    logger.warning("Failed to configure auto-start")
+
+        except Exception as e:
+            logger.error("Error configuring auto-start: %s", e)
+
+    def _setup_signal_handlers(self) -> None:
+        """Set up signal handlers for graceful shutdown."""
+        if sys.platform == "win32":
+            # Windows signal handling
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
+        else:
+            # Unix-like systems
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
+            signal.signal(signal.SIGHUP, self._signal_handler)
+
+    def _signal_handler(self, signum, frame):
+        """Handle shutdown signals."""
+        logger.info("Received signal %d, initiating shutdown", signum)
+
+        # Schedule shutdown in the event loop
+        if self.event_bus and not self.event_bus.is_shutdown():
+            asyncio.create_task(self._request_shutdown())
+
+    async def _request_shutdown(self) -> None:
+        """Request application shutdown."""
+        if not self.shutdown_requested and self.event_bus is not None:
+            self.shutdown_requested = True
+            await self.event_bus.emit(
+                EventTypes.APP_SHUTDOWN_REQUESTED,
+                source="signal_handler"
+            )
+
+    async def _handle_shutdown_request(self, event_data) -> None:
+        """Handle shutdown request events."""
+        if not self.shutdown_requested:
+            logger.info("Shutdown requested by %s", event_data.source)
+            self.shutdown_requested = True
+
+            # Start shutdown process
+            await self._shutdown()
+
+    async def _handle_settings_updated(self, event_data) -> None:
+        """Handle settings update events."""
+        if event_data.data and 'key' in event_data.data:
+            key = event_data.data['key']
+            value = event_data.data['value']
+
+            # Update the setting
+            if self.settings_manager:
+                await self.settings_manager.update_setting(key, value)
+                logger.debug("Setting updated: %s = %s", key, value)
+
+    async def run(self) -> int:
+        """
+        Run the main application loop.
+
+        Returns:
+            Exit code (0 for success, non-zero for error)
+        """
+        try:
+            # Initialize application
+            if not await self.initialize():
+                return 1
+
+            logger.info("Application started successfully")
+
+            # Main event loop
+            while not self.shutdown_requested:
+                await asyncio.sleep(0.1)  # Small sleep to prevent busy waiting
+
+            logger.info("Application shutting down")
+            return 0
+
+        except KeyboardInterrupt:
+            logger.info("Application interrupted by user")
+            return 0
+
+        except Exception as e:
+            logger.error("Unexpected error in main loop: %s", e)
+            return 1
+
+        finally:
+            # Ensure cleanup happens
+            if not self.shutdown_requested:
+                await self._shutdown()
+
+    async def _shutdown(self) -> None:
+        """Perform graceful shutdown of all components."""
+        if self.state == AppState.SHUTTING_DOWN:
+            return
+
+        self.state = AppState.SHUTTING_DOWN
+        logger.info("Starting application shutdown")
+
+        try:
+            # Emit shutdown starting event
+            if self.event_bus and not self.event_bus.is_shutdown():
+                await self.event_bus.emit(
+                    EventTypes.APP_SHUTDOWN_STARTING,
+                    source="application"
+                )
+
+            # Shutdown TrayManager
+            if self.tray_manager:
+                await self.tray_manager.shutdown_async()
+
+            # Save settings
+            if self.settings_manager:
+                try:
+                    await self.settings_manager.save_settings()
+                except Exception as e:
+                    logger.error("Error saving settings during shutdown: %s", e)
+
+            # Shutdown EventBus (this should be last)
+            if self.event_bus:
+                await self.event_bus.shutdown()
+
+            logger.info("Application shutdown complete")
+
+        except Exception as e:
+            logger.error("Error during shutdown: %s", e)
+
+    def is_single_instance(self) -> bool:
+        """
+        Check if this is the only instance of the application.
+
+        Returns:
+            True if this is the only instance
+        """
+        # Simple implementation - could be enhanced with file locking
+        try:
+            import psutil  # type: ignore
+            import os
+
+            current_pid = os.getpid()
+            current_name = Path(sys.argv[0]).name
+
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    if (proc.info['name'] == current_name and
+                        proc.info['pid'] != current_pid):
+                        return False
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+            return True
+        except ImportError:
+            logger.warning("psutil not available for single instance check")
+            return True
+
+
+def parse_arguments():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description=f"{APP_NAME} v{APP_VERSION} - AI-powered screenshot explanation tool"
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"{APP_NAME} {APP_VERSION}"
+    )
+
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging"
+    )
+
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="INFO",
+        help="Set logging level"
+    )
+
+    parser.add_argument(
+        "--log-dir",
+        type=Path,
+        help="Directory for log files"
+    )
+
+    parser.add_argument(
+        "--minimized",
+        action="store_true",
+        help="Start minimized (used for auto-start)"
+    )
+
+    parser.add_argument(
+        "--no-tray",
+        action="store_true",
+        help="Disable system tray (fallback mode)"
+    )
+
+    return parser.parse_args()
+
+
+async def main() -> int:
+    """
+    Main application entry point.
+
+    Returns:
+        Exit code
+    """
+    # Parse command line arguments
+    args = parse_arguments()
+
+    # Setup logging
+    log_level = "DEBUG" if args.debug else args.log_level
+    setup_logging(
+        log_dir=args.log_dir,
+        log_level=log_level,
+        enable_console=not args.minimized,
+        enable_json=True
+    )
+
+    logger = get_logger(__name__)
+    logger.info("Starting %s v%s", APP_NAME, APP_VERSION)
+
+    # Check for single instance
+    app = Application()
+    if not app.is_single_instance():
+        logger.warning("Another instance is already running")
+        return 1
+
+    # Run application
+    try:
+        return await app.run()
+    except Exception as e:
+        logger.error("Fatal error: %s", e)
+        return 1
+    finally:
+        # Cleanup logging
+        logging.shutdown()
+
+
+def run_app():
+    """Synchronous entry point for PyInstaller."""
+    try:
+        # Set up asyncio event loop policy for Windows
+        if sys.platform == "win32":
+            try:
+                # Use WindowsProactorEventLoopPolicy if available (Python 3.7+)
+                if hasattr(asyncio, 'WindowsProactorEventLoopPolicy'):
+                    policy = asyncio.WindowsProactorEventLoopPolicy()  # type: ignore
+                    asyncio.set_event_loop_policy(policy)
+            except (AttributeError, ImportError):
+                # Fallback for older Python versions or missing policy
+                pass
+
+        # Run the async main function
+        return asyncio.run(main())
+
+    except KeyboardInterrupt:
+        print("Application interrupted")
+        return 0
+
+    except Exception as e:
+        print(f"Fatal error: {e}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(run_app())
