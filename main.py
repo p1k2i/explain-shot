@@ -180,9 +180,6 @@ class Application:
         # Set shutdown event
         self._shutdown_event.set()
 
-        # Start shutdown process
-        await self._shutdown()
-
     async def _handle_settings_updated(self, event_data) -> None:
         """Handle settings update events."""
         if event_data.data and 'key' in event_data.data:
@@ -212,6 +209,10 @@ class Application:
             await self._shutdown_event.wait()
 
             logger.info("Application shutting down")
+
+            # Perform shutdown
+            await self._shutdown()
+
             return 0
 
         except KeyboardInterrupt:
@@ -259,6 +260,10 @@ class Application:
                 await self.event_bus.shutdown()
 
             logger.info("Application shutdown complete")
+
+            # Force exit to ensure the application terminates
+            # (needed because the tray's detached thread may keep the process alive)
+            sys.exit(0)
 
         except Exception as e:
             logger.error("Error during shutdown: %s", e)
