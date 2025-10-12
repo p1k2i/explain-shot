@@ -7,7 +7,7 @@ and recent screenshots. Handles user interactions and auto-dismiss behavior.
 
 import logging
 from typing import Dict, Any, List, Optional
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QEvent
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QEvent, QFile
 from PyQt6.QtGui import QFont, QKeyEvent, QMouseEvent, QFocusEvent, QEnterEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QListWidget, QListWidgetItem,
@@ -161,16 +161,18 @@ class OverlayWindow(QWidget):
             raise
 
     def _apply_styling(self) -> None:
-        """Apply dark theme styling to the window."""
+        """Apply theme styling to the window."""
         try:
             theme = self.config.get("overlay.theme", "dark")
+            css_file_path = f"resources/overlay/styles/{theme}_theme.css"
 
-            if theme == "dark":
-                stylesheet = self._get_dark_theme_stylesheet()
+            file = QFile(css_file_path)
+            if file.open(QFile.OpenModeFlag.ReadOnly | QFile.OpenModeFlag.Text):
+                stylesheet = file.readAll().data().decode('utf-8')
+                self.setStyleSheet(stylesheet)
+                file.close()
             else:
-                stylesheet = self._get_light_theme_stylesheet()
-
-            self.setStyleSheet(stylesheet)
+                logger.error(f"Could not load stylesheet: {css_file_path}")
 
             # Set font
             font = QFont("Segoe UI", 9)
@@ -180,139 +182,6 @@ class OverlayWindow(QWidget):
 
         except Exception as e:
             logger.error(f"Error applying styling: {e}")
-
-    def _get_dark_theme_stylesheet(self) -> str:
-        """Get dark theme stylesheet."""
-        return """
-        OverlayWindow {
-            background-color: #2E2E2E;
-            border-radius: 8px;
-        }
-
-        QLabel#sectionLabel {
-            color: #E0E0E0;
-            font-weight: bold;
-            font-size: 9pt;
-            padding: 4px 0px;
-            border: none;
-            background: transparent;
-        }
-
-        QListWidget {
-            background-color: #2E2E2E;
-            color: #E0E0E0;
-            border-radius: 4px;
-            outline: none;
-            selection-background-color: #4A90E2;
-            alternate-background-color: #3A3A3A;
-        }
-
-        QListWidget::item {
-            padding: 6px 8px;
-            border-bottom: 1px solid #3A3A3A;
-            min-height: 20px;
-        }
-
-        QListWidget::item:last {
-            border-bottom: none;
-        }
-
-        QListWidget::item:hover {
-            background-color: #3A3A3A;
-        }
-
-        QListWidget::item:selected {
-            background-color: #4A90E2;
-            color: white;
-        }
-
-        QListWidget::item:focus {
-            outline: 1px solid #4A90E2;
-        }
-
-        QScrollBar:vertical {
-            background-color: #2E2E2E;
-            width: 12px;
-            border-radius: 6px;
-        }
-
-        QScrollBar::handle:vertical {
-            background-color: #4A4A4A;
-            border-radius: 6px;
-            min-height: 20px;
-        }
-
-        QScrollBar::handle:vertical:hover {
-            background-color: #5A5A5A;
-        }
-
-        QScrollBar::add-line:vertical,
-        QScrollBar::sub-line:vertical {
-            height: 0px;
-        }
-
-        QFrame#separator {
-            background-color: #4A4A4A;
-            border: none;
-            margin: 4px 0px;
-        }
-        """
-
-    def _get_light_theme_stylesheet(self) -> str:
-        """Get light theme stylesheet."""
-        return """
-        OverlayWindow {
-            background-color: #F5F5F5;
-            border-radius: 8px;
-        }
-
-        QLabel#sectionLabel {
-            color: #333333;
-            font-weight: bold;
-            font-size: 9pt;
-            padding: 4px 0px;
-            border: none;
-            background: transparent;
-        }
-
-        QListWidget {
-            background-color: #FFFFFF;
-            color: #333333;
-            border-radius: 4px;
-            outline: none;
-            selection-background-color: #4A90E2;
-            alternate-background-color: #F9F9F9;
-        }
-
-        QListWidget::item {
-            padding: 6px 8px;
-            border-bottom: 1px solid #EEEEEE;
-            min-height: 20px;
-        }
-
-        QListWidget::item:last {
-            border-bottom: none;
-        }
-
-        QListWidget::item:hover {
-            background-color: #F0F0F0;
-        }
-
-        QListWidget::item:selected {
-            background-color: #4A90E2;
-            color: white;
-        }
-
-        QListWidget::item:focus {
-            outline: 1px solid #4A90E2;
-        }
-
-        QFrame#separator {
-            background-color: #CCCCCC;
-            border: none;
-            margin: 4px 0px;
-        }
-        """
 
     def _setup_auto_hide(self) -> None:
         """Setup auto-hide timer."""
