@@ -4,25 +4,25 @@
 pystray==0.19.5
 
 # Global hotkey handling
-pynput==1.7.7
+pynput==1.8.1
 
 # Image processing and manipulation
-Pillow==10.4.0
+Pillow==11.3.0
 
 # UI framework (for settings and overlay windows)
-PyQt6==6.8.0
+PyQt6==6.9.1
 
 # AI integration
 ollama==0.6.0
 
 # System monitoring (for single instance check)
-psutil==6.1.0
+psutil==7.1.0
 
 # Windows registry access (included with Python on Windows)
 # winreg - built-in module
 
 # Development and packaging dependencies
-pyinstaller==6.12.0
+pyinstaller==6.16.0
 
 # Optional: Better async support
-aiofiles==24.1.0
+aiofiles==25.1.0
