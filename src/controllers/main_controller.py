@@ -144,60 +144,52 @@ class MainController:
         await self.event_bus.subscribe(
             EventTypes.HOTKEY_SCREENSHOT_CAPTURE,
             self._handle_screenshot_hotkey,
-            priority=100,
-            weak_ref=False
+            priority=100
         )
 
         await self.event_bus.subscribe(
             EventTypes.HOTKEY_OVERLAY_TOGGLE,
             self._handle_overlay_hotkey,
-            priority=100,
-            weak_ref=False
+            priority=100
         )
 
         await self.event_bus.subscribe(
             EventTypes.HOTKEY_SETTINGS_OPEN,
             self._handle_settings_hotkey,
-            priority=100,
-            weak_ref=False
+            priority=100
         )
 
         # Tray events
         await self.event_bus.subscribe(
             EventTypes.TRAY_SETTINGS_REQUESTED,
             self._handle_tray_settings_request,
-            priority=90,
-            weak_ref=False
+            priority=90
         )
 
         await self.event_bus.subscribe(
             EventTypes.TRAY_OVERLAY_TOGGLE,
             self._handle_tray_overlay_request,
-            priority=90,
-            weak_ref=False
+            priority=90
         )
 
         await self.event_bus.subscribe(
             EventTypes.TRAY_QUIT_REQUESTED,
             self._handle_quit_request,
-            priority=100,
-            weak_ref=False
+            priority=100
         )
 
         # Settings events
         await self.event_bus.subscribe(
             EventTypes.SETTINGS_UPDATED,
             self._handle_settings_updated,
-            priority=80,
-            weak_ref=False
+            priority=80
         )
 
         # Error events
         await self.event_bus.subscribe(
             EventTypes.ERROR_OCCURRED,
             self._handle_error,
-            priority=50,
-            weak_ref=False
+            priority=50
         )
 
     async def _handle_screenshot_hotkey(self, event_data) -> None:

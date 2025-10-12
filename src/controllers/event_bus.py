@@ -95,7 +95,7 @@ class EventBus:
         handler: Callable,
         priority: int = 0,
         once: bool = False,
-        weak_ref: bool = True
+        weak_ref: bool = False
     ) -> str:
         """
         Subscribe to an event type.
@@ -159,7 +159,7 @@ class EventBus:
         handler: Callable,
         priority: int = 0,
         once: bool = False,
-        weak_ref: bool = True
+        weak_ref: bool = False
     ) -> str:
         """
         Subscribe to an event type synchronously.
