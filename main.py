@@ -13,12 +13,17 @@ from pathlib import Path
 from typing import Optional
 import argparse
 
+# PyQt6 imports
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QTimer
+
 # Import core modules
 from src.controllers.event_bus import get_event_bus, EventBus
 from src.controllers.main_controller import MainController
 from src.utils.logging_config import setup_logging, get_logger
 from src.models.settings_manager import SettingsManager
 from src.views.tray_manager import TrayManager
+from src.views.ui_manager import UIManager
 from src.utils.auto_start import get_auto_start_manager, AutoStartManager
 from src import EventTypes, AppState, APP_NAME, APP_VERSION
 
@@ -43,8 +48,12 @@ class Application:
         self.event_bus: Optional[EventBus] = None
         self.settings_manager: Optional[SettingsManager] = None
         self.tray_manager: Optional[TrayManager] = None
+        self.ui_manager: Optional[UIManager] = None
         self.auto_start_manager: Optional[AutoStartManager] = None
         self.main_controller: Optional[MainController] = None
+
+        # PyQt6 application instance
+        self.qt_app: Optional[QApplication] = None
 
         # Control flags
         self._shutdown_event = asyncio.Event()
@@ -94,11 +103,29 @@ class Application:
             if not self.tray_manager.initialize():
                 logger.warning("Tray manager initialization failed - continuing without tray")
 
+            # Initialize PyQt6 Application
+            existing_app = QApplication.instance()
+            if existing_app is None:
+                self.qt_app = QApplication(sys.argv)
+                logger.info("Created new QApplication instance")
+            else:
+                # Safely cast since we know it's a QApplication if it exists
+                self.qt_app = existing_app  # type: ignore
+                logger.info("Using existing QApplication instance")
+
+            # Initialize UIManager
+            self.ui_manager = UIManager(
+                event_bus=self.event_bus,
+                settings_manager=self.settings_manager,
+                screenshot_manager=None  # Will be set later when screenshot manager is available
+            )
+
             # Initialize MainController with all components
             self.main_controller = MainController(
                 event_bus=self.event_bus,
                 settings_manager=self.settings_manager,
                 tray_manager=self.tray_manager,
+                ui_manager=self.ui_manager,
                 auto_start_manager=self.auto_start_manager
             )
 
@@ -221,10 +248,20 @@ class Application:
 
             logger.info("Application started successfully")
 
+            # Setup Qt event processing in asyncio
+            qt_event_task = asyncio.create_task(self._process_qt_events())
+
             # Main event loop - wait for shutdown event
             await self._shutdown_event.wait()
 
             logger.info("Application shutting down")
+
+            # Cancel Qt event processing
+            qt_event_task.cancel()
+            try:
+                await qt_event_task
+            except asyncio.CancelledError:
+                pass
 
             # Perform shutdown
             await self._shutdown()
@@ -243,6 +280,19 @@ class Application:
             # Ensure cleanup happens
             if not self._shutdown_event.is_set():
                 await self._shutdown()
+
+    async def _process_qt_events(self) -> None:
+        """Process Qt events in asyncio loop."""
+        try:
+            while not self._shutdown_event.is_set():
+                if self.qt_app:
+                    self.qt_app.processEvents()
+                await asyncio.sleep(0.01)  # 10ms intervals
+
+        except asyncio.CancelledError:
+            logger.info("Qt event processing cancelled")
+        except Exception as e:
+            logger.error(f"Error processing Qt events: {e}")
 
     async def _shutdown(self) -> None:
         """Perform graceful shutdown of all components."""

@@ -993,9 +993,6 @@ class HotkeyHandler:
                     source="HotkeyHandler"
                 )
 
-                logger.info("MOCK: Screenshot capture triggered by hotkey %s",
-                          event.combination.display_name)
-
             elif event.action == 'toggle_overlay':
                 await self.event_bus.emit(
                     EventTypes.HOTKEY_OVERLAY_TOGGLE,
@@ -1007,9 +1004,6 @@ class HotkeyHandler:
                     },
                     source="HotkeyHandler"
                 )
-
-                logger.info("MOCK: Overlay toggle triggered by hotkey %s",
-                          event.combination.display_name)
 
             else:
                 # Generic hotkey event
@@ -1023,9 +1017,6 @@ class HotkeyHandler:
                     },
                     source="HotkeyHandler"
                 )
-
-                logger.info("MOCK: Hotkey action '%s' triggered by %s",
-                          event.action, event.combination.display_name)
 
         except Exception as e:
             logger.error("Error emitting hotkey action %s: %s", event.action, e)

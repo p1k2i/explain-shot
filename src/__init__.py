@@ -52,6 +52,12 @@ class EventTypes:
     UI_SETTINGS_SHOW = "ui.settings.show"
     UI_GALLERY_SHOW = "ui.gallery.show"
 
+    # Overlay events
+    OVERLAY_SHOWN = "overlay.shown"
+    OVERLAY_HIDDEN = "overlay.hidden"
+    OVERLAY_ITEM_SELECTED = "overlay.item_selected"
+    OVERLAY_DISMISSED = "overlay.dismissed"
+
     # Settings events
     SETTINGS_UPDATED = "settings.updated"
     SETTINGS_CHANGED = "settings.changed"

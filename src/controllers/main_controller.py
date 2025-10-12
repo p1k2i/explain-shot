@@ -7,8 +7,12 @@ following the MVC pattern with event-driven architecture.
 
 import asyncio
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from src.views.tray_manager import TrayManager
+    from src.views.ui_manager import UIManager
 
 # Local imports
 from src.controllers.event_bus import EventBus
@@ -16,7 +20,6 @@ from src.controllers.hotkey_handler import HotkeyHandler
 from src.models.settings_manager import SettingsManager
 from src.models.database_manager import DatabaseManager
 from src.models.screenshot_manager import ScreenshotManager
-from src.views.tray_manager import TrayManager
 from src.utils.auto_start import AutoStartManager
 from src import EventTypes, AppState
 
@@ -37,7 +40,8 @@ class MainController:
         settings_manager: SettingsManager,
         database_manager: Optional[DatabaseManager] = None,
         screenshot_manager: Optional[ScreenshotManager] = None,
-        tray_manager: Optional[TrayManager] = None,
+        tray_manager: Optional["TrayManager"] = None,
+        ui_manager: Optional["UIManager"] = None,
         auto_start_manager: Optional[AutoStartManager] = None
     ):
         """
@@ -49,6 +53,7 @@ class MainController:
             database_manager: DatabaseManager for data persistence
             screenshot_manager: ScreenshotManager for screenshot operations
             tray_manager: Optional TrayManager instance
+            ui_manager: Optional UIManager instance for PyQt6 UI components
             auto_start_manager: Optional AutoStartManager instance
         """
         self.event_bus = event_bus
@@ -56,6 +61,7 @@ class MainController:
         self.database_manager = database_manager
         self.screenshot_manager = screenshot_manager
         self.tray_manager = tray_manager
+        self.ui_manager = ui_manager
         self.auto_start_manager = auto_start_manager
 
         # Controllers
@@ -91,6 +97,12 @@ class MainController:
             # Initialize screenshot manager if available
             if self.screenshot_manager:
                 await self.screenshot_manager.initialize()
+
+            # Initialize UI manager if available
+            if self.ui_manager:
+                ui_success = await self.ui_manager.initialize()
+                if not ui_success:
+                    logger.warning("UI manager initialization failed, continuing without UI components")
 
             # Initialize HotkeyHandler
             self.hotkey_handler = HotkeyHandler(
@@ -132,52 +144,60 @@ class MainController:
         await self.event_bus.subscribe(
             EventTypes.HOTKEY_SCREENSHOT_CAPTURE,
             self._handle_screenshot_hotkey,
-            priority=100
+            priority=100,
+            weak_ref=False
         )
 
         await self.event_bus.subscribe(
             EventTypes.HOTKEY_OVERLAY_TOGGLE,
             self._handle_overlay_hotkey,
-            priority=100
+            priority=100,
+            weak_ref=False
         )
 
         await self.event_bus.subscribe(
             EventTypes.HOTKEY_SETTINGS_OPEN,
             self._handle_settings_hotkey,
-            priority=100
+            priority=100,
+            weak_ref=False
         )
 
         # Tray events
         await self.event_bus.subscribe(
             EventTypes.TRAY_SETTINGS_REQUESTED,
             self._handle_tray_settings_request,
-            priority=90
+            priority=90,
+            weak_ref=False
         )
 
         await self.event_bus.subscribe(
             EventTypes.TRAY_OVERLAY_TOGGLE,
             self._handle_tray_overlay_request,
-            priority=90
+            priority=90,
+            weak_ref=False
         )
 
         await self.event_bus.subscribe(
             EventTypes.TRAY_QUIT_REQUESTED,
             self._handle_quit_request,
-            priority=100
+            priority=100,
+            weak_ref=False
         )
 
         # Settings events
         await self.event_bus.subscribe(
             EventTypes.SETTINGS_UPDATED,
             self._handle_settings_updated,
-            priority=80
+            priority=80,
+            weak_ref=False
         )
 
         # Error events
         await self.event_bus.subscribe(
             EventTypes.ERROR_OCCURRED,
             self._handle_error,
-            priority=50
+            priority=50,
+            weak_ref=False
         )
 
     async def _handle_screenshot_hotkey(self, event_data) -> None:
@@ -218,11 +238,25 @@ class MainController:
             event_data: Event data from hotkey trigger
         """
         try:
-            logger.info("Overlay hotkey triggered: %s",
-                       event_data.data.get('combination', 'unknown'))
+            combination = event_data.data.get('combination', 'unknown')
+            logger.info("Overlay hotkey triggered: %s", combination)
 
-            # Mock overlay toggle implementation
-            await self._mock_overlay_toggle(event_data.data)
+            # Use real UI manager if available, otherwise mock
+            if self.ui_manager:
+                # Check if overlay is currently visible
+                is_visible = False
+                if hasattr(self.ui_manager, 'overlay_manager') and self.ui_manager.overlay_manager:
+                    is_visible = self.ui_manager.overlay_manager.is_overlay_visible()
+
+                if is_visible:
+                    # Hide overlay if it's visible
+                    await self.ui_manager.hide_overlay(reason="hotkey_toggle")
+                else:
+                    # Show overlay if it's not visible
+                    await self.ui_manager.show_overlay()
+            else:
+                # Mock overlay toggle implementation
+                await self._mock_overlay_toggle(event_data.data)
 
             # Emit overlay event
             await self.event_bus.emit(
@@ -296,8 +330,12 @@ class MainController:
         try:
             logger.info("Overlay requested from tray")
 
-            # Mock overlay toggle
-            await self._mock_overlay_toggle({'trigger_source': 'tray'})
+            # Use real UI manager if available, otherwise mock
+            if self.ui_manager:
+                await self.ui_manager.show_overlay()
+            else:
+                # Mock overlay toggle
+                await self._mock_overlay_toggle({'trigger_source': 'tray'})
 
             await self.event_bus.emit(
                 EventTypes.UI_OVERLAY_SHOW,
@@ -472,6 +510,7 @@ class MainController:
                 'screenshot_manager': self.screenshot_manager is not None and self.screenshot_manager.is_initialized,
                 'hotkey_handler': self.hotkey_handler is not None and self.hotkey_handler.is_handler_active(),
                 'tray_manager': self.tray_manager is not None,
+                'ui_manager': self.ui_manager is not None and self.ui_manager.is_initialized,
                 'auto_start_manager': self.auto_start_manager is not None
             }
         }
@@ -515,6 +554,10 @@ class MainController:
             # Shutdown hotkey handler
             if self.hotkey_handler:
                 await self.hotkey_handler.shutdown_handlers()
+
+            # Shutdown UI manager
+            if self.ui_manager:
+                await self.ui_manager.shutdown()
 
             # Save any pending settings
             try:

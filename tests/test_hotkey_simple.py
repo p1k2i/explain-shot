@@ -6,16 +6,18 @@ Tests the hotkey system integration and mock functionality without pytest.
 
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+# Add project root to Python path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 from src.controllers.event_bus import EventBus
 from src.controllers.hotkey_handler import HotkeyHandler, HotkeyCombo
 from src.controllers.main_controller import MainController
 from src.models.settings_manager import SettingsManager
 from src import EventTypes
-
-# Setup logging for tests
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 async def test_hotkey_combination_parsing():
