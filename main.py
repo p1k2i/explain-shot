@@ -380,17 +380,6 @@ async def main() -> int:
 def run_app():
     """Synchronous entry point for PyInstaller."""
     try:
-        # Set up asyncio event loop policy for Windows
-        if sys.platform == "win32":
-            try:
-                # Use WindowsProactorEventLoopPolicy if available (Python 3.7+)
-                if hasattr(asyncio, 'WindowsProactorEventLoopPolicy'):
-                    policy = asyncio.WindowsProactorEventLoopPolicy()  # type: ignore
-                    asyncio.set_event_loop_policy(policy)
-            except (AttributeError, ImportError):
-                # Fallback for older Python versions or missing policy
-                pass
-
         # Run the async main function
         return asyncio.run(main())
 
