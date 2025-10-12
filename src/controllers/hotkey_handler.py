@@ -15,6 +15,8 @@ from enum import Enum
 from typing import Callable, Dict, List, Optional, Set
 from datetime import datetime
 import time
+from queue import Queue, Empty
+import weakref
 
 # Local imports
 from src.controllers.event_bus import EventBus
@@ -27,6 +29,112 @@ from pynput import keyboard
 KeyboardListener = keyboard.Listener
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class HotkeyEvent:
+    """Thread-safe hotkey event data structure."""
+    hotkey_id: str
+    combination: 'HotkeyCombo'
+    action: str
+    timestamp: float = field(default_factory=time.time)
+    source: str = "hotkey"
+
+
+class ThreadSafeEventQueue:
+    """
+    Thread-safe event queue for hotkey events.
+
+    Bridges between pynput thread and asyncio event loop with proper synchronization.
+    """
+
+    def __init__(self, maxsize: int = 100):
+        """Initialize the thread-safe event queue."""
+        self._queue = Queue(maxsize=maxsize)
+        self._shutdown = threading.Event()
+        self._processing = False
+        self._loop_ref: Optional[weakref.ReferenceType] = None
+
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Set the asyncio event loop for event processing."""
+        self._loop_ref = weakref.ref(loop)
+
+    def put_event(self, event: HotkeyEvent) -> bool:
+        """
+        Put an event in the queue from any thread.
+
+        Args:
+            event: HotkeyEvent to queue
+
+        Returns:
+            True if event was queued successfully
+        """
+        if self._shutdown.is_set():
+            return False
+
+        try:
+            self._queue.put_nowait(event)
+
+            # Schedule processing in the event loop if available
+            if self._loop_ref is not None:
+                loop = self._loop_ref()
+                if loop is not None and not loop.is_closed():
+                    loop.call_soon_threadsafe(self._schedule_processing)
+
+            return True
+        except Exception:
+            return False
+
+    def _schedule_processing(self) -> None:
+        """Schedule event processing in the asyncio loop."""
+        if not self._processing and self._loop_ref is not None:
+            loop = self._loop_ref()
+            if loop is not None and not loop.is_closed():
+                asyncio.ensure_future(self._process_events(), loop=loop)
+
+    async def _process_events(self) -> None:
+        """Process all queued events asynchronously."""
+        if self._processing:
+            return
+
+        self._processing = True
+
+        try:
+            while not self._queue.empty() and not self._shutdown.is_set():
+                try:
+                    _ = self._queue.get_nowait()  # Process event (placeholder)
+                    self._queue.task_done()
+                except Empty:
+                    break
+        finally:
+            self._processing = False
+
+    def get_event(self, timeout: float = 0.1) -> Optional[HotkeyEvent]:
+        """
+        Get the next event from the queue (non-blocking for asyncio).
+
+        Args:
+            timeout: Maximum time to wait for an event
+
+        Returns:
+            Next HotkeyEvent or None if queue is empty
+        """
+        try:
+            return self._queue.get(timeout=timeout)
+        except Empty:
+            return None
+
+    def shutdown(self) -> None:
+        """Shutdown the event queue."""
+        self._shutdown.set()
+
+        # Clear any remaining events
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+            except Empty:
+                break
 
 
 class HotkeyState(Enum):
@@ -155,6 +263,9 @@ class HotkeyHandler:
         self._shutdown_requested = False
         self._registration_lock = asyncio.Lock()
 
+        # Thread-safe event queue for hotkey events
+        self._event_queue = ThreadSafeEventQueue()
+
         # Thread executor for blocking operations
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="hotkey")
 
@@ -226,6 +337,14 @@ class HotkeyHandler:
         try:
             logger.info("Initializing hotkey handlers...")
 
+            # Get the current event loop and set it in the event queue
+            try:
+                loop = asyncio.get_running_loop()
+                self._event_queue.set_event_loop(loop)
+                self._event_loop = loop
+            except RuntimeError:
+                logger.warning("No running event loop found during initialization")
+
             # Subscribe to settings updates
             await self.event_bus.subscribe(
                 EventTypes.SETTINGS_UPDATED,
@@ -241,6 +360,9 @@ class HotkeyHandler:
 
             # Start global listener
             await self._start_global_listener()
+
+            # Start event queue processor
+            asyncio.create_task(self._process_hotkey_events())
 
             self._initialized = True
 
@@ -833,78 +955,120 @@ class HotkeyHandler:
                     continue
 
                 if registration.combination.matches_event(current_modifiers, key):
-                    # Found a match!
-                    logger.info("Hotkey triggered: %s (%s)",
+                    # Found a match - add to thread-safe queue
+                    hotkey_event = HotkeyEvent(
+                        hotkey_id=registration.hotkey_id,
+                        combination=registration.combination,
+                        action=registration.action
+                    )
+
+                    # Queue the event for processing in the asyncio loop
+                    self._event_queue.put_event(hotkey_event)
+
+                    logger.info("Hotkey queued for processing: %s (%s)",
                               registration.hotkey_id, registration.combination.display_name)
-                    await self._trigger_hotkey(registration)
                     break
 
         except Exception as e:
             logger.error("Error checking hotkey match: %s", e)
 
-    async def _trigger_hotkey(self, registration: HotkeyRegistration) -> None:
+    async def _process_hotkey_events(self) -> None:
         """
-        Trigger a hotkey action.
+        Process hotkey events from the thread-safe queue.
+
+        Runs continuously in the asyncio event loop.
+        """
+        while not self._shutdown_requested:
+            try:
+                # Check for events with a short timeout to avoid blocking
+                event = self._event_queue.get_event(timeout=0.1)
+
+                if event is not None:
+                    await self._handle_hotkey_event(event)
+
+                # Short sleep to yield control
+                await asyncio.sleep(0.01)
+
+            except Exception as e:
+                logger.error("Error processing hotkey events: %s", e)
+                await asyncio.sleep(0.1)
+
+    async def _handle_hotkey_event(self, event: HotkeyEvent) -> None:
+        """
+        Handle a hotkey event in the asyncio context.
 
         Args:
-            registration: The triggered hotkey registration
+            event: HotkeyEvent to process
         """
         try:
-            # Update statistics
-            registration.last_triggered = datetime.now()
-            registration.trigger_count += 1
+            # Get the registration to update statistics
+            registration = self._registrations.get(event.hotkey_id)
+            if registration:
+                registration.last_triggered = datetime.now()
+                registration.trigger_count += 1
 
-            # Emit mock events based on action
-            if registration.action == 'capture_screenshot':
+            # Emit events based on action (same as before but cleaner)
+            await self._emit_hotkey_action(event)
+
+        except Exception as e:
+            logger.error("Error handling hotkey event %s: %s", event.hotkey_id, e)
+
+    async def _emit_hotkey_action(self, event: HotkeyEvent) -> None:
+        """
+        Emit appropriate events for hotkey actions.
+
+        Args:
+            event: HotkeyEvent to emit for
+        """
+        try:
+            if event.action == 'capture_screenshot':
                 await self.event_bus.emit(
                     EventTypes.HOTKEY_SCREENSHOT_CAPTURE,
                     {
-                        'hotkey_id': registration.hotkey_id,
-                        'combination': registration.combination.display_name,
-                        'timestamp': time.time(),
+                        'hotkey_id': event.hotkey_id,
+                        'combination': event.combination.display_name,
+                        'timestamp': event.timestamp,
                         'mock_action': 'screenshot_capture_requested'
                     },
                     source="HotkeyHandler"
                 )
 
-                # Log mock action
                 logger.info("MOCK: Screenshot capture triggered by hotkey %s",
-                          registration.combination.display_name)
+                          event.combination.display_name)
 
-            elif registration.action == 'toggle_overlay':
+            elif event.action == 'toggle_overlay':
                 await self.event_bus.emit(
                     EventTypes.HOTKEY_OVERLAY_TOGGLE,
                     {
-                        'hotkey_id': registration.hotkey_id,
-                        'combination': registration.combination.display_name,
-                        'timestamp': time.time(),
+                        'hotkey_id': event.hotkey_id,
+                        'combination': event.combination.display_name,
+                        'timestamp': event.timestamp,
                         'mock_action': 'overlay_toggle_requested'
                     },
                     source="HotkeyHandler"
                 )
 
-                # Log mock action
                 logger.info("MOCK: Overlay toggle triggered by hotkey %s",
-                          registration.combination.display_name)
+                          event.combination.display_name)
 
             else:
                 # Generic hotkey event
                 await self.event_bus.emit(
-                    f"hotkey.{registration.action}",
+                    f"hotkey.{event.action}",
                     {
-                        'hotkey_id': registration.hotkey_id,
-                        'combination': registration.combination.display_name,
-                        'action': registration.action,
-                        'timestamp': time.time()
+                        'hotkey_id': event.hotkey_id,
+                        'combination': event.combination.display_name,
+                        'action': event.action,
+                        'timestamp': event.timestamp
                     },
                     source="HotkeyHandler"
                 )
 
                 logger.info("MOCK: Hotkey action '%s' triggered by %s",
-                          registration.action, registration.combination.display_name)
+                          event.action, event.combination.display_name)
 
         except Exception as e:
-            logger.error("Error triggering hotkey %s: %s", registration.hotkey_id, e)
+            logger.error("Error emitting hotkey action %s: %s", event.action, e)
 
     async def _handle_settings_updated(self, event_data) -> None:
         """Handle settings update events."""
@@ -994,6 +1158,9 @@ class HotkeyHandler:
         try:
             # Unregister all hotkeys
             await self.unregister_all_hotkeys()
+
+            # Shutdown event queue
+            self._event_queue.shutdown()
 
             # Stop global listener
             if self._active_listener is not None:

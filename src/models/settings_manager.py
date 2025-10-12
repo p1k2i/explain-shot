@@ -15,6 +15,10 @@ import asyncio
 import sqlite3
 from datetime import datetime
 
+# Import for event emission
+from ..controllers.event_bus import get_event_bus
+from .. import EventTypes
+
 logger = logging.getLogger(__name__)
 
 
@@ -138,6 +142,9 @@ class SettingsManager:
 
         # Change callbacks
         self._change_callbacks: List[Callable] = []
+
+        # Event bus for settings change notifications
+        self._event_bus = get_event_bus()
 
         logger.info("SettingsManager initialized with database: %s", self.db_path)
 
@@ -365,6 +372,17 @@ class SettingsManager:
             # Notify change callbacks
             await self._notify_changes()
 
+            # Emit settings updated event
+            await self._event_bus.emit(
+                EventTypes.SETTINGS_UPDATED,
+                {
+                    'timestamp': datetime.now().isoformat(),
+                    'update_count': settings.update_count,
+                    'full_save': True
+                },
+                source="SettingsManager"
+            )
+
             logger.info("Settings saved successfully")
 
     def _flatten_settings(self, settings: ApplicationSettings) -> Dict[str, Any]:
@@ -423,6 +441,17 @@ class SettingsManager:
 
             # Save updated settings
             await self.save_settings(settings)
+
+            # Emit specific setting updated event
+            await self._event_bus.emit(
+                EventTypes.SETTINGS_UPDATED,
+                {
+                    'key': key,
+                    'value': value,
+                    'timestamp': datetime.now().isoformat()
+                },
+                source="SettingsManager"
+            )
 
             logger.info("Setting updated: %s = %s", key, value)
             return True

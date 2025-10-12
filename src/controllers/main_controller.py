@@ -14,6 +14,8 @@ from datetime import datetime
 from src.controllers.event_bus import EventBus
 from src.controllers.hotkey_handler import HotkeyHandler
 from src.models.settings_manager import SettingsManager
+from src.models.database_manager import DatabaseManager
+from src.models.screenshot_manager import ScreenshotManager
 from src.views.tray_manager import TrayManager
 from src.utils.auto_start import AutoStartManager
 from src import EventTypes, AppState
@@ -33,6 +35,8 @@ class MainController:
         self,
         event_bus: EventBus,
         settings_manager: SettingsManager,
+        database_manager: Optional[DatabaseManager] = None,
+        screenshot_manager: Optional[ScreenshotManager] = None,
         tray_manager: Optional[TrayManager] = None,
         auto_start_manager: Optional[AutoStartManager] = None
     ):
@@ -42,11 +46,15 @@ class MainController:
         Args:
             event_bus: EventBus instance for coordination
             settings_manager: SettingsManager for configuration
+            database_manager: DatabaseManager for data persistence
+            screenshot_manager: ScreenshotManager for screenshot operations
             tray_manager: Optional TrayManager instance
             auto_start_manager: Optional AutoStartManager instance
         """
         self.event_bus = event_bus
         self.settings_manager = settings_manager
+        self.database_manager = database_manager
+        self.screenshot_manager = screenshot_manager
         self.tray_manager = tray_manager
         self.auto_start_manager = auto_start_manager
 
@@ -75,6 +83,14 @@ class MainController:
 
             # Subscribe to core events
             await self._subscribe_to_events()
+
+            # Initialize database if available
+            if self.database_manager:
+                await self.database_manager.initialize_database()
+
+            # Initialize screenshot manager if available
+            if self.screenshot_manager:
+                await self.screenshot_manager.initialize()
 
             # Initialize HotkeyHandler
             self.hotkey_handler = HotkeyHandler(
@@ -365,13 +381,23 @@ class MainController:
         if 'hotkey_combination' in trigger_data:
             logger.info("MOCK: Triggered by hotkey: %s", trigger_data['hotkey_combination'])
 
-        # Simulate processing delay
-        await asyncio.sleep(0.1)
-
-        logger.info("MOCK: Screenshot captured successfully")
-        logger.info("MOCK: File saved to: screenshots/mock_screenshot.png")
-        logger.info("MOCK: Thumbnail generated")
-        logger.info("MOCK: Database entry created")
+        # Use actual screenshot manager if available
+        if self.screenshot_manager:
+            try:
+                result = await self.screenshot_manager.capture_screenshot()
+                if result.success and result.metadata:
+                    logger.info("REAL: Screenshot captured successfully: %s", result.metadata.filename)
+                else:
+                    logger.error("REAL: Screenshot capture failed: %s", result.error_message)
+            except Exception as e:
+                logger.error("Error capturing screenshot: %s", e)
+        else:
+            # Simulate processing delay
+            await asyncio.sleep(0.1)
+            logger.info("MOCK: Screenshot captured successfully")
+            logger.info("MOCK: File saved to: screenshots/mock_screenshot.png")
+            logger.info("MOCK: Thumbnail generated")
+            logger.info("MOCK: Database entry created")
 
     async def _mock_overlay_toggle(self, trigger_data: Dict[str, Any]) -> None:
         """
@@ -442,6 +468,8 @@ class MainController:
             'components': {
                 'event_bus': self.event_bus is not None,
                 'settings_manager': self.settings_manager is not None,
+                'database_manager': self.database_manager is not None,
+                'screenshot_manager': self.screenshot_manager is not None and self.screenshot_manager.is_initialized,
                 'hotkey_handler': self.hotkey_handler is not None and self.hotkey_handler.is_handler_active(),
                 'tray_manager': self.tray_manager is not None,
                 'auto_start_manager': self.auto_start_manager is not None

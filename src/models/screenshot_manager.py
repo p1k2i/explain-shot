@@ -537,6 +537,9 @@ class ScreenshotManager:
         if any(key.startswith("screenshot_") or key in ["filename_format", "compression_level"]
                for key in data.get("updated_keys", [])):
             await self.refresh_directory_config()
+        elif data.get("key", "").startswith("screenshot."):
+            # Handle specific screenshot setting update
+            await self.refresh_directory_config()
 
     async def _handle_app_shutdown(self, data: dict) -> None:
         """Handle application shutdown events."""

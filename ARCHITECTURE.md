@@ -8,226 +8,353 @@ This document outlines the architecture for a lightweight, cross-platform deskto
 
 ```mermaid
 graph TB
+    subgraph "Application Layer"
+        MAIN[Main Application]
+        LIFECYCLE[Lifecycle Manager]
+        SIGNALS[Signal Handler]
+    end
+
     subgraph "View Layer"
-        V1[TrayManager<br/>pystray]
+        V1[TrayManager<br/>pystray + Thread-Safe]
         V2[UIManager<br/>PyQt6]
         V3[OverlayWindow]
         V4[SettingsWindow]
         V5[GalleryWindow]
+        V6[IconManager<br/>State Sync + Fallbacks]
     end
 
     subgraph "Controller Layer"
-        C1[MainController]
-        C2[EventBus<br/>asyncio]
-        C3[HotkeyHandler<br/>pynput]
+        C1[MainController<br/>]
+        C2[EventBus<br/>Priority Queue + Error Isolation]
+        C3[HotkeyHandler<br/>Thread-Safe Queue]
     end
 
     subgraph "Model Layer"
-        M1[ScreenshotManager<br/>Pillow]
-        M2[DatabaseManager<br/>SQLite]
+        M1[ScreenshotManager<br/>Pillow + Async File Ops]
+        M2[DatabaseManager<br/>Complete Schema + Migrations]
         M3[OllamaClient<br/>ollama]
-        M4[SettingsManager]
+        M4[SettingsManager<br/>Event Propagation]
+        M5[AutoStartManager<br/>Windows Registry/Startup]
     end
 
-    V1 --> C2
-    V2 --> C2
-    C3 --> C2
-    C2 --> C1
+    subgraph "Utils Layer"
+        U1[ThreadSafeEventQueue<br/>pynput ↔ asyncio]
+        U2[Logging System<br/>Structured + Performance]
+        U3[Validation Framework]
+    end
+
+    %% Dependencies
+    MAIN --> LIFECYCLE
+    MAIN --> SIGNALS
+    LIFECYCLE --> C2
+    C2 <--> C1
     C1 --> M1
     C1 --> M2
     C1 --> M3
     C1 --> M4
-
+    C1 --> M5
+    C3 --> U1
+    U1 --> C2
+    V1 --> V6
+    V1 --> C2
+    V2 --> C2
     M1 --> M2
+    M1 --> M4
     M3 --> M2
     M4 --> M2
+    M4 --> C2
+
+    %% Cross-cutting concerns
+    ALL -.-> U2
+    ALL -.-> U3
 ```
 
 ## Data Flow Diagram
 
 ```
-User Action → HotkeyHandler → EventBus → MainController → Model → Database/Ollama
-     ↓                                         ↓
-System Tray ← UIManager ← EventBus ← Response Processing
+User Action → HotkeyHandler → ThreadSafeEventQueue → EventBus → MainController
+     ↓                                                              ↓
+System Tray ← TrayManager ← EventBus ← SettingsManager ← ScreenshotManager → Database
+     ↓                         ↑
+UI Updates ← IconManager ← Settings Changes
 ```
+
+### Event Flow
+1. **Hotkey Detection**: Global hotkey captured by pynput in separate thread
+2. **Thread-Safe Queuing**: ThreadSafeEventQueue bridges pynput thread to asyncio loop
+3. **Event Processing**: EventBus handles events with priority queuing and error isolation
+4. **Business Logic**: MainController coordinates screenshot capture and processing
+5. **Data Persistence**: ScreenshotManager saves files and metadata to database
+6. **Settings Propagation**: SettingsManager emits changes through EventBus
+7. **UI Updates**: TrayManager and IconManager receive updates via EventBus
 
 ## Module Specifications
 
 ### 1. TrayManager (View Layer)
 
 **Responsibilities:**
-- System tray icon lifecycle management
+- System tray icon lifecycle management with thread-safe
 - Context menu creation and handling
 - Application start/stop coordination
-- Window focus management
+- Dynamic icon state management
 
 **Public Interface:**
-```
-Methods:
-- initialize() -> None
-- create_menu() -> None
-- show_settings() -> None
-- quit_application() -> None
-- update_icon(status: str) -> None
+```python
+class TrayManager:
+    async def initialize() -> None
+    def create_menu() -> None
+    async def show_settings() -> None
+    async def quit_application() -> None
+    async def update_icon(status: str) -> None
+    def run() -> None  # Runs in separate thread
 
 Events Emitted:
 - "tray.settings_requested"
 - "tray.quit_requested"
 - "tray.show_overlay"
+- "tray.initialized"
+
+Events Handled:
+- "settings.changed"
+- "app.status_changed"
 ```
 
-**Dependencies:**
-- pystray for system tray functionality
-- EventBus for communication
-
-**Error Handling:**
-- Graceful fallback if system tray is unavailable
-- Icon loading failure recovery
-- Menu creation error handling
+**Implementation Status:**
+- ✅ Thread-safe icon updates
+- ✅ EventBus integration
+- ✅ Context menu handling
+- ✅ Graceful shutdown coordination
 
 ### 2. HotkeyHandler (Controller Layer)
 
 **Responsibilities:**
-- Global hotkey registration and monitoring
-- Input event processing
-- Hotkey conflict detection and resolution
+- Global hotkey registration and monitoring with thread-safe event processing
+- Cross-thread communication between pynput and asyncio
+- Event queuing and processing coordination
 
 **Public Interface:**
-```
-Methods:
-- register_hotkeys(config: dict) -> bool
-- unregister_hotkeys() -> None
-- is_hotkey_available(combination: str) -> bool
+```python
+class HotkeyHandler:
+    async def initialize() -> None
+    async def register_hotkey(combo: str, event_name: str) -> None
+    async def unregister_hotkey(combo: str) -> None
+    async def start_monitoring() -> None
+    async def stop_monitoring() -> None
+
+class ThreadSafeEventQueue:
+    def put_event(event: HotkeyEvent) -> None
+    async def process_events() -> None
+    def set_loop(loop: asyncio.AbstractEventLoop) -> None
 
 Events Emitted:
-- "hotkey.screenshot_capture"
-- "hotkey.overlay_toggle"
-- "hotkey.settings_open"
+- "hotkey.screenshot_area"
+- "hotkey.screenshot_full"
+- "hotkey.show_overlay"
 ```
 
-**Dependencies:**
-- pynput for global hotkey monitoring
-- EventBus for event emission
+**Implementation Status:**
+- ✅ ThreadSafeEventQueue for pynput ↔ asyncio coordination
+- ✅ Weakref-based event loop management
+- ✅ Async event processing pipeline
+- ✅ Error handling and graceful shutdown
 
-**Error Handling:**
-- Hotkey registration failure handling
-- Permission denied scenarios
-- Conflicting hotkey detection
-
-### 3. ScreenshotManager (Model Layer)
+### 3. ScreenshotManager (Model Layer) ✅ Fully Implemented
 
 **Responsibilities:**
-- Screenshot capture across multiple monitors
-- Image processing and optimization
-- File system operations for screenshot storage
-- Thumbnail generation for gallery view
+- Screenshot capture across multiple monitors with Pillow integration
+- Atomic file operations with metadata handling
+- Database integration for screenshot metadata
+- Real screenshot capture integrated in application flow
 
 **Public Interface:**
+```python
+class ScreenshotManager:
+    async def capture_screenshot(region: Optional[tuple] = None) -> Screenshot
+    async def save_screenshot(image: PIL.Image, filename: str) -> Screenshot
+    async def get_recent_screenshots(limit: int = 10) -> List[Screenshot]
+    async def delete_screenshot(screenshot_id: str) -> bool
+    async def cleanup_old_screenshots(days: int) -> int
+
+@dataclass
+class Screenshot:
+    id: str
+    filename: str
+    file_path: str
+    timestamp: datetime
+    width: int
+    height: int
+    file_size: int
 ```
-Methods:
-- capture_screenshot(region: Optional[tuple] = None) -> Screenshot
-- get_recent_screenshots(limit: int = 10) -> List[Screenshot]
-- generate_thumbnail(image_path: str, size: tuple) -> bytes
-- cleanup_old_screenshots(days: int) -> int
 
-Data Structures:
-Screenshot:
-- id: str
-- filename: str
-- path: str
-- timestamp: datetime
-- thumbnail_path: str
-- file_size: int
-```
+**Implementation Status:**
+- ✅ PIL/Pillow integration for screen capture
+- ✅ Atomic file save operations
+- ✅ Database metadata registration
+- ✅ Real screenshot capture in MainController handlers
+- ✅ Async file operations with proper error handling
 
-**Dependencies:**
-- Pillow for image processing
-- DatabaseManager for metadata storage
-
-**Error Handling:**
-- Screen capture permission issues
-- Disk space management
-- File system access errors
-- Image processing failures
-
-### 4. DatabaseManager (Model Layer)
+### 4. SettingsManager (Model Layer)
 
 **Responsibilities:**
-- SQLite database connection management
-- CRUD operations for all entities
-- Database schema migrations
-- Connection pooling and transaction management
+- Application configuration management with event propagation
+- Database persistence of settings
+- Automatic change notifications through EventBus
+- Settings validation and type safety
 
 **Public Interface:**
-```
-Async Methods:
-- initialize_database() -> None
-- create_screenshot(screenshot: Screenshot) -> int
-- get_screenshots(limit: int, offset: int) -> List[Screenshot]
-- create_chat_entry(chat: ChatEntry) -> int
-- get_chat_history(screenshot_id: int) -> List[ChatEntry]
-- create_preset(preset: Preset) -> int
-- get_presets() -> List[Preset]
-- cleanup_database() -> None
-```
+```python
+class SettingsManager:
+    async def load_settings() -> ApplicationSettings
+    async def save_settings(settings: ApplicationSettings) -> None
+    async def get_setting(key: str) -> Any
+    async def update_setting(key: str, value: Any) -> None
+    async def reset_to_defaults() -> None
 
-**Database Schema:**
-```sql
--- Screenshots table
-CREATE TABLE screenshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    filename TEXT NOT NULL,
-    path TEXT NOT NULL UNIQUE,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    file_size INTEGER,
-    thumbnail_path TEXT,
-    metadata TEXT -- JSON for extensibility
-);
+@dataclass
+class ApplicationSettings:
+    hotkeys: HotkeySettings
+    capture: CaptureSettings
+    storage: StorageSettings
+    ui: UISettings
 
--- Chat history table
-CREATE TABLE chat_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    screenshot_id INTEGER,
-    prompt TEXT NOT NULL,
-    response TEXT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    model_name TEXT,
-    processing_time REAL,
-    FOREIGN KEY (screenshot_id) REFERENCES screenshots(id) ON DELETE CASCADE
-);
-
--- Presets table
-CREATE TABLE presets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    preset_name TEXT NOT NULL UNIQUE,
-    prompt_text TEXT NOT NULL,
-    description TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    usage_count INTEGER DEFAULT 0
-);
-
--- Settings table
-CREATE TABLE settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    type TEXT DEFAULT 'string',
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+Events Emitted:
+- "settings.changed"
+- "settings.hotkey_updated"
+- "settings.capture_updated"
 ```
 
-**Error Handling:**
-- Database corruption recovery
-- Connection timeout handling
-- Transaction rollback mechanisms
-- Migration failure recovery
+**Implementation Status:**
+- ✅ EventBus integration for change propagation
+- ✅ Async database operations
+- ✅ Type-safe settings with dataclasses
+- ✅ Automatic change notifications to all components
 
-### 5. OllamaClient (Model Layer)
+### 5. DatabaseManager (Model Layer)
 
 **Responsibilities:**
-- Ollama server communication
-- Image encoding and transmission
-- Response parsing and validation
-- Connection state management
+- SQLite database connection management with complete schema
+- CRUD operations for all entities with async support
+- Database schema migrations and version management
+- Transaction management and connection pooling
+
+**Public Interface:**
+```python
+class DatabaseManager:
+    async def initialize() -> None
+    async def create_screenshot(screenshot: Screenshot) -> int
+    async def get_screenshots(limit: int, offset: int) -> List[Screenshot]
+    async def get_screenshot_by_id(screenshot_id: int) -> Optional[Screenshot]
+    async def delete_screenshot(screenshot_id: int) -> bool
+    async def create_chat_entry(entry: ChatEntry) -> int
+    async def get_chat_history(screenshot_id: int) -> List[ChatEntry]
+    async def create_preset(preset: Preset) -> int
+    async def get_presets() -> List[Preset]
+    async def save_settings(settings: dict) -> None
+    async def get_settings() -> dict
+
+Database Schema:
+- screenshots: Complete metadata storage
+- chat_entries: AI conversation history
+- presets: User-defined prompt presets
+- settings: Application configuration
+- migrations: Schema version tracking
+```
+
+**Implementation Status:**
+- ✅ Complete database schema with all tables
+- ✅ Migration framework for schema updates
+- ✅ Async database operations
+- ✅ Integration with ScreenshotManager and SettingsManager
+
+### 6. MainController (Controller Layer)
+
+**Responsibilities:**
+- Central orchestration of all application components
+- Business logic coordination with component integration
+- Lifecycle management and error handling
+- Real screenshot integration and processing
+
+**Public Interface:**
+```python
+class MainController:
+    async def initialize() -> None
+    async def start() -> None
+    async def stop() -> None
+    async def handle_screenshot_request(event_data: dict) -> None
+    async def handle_settings_change(event_data: dict) -> None
+    async def cleanup() -> None
+
+Component Integration:
+- DatabaseManager: Data persistence
+- SettingsManager: Configuration management
+- ScreenshotManager: Screenshot operations
+- EventBus: Event coordination
+```
+
+**Implementation Status:**
+- ✅ All component integrations implemented
+- ✅ Real screenshot capture in event handlers
+- ✅ Proper dependency injection and initialization
+- ✅ Error handling and logging
+
+### 7. EventBus (Controller Layer)
+
+**Responsibilities:**
+- Event-driven communication between all components
+- Priority-based event processing and error isolation
+- Async event handling with proper cleanup
+- Thread-safe operations across component boundaries
+
+**Public Interface:**
+```python
+class EventBus:
+    async def emit(event: str, data: Any = None, priority: int = 0) -> None
+    def subscribe(event: str, handler: Callable, priority: int = 0) -> None
+    def unsubscribe(event: str, handler: Callable) -> None
+    async def start() -> None
+    async def stop() -> None
+    async def process_events() -> None
+
+Event Flow:
+- Priority-based processing (higher priority first)
+- Error isolation (one handler failure doesn't affect others)
+- Async handler support with proper awaiting
+- Weakref-based cleanup for memory management
+```
+
+**Implementation Status:**
+- ✅ Priority queue for event processing
+- ✅ Error isolation between handlers
+- ✅ Async event processing loop
+- ✅ Thread-safe event emission and subscription
+
+### 8. AutoStartManager (Model Layer)
+
+**Responsibilities:**
+- Windows startup integration via registry
+- Auto-start configuration and validation
+- Cross-platform startup handling (Windows focus)
+- Startup state management
+
+**Public Interface:**
+```python
+class AutoStartManager:
+    async def enable_auto_start() -> bool
+    async def disable_auto_start() -> bool
+    async def is_auto_start_enabled() -> bool
+    async def validate_auto_start() -> bool
+
+Windows Implementation:
+- Registry key: HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+- Application name: "ExplainScreenshot"
+- Executable path validation
+```
+
+**Implementation Status:**
+- ✅ Windows registry integration
+- ✅ Auto-start enable/disable functionality
+- ✅ Startup validation and error handling
+- ✅ Integration with SettingsManager for persistence
 
 **Public Interface:**
 ```
@@ -253,196 +380,134 @@ Response:
 
 **Error Handling:**
 - Offline mode fallback
-- Connection timeout management
-- Model unavailability handling
-- Rate limiting compliance
-- Large image handling
+## Event System Patterns
 
-### 6. SettingsManager (Model Layer)
+### Thread-Safe Event Processing
+```python
+# HotkeyHandler → ThreadSafeEventQueue → EventBus
+class ThreadSafeEventQueue:
+    def __init__(self):
+        self._queue = asyncio.Queue()
+        self._loop_ref = None
 
-**Responsibilities:**
-- Application configuration management
-- Settings validation and defaults
-- Configuration file operations
-- Runtime settings updates
+    def put_event(self, event: HotkeyEvent):
+        """Called from pynput thread"""
+        if self._loop_ref and (loop := self._loop_ref()):
+            loop.call_soon_threadsafe(self._queue.put_nowait, event)
 
-**Public Interface:**
-```
-Methods:
-- load_settings() -> Settings
-- save_settings(settings: Settings) -> bool
-- get_setting(key: str, default: Any) -> Any
-- update_setting(key: str, value: Any) -> bool
-- reset_to_defaults() -> None
-- export_settings() -> dict
-- import_settings(data: dict) -> bool
-
-Settings Structure:
-- hotkeys: dict
-- screenshot_directory: str
-- ollama_model: str
-- ui_theme: str
-- auto_cleanup_days: int
-- thumbnail_quality: int
+    async def process_events(self):
+        """Called from asyncio loop"""
+        while True:
+            event = await self._queue.get()
+            await self.event_bus.emit(event.name, event.data)
 ```
 
-**Dependencies:**
-- DatabaseManager for persistent storage
+### Settings Change Propagation
+```python
+# SettingsManager → EventBus → All Components
+class SettingsManager:
+    async def update_setting(self, key: str, value: Any):
+        await self.database.save_setting(key, value)
+        await self.event_bus.emit("settings.changed", {
+            "key": key,
+            "value": value,
+            "timestamp": datetime.now()
+        })
 
-**Error Handling:**
-- Invalid configuration recovery
-- File permission issues
-- Setting validation failures
-- Migration from older versions
+# Components automatically receive updates
+class TrayManager:
+    def __init__(self, event_bus):
+        event_bus.subscribe("settings.changed", self.on_settings_changed)
 
-### 7. UIManager (View Layer)
-
-**Responsibilities:**
-- PyQt6 application lifecycle
-- Window management and coordination
-- Theme application and consistency
-- UI component factory and registry
-
-**Public Interface:**
-```
-Methods:
-- initialize_application() -> QApplication
-- create_overlay_window() -> OverlayWindow
-- create_settings_window() -> SettingsWindow
-- create_gallery_window() -> GalleryWindow
-- apply_theme(theme: str) -> None
-- show_notification(message: str, type: str) -> None
-
-Windows:
-OverlayWindow:
-- Recent screenshots grid
-- Quick actions menu
-- Auto-hide on focus loss
-
-SettingsWindow:
-- Configuration panels
-- Hotkey assignment
-- Directory selection
-- Model configuration
-
-GalleryWindow:
-- Three-column layout
-- Thumbnail browser
-- Chat interface
-- Preset management
+    async def on_settings_changed(self, data):
+        if data["key"] == "theme":
+            await self.update_icon_theme(data["value"])
 ```
 
-**Dependencies:**
-- PyQt6 for UI framework
-- EventBus for communication
+### Priority Event Processing
+```python
+# EventBus with priority handling
+class EventBus:
+    async def emit(self, event: str, data: Any = None, priority: int = 0):
+        event_item = PriorityEventItem(priority, event, data)
+        await self._event_queue.put(event_item)
 
-**Error Handling:**
-- Widget creation failures
-- Theme loading errors
-- Window positioning issues
-- Memory management for large galleries
-
-### 8. EventBus (Controller Layer)
-
-**Responsibilities:**
-- Asynchronous event distribution
-- Publisher-subscriber pattern implementation
-- Event queuing and prioritization
-- Cross-module communication facilitation
-
-**Public Interface:**
-```
-Async Methods:
-- subscribe(event_type: str, handler: Callable) -> str
-- unsubscribe(subscription_id: str) -> bool
-- emit(event_type: str, data: Any) -> None
-- emit_and_wait(event_type: str, data: Any) -> List[Any]
-
-Event Types:
-- "screenshot.captured"
-- "ui.overlay.show"
-- "ui.overlay.hide"
-- "settings.updated"
-- "ollama.response.received"
-- "error.occurred"
+    async def process_events(self):
+        while True:
+            item = await self._event_queue.get()
+            # Higher priority (lower number) processed first
+            await self._handle_event(item.event, item.data)
 ```
 
-**Dependencies:**
-- asyncio for async operations
+## Technology Stack
 
-**Error Handling:**
-- Handler exception isolation
-- Event delivery failure recovery
+### Core Dependencies
+- **Python 3.12**: Latest LTS with modern async/await support
+- **asyncio**: Event loop and async coordination
+- **SQLite**: Local database with async wrapper (aiosqlite)
+- **PIL/Pillow**: Screenshot capture and image processing
+- **pynput**: Global hotkey detection and input monitoring
+- **pystray**: System tray integration
+
+### Future Dependencies (Planned)
+- **PyQt6**: Modern GUI framework for settings and gallery interfaces
+- **ollama**: Local AI model integration for screenshot analysis
+- **aiohttp**: HTTP client for Ollama API communication
+
+### Development Tools
+- **pytest**: Testing framework with async support
+- **black**: Code formatting
+- **mypy**: Static type checking
+- **logging**: Structured logging with performance metrics
+
+## Performance Considerations
+
+### Threading Model
+- **Main Thread**: asyncio event loop with UI coordination (future)
+- **Pynput Thread**: Global hotkey monitoring with thread-safe event queue
+- **Tray Thread**: System tray operations isolated from main event loop
+- **Background Tasks**: Screenshot processing, database operations, file I/O
+
+### Memory Management
+- **Weakref Usage**: Event loop references prevent memory leaks
+- **Resource Cleanup**: Proper cleanup of PIL images, database connections
+- **Event Queue Limits**: Bounded queues prevent memory exhaustion
+- **Database Connection Pooling**: Efficient connection reuse
+
+### Performance Optimizations
+- **Async Database Operations**: Non-blocking database interactions
+- **Priority Event Processing**: Critical events processed first
+- **Lazy Loading**: Components initialized only when needed
+- **Efficient Screenshot Capture**: PIL optimizations for large screen captures
+
+## Error Handling Strategy
+
+### Error Isolation
+- **Component Isolation**: Errors in one component don't affect others
+- **Event Handler Isolation**: Handler failures don't break event system
+- **Thread Safety**: Proper exception handling across thread boundaries
+- **Graceful Degradation**: System continues operating with reduced functionality
+
+### Recovery Mechanisms
+- **Database Recovery**: Automatic recovery from corruption or connection issues
+- **Settings Recovery**: Fallback to defaults if configuration is corrupted
+- **Hotkey Recovery**: Re-registration after system changes
+- **File System Recovery**: Alternative paths if primary storage fails
+
+### Logging and Monitoring
+- **Structured Logging**: JSON-formatted logs with context
+- **Performance Metrics**: Event processing times and system resource usage
+- **Error Tracking**: Comprehensive error reporting with stack traces
+- **User Feedback**: Non-intrusive error notifications through system tray
 - Queue overflow management
 - Circular dependency detection
 
 ### 9. MainController (Controller Layer)
 
-**Responsibilities:**
-- Application orchestration
-- Event coordination between layers
-- Business logic implementation
-- State management
-
-**Public Interface:**
-```
-Async Methods:
-- initialize() -> None
-- handle_screenshot_request() -> None
-- handle_overlay_request() -> None
-- handle_settings_update(settings: dict) -> None
-- handle_ai_request(image_path: str, prompt: str) -> None
-- shutdown() -> None
-```
-
-**Dependencies:**
-- All Model layer components
-- EventBus for coordination
-
-**Error Handling:**
-- Centralized error logging
-- Recovery mechanisms
-- User notification system
-- Graceful degradation
-
-## Asyncio Integration with PyQt6
-
-### Event Loop Management
 
 The application uses a custom event loop integration to combine asyncio with PyQt6:
 
 1. **Main Thread Management:**
-   - PyQt6 QApplication runs on the main thread
-   - Asyncio event loop runs in the same thread using QEventLoop integration
-   - Custom QTimer-based event loop runner for seamless integration
-
-2. **Async Operation Handling:**
-   - Database operations wrapped in async functions
-   - Ollama API calls handled asynchronously
-   - Image processing operations use thread pools for CPU-intensive tasks
-
-3. **UI Responsiveness:**
-   - Long-running operations delegated to worker threads
-   - Progress indicators for AI processing
-   - Non-blocking UI updates via signal-slot mechanism
-
-### Implementation Strategy
-
-```
-QApplication.exec() → Custom Event Loop → asyncio.run_until_complete()
-                                      ↓
-                               Background Tasks:
-                               - Database operations
-                               - Ollama API calls
-                               - File I/O operations
-```
-
-## Error Handling Architecture
-
-### Centralized Error Management
-
-1. **Error Classification:**
-   - Critical: Application-stopping errors
    - Warning: Degraded functionality
    - Info: User notifications
 
