@@ -114,6 +114,8 @@ class OverlayWindow(QWidget):
     def _create_layout(self) -> None:
         """Create the window layout with two lists and separator."""
         try:
+            logger.info("Creating overlay layout...")
+
             # Main vertical layout
             main_layout = QVBoxLayout(self)
             main_layout.setContentsMargins(8, 8, 8, 8)
@@ -126,11 +128,12 @@ class OverlayWindow(QWidget):
 
             self.app_functions_list = QListWidget()
             self.app_functions_list.setObjectName("appFunctionsList")
-            self.app_functions_list.setMaximumHeight(80)  # Space for ~2 items
+            self.app_functions_list.setFixedHeight(70)  # Fixed height for ~2 items
             self.app_functions_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             self.app_functions_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self.app_functions_list.itemClicked.connect(self._on_function_item_clicked)
             main_layout.addWidget(self.app_functions_list)
+            logger.info("App functions list created")
 
             # Separator
             self.separator = QFrame()
@@ -154,7 +157,7 @@ class OverlayWindow(QWidget):
 
             self.setLayout(main_layout)
 
-            logger.debug("Layout created successfully")
+            logger.info("Layout created successfully")
 
         except Exception as e:
             logger.error(f"Error creating layout: {e}")
@@ -212,20 +215,20 @@ class OverlayWindow(QWidget):
         """
         try:
             # Clear existing items
-            if self.app_functions_list:
+            if self.app_functions_list is not None:
                 self.app_functions_list.clear()
-            if self.screenshots_list:
+            if self.screenshots_list is not None:
                 self.screenshots_list.clear()
 
             # Populate app functions
-            if self.app_functions_list:
+            if self.app_functions_list is not None:
                 for func_data in app_functions:
                     item = QListWidgetItem(func_data.get("title", "Unknown Function"))
                     item.setData(Qt.ItemDataRole.UserRole, func_data)
                     self.app_functions_list.addItem(item)
 
             # Populate screenshots
-            if self.screenshots_list:
+            if self.screenshots_list is not None:
                 if screenshots:
                     for screenshot_data in screenshots:
                         # Format display text
