@@ -310,7 +310,7 @@ class TrayManager:
                         Item(
                             item_config['text'],
                             self._create_menu_handler(item_config['action']),
-                            checked=lambda item_cfg=item_config: item_cfg.get('checked', False),
+                            checked=lambda _: item_config.get('checked', False),
                             enabled=item_config.get('enabled', True)
                         )
                     )
