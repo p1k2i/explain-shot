@@ -45,7 +45,7 @@ class Application:
         self.auto_start_manager: Optional[AutoStartManager] = None
 
         # Control flags
-        self.shutdown_requested = False
+        self._shutdown_event = asyncio.Event()
         self.initialization_complete = False
 
         # Signal handling
@@ -170,27 +170,18 @@ class Application:
         """Handle shutdown signals."""
         logger.info("Received signal %d, initiating shutdown", signum)
 
-        # Schedule shutdown in the event loop
-        if self.event_bus and not self.event_bus.is_shutdown():
-            asyncio.create_task(self._request_shutdown())
-
-    async def _request_shutdown(self) -> None:
-        """Request application shutdown."""
-        if not self.shutdown_requested and self.event_bus is not None:
-            self.shutdown_requested = True
-            await self.event_bus.emit(
-                EventTypes.APP_SHUTDOWN_REQUESTED,
-                source="signal_handler"
-            )
+        # Set shutdown event
+        self._shutdown_event.set()
 
     async def _handle_shutdown_request(self, event_data) -> None:
         """Handle shutdown request events."""
-        if not self.shutdown_requested:
-            logger.info("Shutdown requested by %s", event_data.source)
-            self.shutdown_requested = True
+        logger.info("Shutdown requested by %s", event_data.source)
 
-            # Start shutdown process
-            await self._shutdown()
+        # Set shutdown event
+        self._shutdown_event.set()
+
+        # Start shutdown process
+        await self._shutdown()
 
     async def _handle_settings_updated(self, event_data) -> None:
         """Handle settings update events."""
@@ -217,9 +208,8 @@ class Application:
 
             logger.info("Application started successfully")
 
-            # Main event loop
-            while not self.shutdown_requested:
-                await asyncio.sleep(0.1)  # Small sleep to prevent busy waiting
+            # Main event loop - wait for shutdown event
+            await self._shutdown_event.wait()
 
             logger.info("Application shutting down")
             return 0
@@ -234,7 +224,7 @@ class Application:
 
         finally:
             # Ensure cleanup happens
-            if not self.shutdown_requested:
+            if not self._shutdown_event.is_set():
                 await self._shutdown()
 
     async def _shutdown(self) -> None:
