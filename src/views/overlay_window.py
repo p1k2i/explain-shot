@@ -186,7 +186,6 @@ class OverlayWindow(QWidget):
         return """
         OverlayWindow {
             background-color: #2E2E2E;
-            border: 1px solid #4A4A4A;
             border-radius: 8px;
         }
 
@@ -202,7 +201,6 @@ class OverlayWindow(QWidget):
         QListWidget {
             background-color: #2E2E2E;
             color: #E0E0E0;
-            border: 1px solid #4A4A4A;
             border-radius: 4px;
             outline: none;
             selection-background-color: #4A90E2;
@@ -265,7 +263,6 @@ class OverlayWindow(QWidget):
         return """
         OverlayWindow {
             background-color: #F5F5F5;
-            border: 1px solid #CCCCCC;
             border-radius: 8px;
         }
 
@@ -281,7 +278,6 @@ class OverlayWindow(QWidget):
         QListWidget {
             background-color: #FFFFFF;
             color: #333333;
-            border: 1px solid #CCCCCC;
             border-radius: 4px;
             outline: none;
             selection-background-color: #4A90E2;
