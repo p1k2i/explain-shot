@@ -15,7 +15,6 @@ import argparse
 
 # PyQt6 imports
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QTimer
 
 # Import core modules
 from src.controllers.event_bus import get_event_bus, EventBus
