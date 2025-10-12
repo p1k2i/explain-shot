@@ -52,7 +52,6 @@ class ThreadSafeEventQueue:
         """Initialize the thread-safe event queue."""
         self._queue = Queue(maxsize=maxsize)
         self._shutdown = threading.Event()
-        self._processing = False
         self._loop_ref: Optional[weakref.ReferenceType] = None
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -74,40 +73,10 @@ class ThreadSafeEventQueue:
 
         try:
             self._queue.put_nowait(event)
-
-            # Schedule processing in the event loop if available
-            if self._loop_ref is not None:
-                loop = self._loop_ref()
-                if loop is not None and not loop.is_closed():
-                    loop.call_soon_threadsafe(self._schedule_processing)
-
             return True
-        except Exception:
+        except Exception as e:
+            logger.error("Error queuing event: %s", e)
             return False
-
-    def _schedule_processing(self) -> None:
-        """Schedule event processing in the asyncio loop."""
-        if not self._processing and self._loop_ref is not None:
-            loop = self._loop_ref()
-            if loop is not None and not loop.is_closed():
-                asyncio.ensure_future(self._process_events(), loop=loop)
-
-    async def _process_events(self) -> None:
-        """Process all queued events asynchronously."""
-        if self._processing:
-            return
-
-        self._processing = True
-
-        try:
-            while not self._queue.empty() and not self._shutdown.is_set():
-                try:
-                    _ = self._queue.get_nowait()  # Process event (placeholder)
-                    self._queue.task_done()
-                except Empty:
-                    break
-        finally:
-            self._processing = False
 
     def get_event(self, timeout: float = 0.1) -> Optional[HotkeyEvent]:
         """
