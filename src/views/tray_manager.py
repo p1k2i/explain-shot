@@ -7,7 +7,6 @@ and event integration following the MVC architecture pattern.
 
 import logging
 import asyncio
-import threading
 from typing import Optional, Dict, Any, Callable, List
 from enum import Enum
 try:
@@ -81,8 +80,7 @@ class TrayManager:
         self._event_bus = get_event_bus()
         self._icon_manager = get_icon_manager()
 
-        # Threading
-        self._tray_thread: Optional[threading.Thread] = None
+        # Event loop reference
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
         # Menu configuration
@@ -155,9 +153,9 @@ class TrayManager:
             }
         ]
 
-    async def initialize_async(self) -> bool:
+    def initialize(self) -> bool:
         """
-        Initialize tray manager asynchronously.
+        Initialize tray manager synchronously.
 
         Returns:
             True if initialization was successful
@@ -167,11 +165,15 @@ class TrayManager:
             return False
 
         try:
-            # Store the current event loop
-            self._loop = asyncio.get_event_loop()
+            # Store the current event loop for later use
+            try:
+                self._loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No running loop, will get it later when needed
+                self._loop = None
 
             # Subscribe to events
-            await self._subscribe_to_events()
+            self._subscribe_to_events()
 
             # Preload icons
             self._icon_manager.preload_icons(
@@ -181,11 +183,8 @@ class TrayManager:
                 sizes=['tray']
             )
 
-            # Start tray in separate thread
-            self._start_tray_thread()
-
-            # Wait for tray to be ready
-            await self._wait_for_tray_ready()
+            # Start tray detached (non-blocking)
+            self._start_tray_detached()
 
             logger.info("TrayManager initialized successfully")
             return True
@@ -194,41 +193,32 @@ class TrayManager:
             logger.error("Failed to initialize TrayManager: %s", e)
             return False
 
-    async def _subscribe_to_events(self) -> None:
-        """Subscribe to relevant application events."""
-        await self._event_bus.subscribe(
+    def _subscribe_to_events(self) -> None:
+        """Subscribe to relevant application events synchronously."""
+        self._event_bus.subscribe_sync(
             EventTypes.APP_STATE_CHANGED,
             self._handle_app_state_changed
         )
 
-        await self._event_bus.subscribe(
+        self._event_bus.subscribe_sync(
             EventTypes.SCREENSHOT_COMPLETED,
             self._handle_screenshot_completed
         )
 
-        await self._event_bus.subscribe(
+        self._event_bus.subscribe_sync(
             EventTypes.ERROR_OCCURRED,
             self._handle_error_occurred
         )
 
-        await self._event_bus.subscribe(
+        self._event_bus.subscribe_sync(
             EventTypes.SETTINGS_CHANGED,
             self._handle_settings_changed
         )
 
-    def _start_tray_thread(self) -> None:
-        """Start the system tray in a separate thread."""
-        self._tray_thread = threading.Thread(
-            target=self._run_tray,
-            name="TrayThread",
-            daemon=True
-        )
-        self._tray_thread.start()
-
-    def _run_tray(self) -> None:
-        """Run the system tray (called in separate thread)."""
+    def _start_tray_detached(self) -> None:
+        """Start the system tray in detached mode (non-blocking)."""
         if not PYSTRAY_AVAILABLE or not pystray:
-            logger.error("Cannot run tray: pystray not available")
+            logger.error("Cannot start tray: pystray not available")
             return
 
         try:
@@ -249,34 +239,25 @@ class TrayManager:
                 menu=self._build_menu()
             )
 
-            # Set up icon event handlers
-            self._icon.visible = True
+            # Start the tray in detached mode (non-blocking)
+            self._icon.run_detached(setup=self._setup_tray_icon)
 
             # Mark as running
             self._is_running = True
 
-            # Run the tray (this blocks until stopped)
-            self._icon.run()
+            logger.info("System tray started in detached mode")
 
         except Exception as e:
-            logger.error("Error running system tray: %s", e)
-        finally:
-            self._is_running = False
+            logger.error("Error starting detached tray: %s", e)
 
-    async def _wait_for_tray_ready(self, timeout: float = 5.0) -> None:
-        """
-        Wait for tray to be ready.
-
-        Args:
-            timeout: Maximum time to wait
-        """
-        start_time = asyncio.get_event_loop().time()
-
-        while not self._is_running:
-            if asyncio.get_event_loop().time() - start_time > timeout:
-                raise TimeoutError("Tray initialization timeout")
-
-            await asyncio.sleep(0.1)
+    def _setup_tray_icon(self, icon) -> None:
+        """Setup function called when the detached tray icon is ready."""
+        try:
+            # Set icon visible
+            icon.visible = True
+            logger.debug("Tray icon setup complete")
+        except Exception as e:
+            logger.error("Error setting up tray icon: %s", e)
 
     def _build_menu(self):
         """
@@ -431,14 +412,8 @@ class TrayManager:
             # Update icon in tray thread
             icon_image = Image.open(io.BytesIO(icon_data))
 
-            # Update icon (this needs to be called from tray thread)
-            def update_icon():
-                if self._icon:
-                    self._icon.icon = icon_image
-
-            # Schedule update in tray thread
-            if self._tray_thread and self._tray_thread.is_alive():
-                # For pystray, we need to update the icon property directly
+            # Update icon (for detached mode, we can update directly)
+            if self._icon:
                 self._icon.icon = icon_image
 
             logger.debug("Icon state updated to: %s", state)
@@ -467,14 +442,9 @@ class TrayManager:
         try:
             notification_title = title or self.app_name
 
-            # Show notification using pystray
-            def show_notify():
-                if self._icon:
-                    self._icon.notify(message, notification_title)
-
-            # Schedule notification in tray thread
-            if self._tray_thread and self._tray_thread.is_alive():
-                show_notify()
+            # Show notification using pystray (in detached mode, we can call directly)
+            if self._icon:
+                self._icon.notify(message, notification_title)
 
             logger.debug("Notification shown: %s", message)
 
@@ -497,20 +467,17 @@ class TrayManager:
                 if item.get('action') == TrayMenuAction.TOGGLE_AUTO_START:
                     item['checked'] = self._settings.get('auto_start_enabled', False)
 
-            # Rebuild menu if needed
+            # Rebuild menu (in detached mode, we can update directly)
             if force_rebuild:
-                def update_menu():
-                    if self._icon:
-                        self._icon.menu = self._build_menu()
-
-                update_menu()
+                if self._icon:
+                    self._icon.menu = self._build_menu()
 
             logger.debug("Menu updated")
 
         except Exception as e:
             logger.error("Failed to update menu: %s", e)
 
-    async def shutdown_async(self) -> None:
+    def shutdown(self) -> None:
         """Shutdown the tray manager gracefully."""
         if self._shutdown_requested:
             return
@@ -529,10 +496,6 @@ class TrayManager:
                         logger.error("Error stopping tray icon: %s", e)
 
                 stop_tray()
-
-            # Wait for tray thread to finish
-            if self._tray_thread and self._tray_thread.is_alive():
-                self._tray_thread.join(timeout=2.0)
 
             # Clear references
             self._icon = None
@@ -617,6 +580,5 @@ class TrayManager:
             'current_state': self._current_state,
             'tray_available': self.is_tray_available(),
             'shutdown_requested': self._shutdown_requested,
-            'thread_alive': self._tray_thread.is_alive() if self._tray_thread else False,
             'menu_items_count': len(self._menu_items)
         }

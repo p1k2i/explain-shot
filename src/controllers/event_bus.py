@@ -153,6 +153,78 @@ class EventBus:
 
         return subscription_id
 
+    def subscribe_sync(
+        self,
+        event_type: str,
+        handler: Callable,
+        priority: int = 0,
+        once: bool = False,
+        weak_ref: bool = True
+    ) -> str:
+        """
+        Subscribe to an event type synchronously.
+
+        Args:
+            event_type: Type of event to subscribe to
+            handler: Callable to handle the event
+            priority: Handler priority (higher = called first)
+            once: If True, unsubscribe after first call
+            weak_ref: If True, use weak reference to handler
+
+        Returns:
+            Subscription ID for later unsubscription
+
+        Raises:
+            EventBusError: If handler is not callable
+        """
+        if not callable(handler):
+            raise EventBusError(f"Handler must be callable, got {type(handler)}")
+
+        subscription_id = str(uuid4())
+
+        # Create weak reference if requested and possible
+        handler_ref = None
+        if weak_ref:
+            try:
+                handler_ref = weakref.ref(handler)
+                # Test if weak reference works
+                if handler_ref() is None:
+                    weak_ref = False
+                    handler_ref = None
+            except TypeError:
+                # Some callables don't support weak references
+                weak_ref = False
+                handler_ref = None
+
+        subscription = EventSubscription(
+            subscription_id=subscription_id,
+            event_type=event_type,
+            handler=handler_ref if weak_ref and handler_ref is not None else handler,
+            priority=priority,
+            once=once,
+            weak_ref=weak_ref
+        )
+
+        # Run the async subscription logic synchronously
+        async def _do_subscribe():
+            async with self._lock:
+                self._subscribers[event_type].append(subscription)
+                # Sort by priority (descending)
+                self._subscribers[event_type].sort(key=lambda x: x.priority, reverse=True)
+            return subscription.subscription_id
+
+        # Use asyncio.run if no loop is running, otherwise create task
+        try:
+            asyncio.get_running_loop()
+            # We're in an async context, create a task
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, _do_subscribe())
+                return future.result()
+        except RuntimeError:
+            # No running loop, safe to use asyncio.run
+            return asyncio.run(_do_subscribe())
+
     async def unsubscribe(self, subscription_id: str) -> bool:
         """
         Unsubscribe from events.

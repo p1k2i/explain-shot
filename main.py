@@ -88,7 +88,7 @@ class Application:
                 tooltip=f"{self.app_name} v{self.version}"
             )
 
-            if not await self.tray_manager.initialize_async():
+            if not self.tray_manager.initialize():
                 logger.warning("Tray manager initialization failed - continuing without tray")
 
             # Setup signal handlers
@@ -245,7 +245,7 @@ class Application:
 
             # Shutdown TrayManager
             if self.tray_manager:
-                await self.tray_manager.shutdown_async()
+                self.tray_manager.shutdown()
 
             # Save settings
             if self.settings_manager:
