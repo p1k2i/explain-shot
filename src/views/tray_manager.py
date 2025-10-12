@@ -71,7 +71,6 @@ class TrayManager:
         """
         self.app_name = app_name
         self.tooltip = tooltip
-        self._shutdown_event = shutdown_event
 
         # Tray components
         self._icon = None  # pystray.Icon instance
@@ -381,14 +380,10 @@ class TrayManager:
                 )
 
             elif action == TrayMenuAction.EXIT:
-                if self._shutdown_event:
-                    self._shutdown_event.set()
-                else:
-                    # Fallback to event system
-                    await self._event_bus.emit(
-                        EventTypes.APP_SHUTDOWN_REQUESTED,
-                        source="tray"
-                    )
+                await self._event_bus.emit(
+                    EventTypes.APP_SHUTDOWN_REQUESTED,
+                    source="tray"
+                )
 
             else:
                 logger.warning("Unknown menu action: %s", action)
