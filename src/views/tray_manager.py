@@ -484,6 +484,33 @@ class TrayManager:
         except Exception as e:
             logger.error("Failed to update menu: %s", e)
 
+    def update_status(self, status: str, message: Optional[str] = None) -> None:
+        """
+        Update the tray status and optionally show a notification.
+
+        Args:
+            status: Status to set (e.g., 'error')
+            message: Optional message to display in notification
+        """
+        try:
+            if status == 'error':
+                # Update icon to error state
+                self._current_state = AppIconState.ERROR
+                icon_data = self._icon_manager.load_icon(AppIconState.ERROR, 'tray')
+                if icon_data is not None:
+                    icon_image = Image.open(io.BytesIO(icon_data))
+                    if self._icon:
+                        self._icon.icon = icon_image
+
+                # Show notification if message provided
+                if message and self._icon:
+                    self._icon.notify(message, "Error")
+
+                logger.debug("Tray status updated to error: %s", message)
+
+        except Exception as e:
+            logger.error("Failed to update tray status: %s", e)
+
     def shutdown(self) -> None:
         """Shutdown the tray manager gracefully."""
         if self._shutdown_requested:

@@ -63,6 +63,12 @@ class EventTypes:
     HOTKEY_SCREENSHOT_CAPTURE = "hotkey.screenshot_capture"
     HOTKEY_OVERLAY_TOGGLE = "hotkey.overlay_toggle"
     HOTKEY_SETTINGS_OPEN = "hotkey.settings_open"
+    HOTKEY_REGISTRATION_SUCCESS = "hotkey.registration.success"
+    HOTKEY_REGISTRATION_FAILED = "hotkey.registration.failed"
+    HOTKEY_CONFLICT_DETECTED = "hotkey.conflict.detected"
+    HOTKEY_CONFLICT_RESOLVED = "hotkey.conflict.resolved"
+    HOTKEY_HANDLER_READY = "hotkey.handler.ready"
+    HOTKEY_HANDLER_ERROR = "hotkey.handler.error"
 
     # AI/Ollama events
     OLLAMA_RESPONSE_RECEIVED = "ollama.response.received"

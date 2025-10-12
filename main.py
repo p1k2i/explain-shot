@@ -15,6 +15,7 @@ import argparse
 
 # Import core modules
 from src.controllers.event_bus import get_event_bus, EventBus
+from src.controllers.main_controller import MainController
 from src.utils.logging_config import setup_logging, get_logger
 from src.models.settings_manager import SettingsManager
 from src.views.tray_manager import TrayManager
@@ -43,6 +44,7 @@ class Application:
         self.settings_manager: Optional[SettingsManager] = None
         self.tray_manager: Optional[TrayManager] = None
         self.auto_start_manager: Optional[AutoStartManager] = None
+        self.main_controller: Optional[MainController] = None
 
         # Control flags
         self._shutdown_event = asyncio.Event()
@@ -91,6 +93,19 @@ class Application:
 
             if not self.tray_manager.initialize():
                 logger.warning("Tray manager initialization failed - continuing without tray")
+
+            # Initialize MainController with all components
+            self.main_controller = MainController(
+                event_bus=self.event_bus,
+                settings_manager=self.settings_manager,
+                tray_manager=self.tray_manager,
+                auto_start_manager=self.auto_start_manager
+            )
+
+            # Initialize the main controller (this will setup hotkeys)
+            if not await self.main_controller.initialize():
+                logger.error("Main controller initialization failed")
+                return False
 
             # Setup signal handlers
             self._setup_signal_handlers()
@@ -244,6 +259,10 @@ class Application:
                     EventTypes.APP_SHUTDOWN_STARTING,
                     source="application"
                 )
+
+            # Shutdown MainController (this will shutdown hotkeys)
+            if self.main_controller:
+                await self.main_controller.shutdown()
 
             # Shutdown TrayManager
             if self.tray_manager:
