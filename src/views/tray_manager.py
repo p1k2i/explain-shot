@@ -58,7 +58,8 @@ class TrayManager:
     def __init__(
         self,
         app_name: str = "Explain Screenshot",
-        tooltip: str = "Explain Screenshot - AI-powered screenshot analysis"
+        tooltip: str = "Explain Screenshot - AI-powered screenshot analysis",
+        shutdown_event: Optional[asyncio.Event] = None
     ):
         """
         Initialize TrayManager.
@@ -66,9 +67,11 @@ class TrayManager:
         Args:
             app_name: Application name for tray icon
             tooltip: Tooltip text for tray icon
+            shutdown_event: Event to set for shutdown requests
         """
         self.app_name = app_name
         self.tooltip = tooltip
+        self._shutdown_event = shutdown_event
 
         # Tray components
         self._icon = None  # pystray.Icon instance
@@ -378,10 +381,14 @@ class TrayManager:
                 )
 
             elif action == TrayMenuAction.EXIT:
-                await self._event_bus.emit(
-                    EventTypes.APP_SHUTDOWN_REQUESTED,
-                    source="tray"
-                )
+                if self._shutdown_event:
+                    self._shutdown_event.set()
+                else:
+                    # Fallback to event system
+                    await self._event_bus.emit(
+                        EventTypes.APP_SHUTDOWN_REQUESTED,
+                        source="tray"
+                    )
 
             else:
                 logger.warning("Unknown menu action: %s", action)

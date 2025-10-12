@@ -85,7 +85,8 @@ class Application:
             # Initialize TrayManager
             self.tray_manager = TrayManager(
                 app_name=self.app_name,
-                tooltip=f"{self.app_name} v{self.version}"
+                tooltip=f"{self.app_name} v{self.version}",
+                shutdown_event=self._shutdown_event
             )
 
             if not self.tray_manager.initialize():
