@@ -565,12 +565,6 @@ class HotkeyHandler:
             logger.debug("Simulated conflict detected for: %s", combination.display_name)
             return False
 
-        # Simulate random conflicts (10% chance)
-        import random
-        if random.random() < 0.1:
-            logger.debug("Simulated random conflict for: %s", combination.display_name)
-            return False
-
         return True
 
     async def _handle_registration_conflict(self, registration: HotkeyRegistration) -> None:
@@ -844,10 +838,7 @@ class HotkeyHandler:
                 self._pressed_keys.add(key_str)
             else:
                 # Check for hotkey matches
-                if self._event_loop:
-                    asyncio.run_coroutine_threadsafe(self._check_hotkey_match(key_str), self._event_loop)
-                else:
-                    logger.error("No event loop available for hotkey check")
+                self._check_hotkey_match(key_str)
 
         except Exception as e:
             logger.error("Error handling key press: %s", e)
@@ -908,7 +899,7 @@ class HotkeyHandler:
         except Exception:
             return 'unknown'
 
-    async def _check_hotkey_match(self, key: str) -> None:
+    def _check_hotkey_match(self, key: str) -> None:
         """
         Check if current key combination matches any registered hotkey.
 
