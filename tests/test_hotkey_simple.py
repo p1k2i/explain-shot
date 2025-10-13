@@ -5,7 +5,6 @@ Tests the hotkey system integration and mock functionality without pytest.
 """
 
 import asyncio
-import logging
 import sys
 from pathlib import Path
 
