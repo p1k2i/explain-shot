@@ -200,6 +200,9 @@ class SettingsWindow(QDialog):
         # Form validators
         self.validators: List[FieldValidator] = []
 
+        # Store original stylesheets for hotkey widgets
+        self.original_stylesheets: Dict[QKeySequenceEdit, str] = {}
+
         # UI elements (will be created in setup_ui)
         self.model_dropdown: Optional[QComboBox] = None
         self.server_url_field: Optional[QLineEdit] = None
@@ -596,6 +599,67 @@ class SettingsWindow(QDialog):
         # Connect quality slider
         if self.quality_slider:
             self.quality_slider.valueChanged.connect(self.update_quality_label)
+
+        # Install event filters for hotkey visual feedback
+        if self.capture_hotkey:
+            self.capture_hotkey.installEventFilter(self)
+        if self.overlay_hotkey:
+            self.overlay_hotkey.installEventFilter(self)
+        if self.settings_hotkey:
+            self.settings_hotkey.installEventFilter(self)
+
+    def eventFilter(self, a0, a1):
+        """Event filter to handle focus events for hotkey fields."""
+        from PyQt6.QtCore import QEvent
+
+        if isinstance(a0, QKeySequenceEdit) and a1 is not None:
+            if a1.type() == QEvent.Type.FocusIn:
+                self._on_hotkey_focus_in(a0)
+                return False  # Don't consume the event
+            elif a1.type() == QEvent.Type.FocusOut:
+                self._on_hotkey_focus_out(a0)
+                return False  # Don't consume the event
+            elif a1.type() == QEvent.Type.MouseButtonPress:
+                # Also highlight on mouse press to handle re-clicking when already focused
+                self._on_hotkey_focus_in(a0)
+                return False  # Don't consume the event
+
+        return super().eventFilter(a0, a1)
+
+    def _on_hotkey_focus_in(self, hotkey_widget: QKeySequenceEdit):
+        """Highlight hotkey field when it gains focus (listening for input)."""
+        # Store original stylesheet to restore later
+        if hotkey_widget not in self.original_stylesheets:
+            self.original_stylesheets[hotkey_widget] = hotkey_widget.styleSheet()
+
+        hotkey_widget.setStyleSheet("""
+            QKeySequenceEdit {
+                background-color: #FFFF99;
+                border: 2px solid #FFA500;
+                border-radius: 4px;
+                padding: 4px;
+                color: #000000;
+                font-weight: bold;
+            }
+        """)
+        logger.debug(f"Hotkey field {hotkey_widget.objectName()} is now listening for input")
+
+    def _on_hotkey_focus_out(self, hotkey_widget: QKeySequenceEdit):
+        """Reset hotkey field styling when it loses focus."""
+        # Restore original stylesheet
+        if hotkey_widget in self.original_stylesheets:
+            hotkey_widget.setStyleSheet(self.original_stylesheets[hotkey_widget])
+            del self.original_stylesheets[hotkey_widget]
+        else:
+            # Fallback: reset to normal styling
+            hotkey_widget.setStyleSheet("""
+                background-color: #444444;
+                border: 1px solid #666666;
+                border-radius: 4px;
+                padding: 6px;
+                color: #FFFFFF;
+            """)
+        logger.debug(f"Hotkey field {hotkey_widget.objectName()} stopped listening for input")
 
     async def initialize(self) -> bool:
         """
