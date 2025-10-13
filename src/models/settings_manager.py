@@ -53,7 +53,7 @@ class UIConfig:
 @dataclass
 class ScreenshotConfig:
     """Screenshot configuration."""
-    save_directory: str = "screenshots"
+    save_directory: str = field(default_factory=lambda: str(Path.home()))
     filename_format: str = "screenshot_%Y%m%d_%H%M%S"
     image_format: str = "PNG"
     quality: int = 95
@@ -65,7 +65,7 @@ class ScreenshotConfig:
 class OllamaConfig:
     """Ollama AI configuration."""
     server_url: str = "http://localhost:11434"
-    default_model: str = "llava"
+    default_model: str = "llama3:8b"
     timeout_seconds: int = 30
     max_retries: int = 3
     enable_streaming: bool = False

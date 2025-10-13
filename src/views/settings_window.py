@@ -126,6 +126,7 @@ class FieldValidator:
 
         try:
             is_valid = self.validation_func(value)
+            logger.debug(f"Validation for {self.field_widget.objectName() if hasattr(self.field_widget, 'objectName') else type(self.field_widget).__name__}: value={repr(value)}, valid={is_valid}")
         except Exception as e:
             logger.warning(f"Validation error for field: {e}")
             is_valid = False
@@ -136,17 +137,24 @@ class FieldValidator:
     def _update_ui_feedback(self, is_valid: bool):
         """Update UI visual feedback based on validation result."""
         if is_valid:
-            # Clear error styling
-            self.field_widget.setStyleSheet("")
+            # Clear error styling by resetting to normal styling
+            self.field_widget.setStyleSheet("""
+                background-color: #444444;
+                border: 1px solid #666666;
+                border-radius: 4px;
+                padding: 6px;
+                color: #FFFFFF;
+            """)
             self.error_label.setText("")
             self.error_label.hide()
         else:
             # Apply error styling
             self.field_widget.setStyleSheet("""
-                QLineEdit, QComboBox {
-                    border: 2px solid #FF6B6B;
-                    background-color: #4A2626;
-                }
+                border: 2px solid #FF6B6B;
+                background-color: #4A2626;
+                border-radius: 4px;
+                padding: 6px;
+                color: #FFFFFF;
             """)
             self.error_label.setText(self.error_message)
             self.error_label.show()
@@ -321,6 +329,7 @@ class SettingsWindow(QDialog):
 
         # Ollama model dropdown
         self.model_dropdown = QComboBox()
+        self.model_dropdown.setObjectName("model_dropdown")
         self.model_dropdown.setMinimumWidth(200)
         model_error_label = QLabel()
         model_error_label.setObjectName("error_label")
@@ -333,6 +342,7 @@ class SettingsWindow(QDialog):
 
         # Server URL
         self.server_url_field = QLineEdit()
+        self.server_url_field.setObjectName("server_url_field")
         self.server_url_field.setPlaceholderText("http://localhost:11434")
         server_error_label = QLabel()
         server_error_label.setObjectName("error_label")
@@ -357,6 +367,7 @@ class SettingsWindow(QDialog):
         # Directory selection
         directory_container = QHBoxLayout()
         self.directory_field = QLineEdit()
+        self.directory_field.setObjectName("directory_field")
         self.directory_field.setPlaceholderText("Select screenshot directory...")
         browse_button = QPushButton("Browse...")
         browse_button.setMaximumWidth(80)
@@ -398,21 +409,21 @@ class SettingsWindow(QDialog):
         # Add validators
         model_validator = FieldValidator(self.model_dropdown, model_error_label)
         model_validator.set_validation(
-            lambda x: x and x != "Select a model...",
+            lambda x: bool(x and x.strip() and x != "Select a model..."),
             "Please select a valid Ollama model"
         )
         self.validators.append(model_validator)
 
         server_validator = FieldValidator(self.server_url_field, server_error_label)
         server_validator.set_validation(
-            lambda x: x and x.startswith(("http://", "https://")),
+            lambda x: bool(x and x.strip() and (x.startswith("http://") or x.startswith("https://"))),
             "Please enter a valid HTTP/HTTPS URL"
         )
         self.validators.append(server_validator)
 
         directory_validator = FieldValidator(self.directory_field, directory_error_label)
         directory_validator.set_validation(
-            lambda x: x and Path(x).exists() if x else False,
+            lambda x: Path(x.strip()).exists() if x and x.strip() else False,
             "Please select a valid directory"
         )
         self.validators.append(directory_validator)
@@ -430,6 +441,7 @@ class SettingsWindow(QDialog):
 
         # Screenshot capture hotkey
         self.capture_hotkey = QKeySequenceEdit()
+        self.capture_hotkey.setObjectName("capture_hotkey")
         capture_error_label = QLabel()
         capture_error_label.setObjectName("error_label")
         capture_error_label.hide()
@@ -441,6 +453,7 @@ class SettingsWindow(QDialog):
 
         # Overlay toggle hotkey
         self.overlay_hotkey = QKeySequenceEdit()
+        self.overlay_hotkey.setObjectName("overlay_hotkey")
         overlay_error_label = QLabel()
         overlay_error_label.setObjectName("error_label")
         overlay_error_label.hide()
@@ -452,6 +465,7 @@ class SettingsWindow(QDialog):
 
         # Settings window hotkey
         self.settings_hotkey = QKeySequenceEdit()
+        self.settings_hotkey.setObjectName("settings_hotkey")
         settings_error_label = QLabel()
         settings_error_label.setObjectName("error_label")
         settings_error_label.hide()
@@ -469,21 +483,21 @@ class SettingsWindow(QDialog):
         # Add validators for hotkeys
         capture_validator = FieldValidator(self.capture_hotkey, capture_error_label)
         capture_validator.set_validation(
-            lambda x: len(x) > 0 if x else False,
+            lambda x: bool(x and x.strip()),
             "Please set a valid hotkey combination"
         )
         self.validators.append(capture_validator)
 
         overlay_validator = FieldValidator(self.overlay_hotkey, overlay_error_label)
         overlay_validator.set_validation(
-            lambda x: len(x) > 0 if x else False,
+            lambda x: bool(x and x.strip()),
             "Please set a valid hotkey combination"
         )
         self.validators.append(overlay_validator)
 
         settings_validator = FieldValidator(self.settings_hotkey, settings_error_label)
         settings_validator.set_validation(
-            lambda x: len(x) > 0 if x else False,
+            lambda x: bool(x and x.strip()),
             "Please set a valid hotkey combination"
         )
         self.validators.append(settings_validator)
@@ -557,11 +571,20 @@ class SettingsWindow(QDialog):
         # Connect validation events
         for validator in self.validators:
             if isinstance(validator.field_widget, QLineEdit):
-                validator.field_widget.textChanged.connect(lambda: self.validate_form())
+                validator.field_widget.textChanged.connect(self.validate_form)
             elif isinstance(validator.field_widget, QComboBox):
-                validator.field_widget.currentTextChanged.connect(lambda: self.validate_form())
+                validator.field_widget.currentTextChanged.connect(self.validate_form)
             elif isinstance(validator.field_widget, QKeySequenceEdit):
-                validator.field_widget.keySequenceChanged.connect(lambda: self.validate_form())
+                validator.field_widget.keySequenceChanged.connect(self.validate_form)
+
+    def _create_validation_handler(self, validator):
+        """Create a validation handler for a specific validator."""
+        def handler():
+            field_name = validator.field_widget.objectName() if hasattr(validator.field_widget, 'objectName') and validator.field_widget.objectName() else type(validator.field_widget).__name__
+            logger.debug(f"Validation handler called for {field_name}")
+            validator.validate()
+            self.validate_form()
+        return handler
 
     def connect_signals(self):
         """Connect internal signals and slots."""
@@ -596,6 +619,12 @@ class SettingsWindow(QDialog):
 
             # Populate form fields
             self.populate_form_fields()
+
+            # Small delay to ensure all UI updates are processed
+            await asyncio.sleep(0.1)
+
+            # Validate form after populating
+            self.validate_form()
 
             # Hide progress
             if self.progress_bar:
@@ -637,9 +666,21 @@ class SettingsWindow(QDialog):
         try:
             # AI Model settings
             if self.model_dropdown and self.current_settings.ollama.default_model:
+                logger.debug(f"Trying to set model: {self.current_settings.ollama.default_model}")
                 index = self.model_dropdown.findText(self.current_settings.ollama.default_model)
+                logger.debug(f"Model index found: {index}, current text: {self.model_dropdown.currentText()}")
                 if index >= 0:
                     self.model_dropdown.setCurrentIndex(index)
+                    logger.debug(f"Set model to index {index}: {self.model_dropdown.currentText()}")
+                else:
+                    # If the default model is not found, try to find a valid model
+                    for i in range(1, self.model_dropdown.count()):  # Skip index 0 ("Select a model...")
+                        model_name = self.model_dropdown.itemText(i)
+                        if model_name and model_name != "Select a model...":
+                            self.model_dropdown.setCurrentIndex(i)
+                            logger.debug(f"Fallback: Set model to index {i}: {model_name}")
+                            break
+                    logger.warning(f"Model '{self.current_settings.ollama.default_model}' not found in dropdown, using fallback")
 
             if self.server_url_field:
                 self.server_url_field.setText(self.current_settings.ollama.server_url)
@@ -654,13 +695,19 @@ class SettingsWindow(QDialog):
 
             # Hotkey settings
             if self.capture_hotkey:
-                self.capture_hotkey.setKeySequence(QKeySequence(self.current_settings.hotkeys.screenshot_capture))
+                key_seq = QKeySequence(self.current_settings.hotkeys.screenshot_capture)
+                self.capture_hotkey.setKeySequence(key_seq)
+                logger.debug(f"Set capture hotkey: {key_seq.toString()}, isEmpty: {key_seq.isEmpty()}")
 
             if self.overlay_hotkey:
-                self.overlay_hotkey.setKeySequence(QKeySequence(self.current_settings.hotkeys.overlay_toggle))
+                key_seq = QKeySequence(self.current_settings.hotkeys.overlay_toggle)
+                self.overlay_hotkey.setKeySequence(key_seq)
+                logger.debug(f"Set overlay hotkey: {key_seq.toString()}, isEmpty: {key_seq.isEmpty()}")
 
             if self.settings_hotkey:
-                self.settings_hotkey.setKeySequence(QKeySequence(self.current_settings.hotkeys.settings_open))
+                key_seq = QKeySequence(self.current_settings.hotkeys.settings_open)
+                self.settings_hotkey.setKeySequence(key_seq)
+                logger.debug(f"Set settings hotkey: {key_seq.toString()}, isEmpty: {key_seq.isEmpty()}")
 
             # Advanced settings
             if self.auto_start_checkbox:
@@ -717,15 +764,22 @@ class SettingsWindow(QDialog):
         Returns:
             True if all fields are valid
         """
+        logger.debug("validate_form() called")
         all_valid = True
+        failed_validators = []
 
         for validator in self.validators:
             if not validator.validate():
                 all_valid = False
+                field_name = validator.field_widget.objectName() if hasattr(validator.field_widget, 'objectName') and validator.field_widget.objectName() else type(validator.field_widget).__name__
+                failed_validators.append(field_name)
+
+        logger.debug(f"Form validation: all_valid={all_valid}, failed={failed_validators}")
 
         # Enable/disable save button based on validation
         if self.save_button:
             self.save_button.setEnabled(all_valid)
+            logger.debug(f"Save button enabled: {all_valid}")
 
         return all_valid
 
