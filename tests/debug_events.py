@@ -9,8 +9,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 
 # Add project root to Python path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.controllers.event_bus import EventBus
 from src.models.settings_manager import SettingsManager
