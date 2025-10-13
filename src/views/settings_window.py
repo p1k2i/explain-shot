@@ -446,6 +446,7 @@ class SettingsWindow(QDialog):
         # Screenshot capture hotkey
         self.capture_hotkey = QKeySequenceEdit()
         self.capture_hotkey.setObjectName("capture_hotkey")
+        self.capture_hotkey.setMaximumSequenceLength(1)
         capture_error_label = QLabel()
         capture_error_label.setObjectName("error_label")
         capture_error_label.hide()
@@ -458,6 +459,7 @@ class SettingsWindow(QDialog):
         # Overlay toggle hotkey
         self.overlay_hotkey = QKeySequenceEdit()
         self.overlay_hotkey.setObjectName("overlay_hotkey")
+        self.overlay_hotkey.setMaximumSequenceLength(1)
         overlay_error_label = QLabel()
         overlay_error_label.setObjectName("error_label")
         overlay_error_label.hide()
@@ -470,6 +472,7 @@ class SettingsWindow(QDialog):
         # Settings window hotkey
         self.settings_hotkey = QKeySequenceEdit()
         self.settings_hotkey.setObjectName("settings_hotkey")
+        self.settings_hotkey.setMaximumSequenceLength(1)
         settings_error_label = QLabel()
         settings_error_label.setObjectName("error_label")
         settings_error_label.hide()
