@@ -3,9 +3,8 @@ GalleryWindow {
     border-radius: 8px;
 }
 
-QFrame#TitleBar {
-    background-color: #3A3A3A;
-    border-bottom: 1px solid #555;
+QWidget {
+    background-color: #2E2E2E;
 }
 
 QPushButton {

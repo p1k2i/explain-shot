@@ -229,12 +229,18 @@ class ScreenshotItem(QWidget):
         self.thumbnail_label.setStyleSheet("border: 1px solid #555; background-color: #404040;")
         layout.addWidget(self.thumbnail_label)
 
-        # Filename label (truncated)
+        # Filename label (overlay on thumbnail)
         self.filename_label = QLabel(self._truncate_filename(filename))
+        self.filename_label.setParent(self.thumbnail_label)
+        self.filename_label.setGeometry(0, 0, 120, 20)  # Top overlay
         self.filename_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.filename_label.setWordWrap(True)
-        self.filename_label.setMaximumHeight(24)
-        layout.addWidget(self.filename_label)
+        self.filename_label.setStyleSheet("""
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0,0,0,0.8), stop:1 rgba(0,0,0,0.2));
+            color: #FFFFFF;
+            font-size: 10px;
+            font-weight: bold;
+            border-radius: 0;
+        """)
 
         # Timestamp label
         self.timestamp_label = QLabel(timestamp.strftime("%H:%M:%S"))
@@ -317,19 +323,22 @@ class ScreenshotItem(QWidget):
     def _update_appearance(self):
         """Update visual appearance based on state."""
         if self._is_selected:
-            border_color = "#007ACC"
+            border_color = "#00A0FF"
+            border_width = "3px"
             bg_color = "#4A4A4A"
         elif self._is_hovered:
             border_color = "#555555"
+            border_width = "2px"
             bg_color = "#404040"
         else:
             border_color = "transparent"
+            border_width = "2px"
             bg_color = "#3A3A3A"
 
         self.setStyleSheet(f"""
             ScreenshotItem {{
                 background-color: {bg_color};
-                border: 2px solid {border_color};
+                border: {border_width} solid {border_color};
                 border-radius: 8px;
             }}
         """)
@@ -552,12 +561,47 @@ class ChatWidget(QWidget):
         """Generate HTML for chat messages."""
         html = """
         <style>
-            body { background-color: #2E2E2E; color: #FFFFFF; font-family: Arial, sans-serif; margin: 0; padding: 10px; }
-            .message { margin: 8px 0; padding: 8px 12px; border-radius: 8px; }
-            .user { background-color: #007ACC; margin-left: 20%; }
-            .ai { background-color: #404040; margin-right: 20%; }
-            .system { background-color: #555555; text-align: center; font-style: italic; }
-            .timestamp { font-size: 10px; color: #999; margin-top: 4px; }
+            body {
+                background-color: #2E2E2E;
+                color: #FFFFFF;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                margin: 0;
+                padding: 10px;
+                line-height: 1.4;
+            }
+            .message {
+                margin: 12px 0;
+                padding: 12px 16px;
+                border-radius: 16px;
+                max-width: 80%;
+                word-wrap: break-word;
+                position: relative;
+            }
+            .user {
+                background-color: #007ACC;
+                margin-left: auto;
+                margin-right: 0;
+                text-align: left;
+            }
+            .ai {
+                background-color: #404040;
+                margin-left: 0;
+                margin-right: auto;
+                text-align: left;
+            }
+            .system {
+                background-color: #555555;
+                text-align: center;
+                font-style: italic;
+                margin: 12px auto;
+                max-width: 70%;
+            }
+            .timestamp {
+                font-size: 9px;
+                color: #AAA;
+                margin-top: 6px;
+                opacity: 0.7;
+            }
         </style>
         <body>
         """
@@ -680,7 +724,7 @@ class GalleryWindow(QWidget):
         self.setGeometry(100, 100, 1200, 800)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWindowOpacity(0.95)
+        self.setWindowOpacity(0.9)
 
         # Main layout
         main_layout = QVBoxLayout(self)
