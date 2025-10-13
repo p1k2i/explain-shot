@@ -221,8 +221,8 @@ class SettingsWindow(QDialog):
         """Setup the main UI layout and components."""
         self.setWindowTitle("Application Settings")
         self.setModal(True)
-        self.resize(600, 500)
-        self.setMinimumSize(550, 450)
+        self.resize(600, 550)
+        self.setMinimumSize(550, 550)
 
         # Set window flags for modern appearance
         self.setWindowFlags(
