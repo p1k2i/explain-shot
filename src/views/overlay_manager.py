@@ -394,9 +394,9 @@ class OverlayManager(QObject):
                 # Position near cursor
                 cursor_pos = QCursor.pos()
 
-                # Offset to avoid cursor overlap
-                x = cursor_pos.x() + 20
-                y = cursor_pos.y() + 20
+                # Offset for cursor overlap
+                x = cursor_pos.x() - 1
+                y = cursor_pos.y() - 1
 
                 # TODO: Add screen boundary checking
                 # For now, use simple offset
