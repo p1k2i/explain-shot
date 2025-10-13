@@ -540,32 +540,36 @@ class OverlayManager(QObject):
             action = item_data.get("action", "unknown")
 
             if action == "open_settings":
-                logger.info("MOCK: Opening settings window...")
+                logger.info("Opening settings window from overlay...")
 
-                # Emit mock settings open event
+                # Emit real settings show event
                 await self.event_bus.emit(
                     EventTypes.UI_SETTINGS_SHOW,
                     {
                         "trigger_source": "overlay",
-                        "function_id": item_data.get("id"),
-                        "mock_result": "settings_window_opened"
+                        "function_id": item_data.get("id")
                     },
                     source="OverlayManager"
                 )
 
-            elif action == "open_gallery":
-                logger.info("MOCK: Opening gallery window...")
+                # Hide overlay after action
+                await self.hide_overlay(reason="settings_opened")
 
-                # Emit mock gallery open event
+            elif action == "open_gallery":
+                logger.info("Opening gallery window from overlay...")
+
+                # Emit gallery show event (gallery implementation remains future feature)
                 await self.event_bus.emit(
                     EventTypes.UI_GALLERY_SHOW,
                     {
                         "trigger_source": "overlay",
-                        "function_id": item_data.get("id"),
-                        "mock_result": "gallery_window_opened"
+                        "function_id": item_data.get("id")
                     },
                     source="OverlayManager"
                 )
+
+                # For now, show a message that gallery is not implemented
+                logger.info("Gallery window not implemented - keeping as future feature")
 
             else:
                 logger.warning(f"Unknown function action: {action}")
@@ -584,20 +588,25 @@ class OverlayManager(QObject):
             screenshot_id = item_data.get("id", "unknown")
             filename = item_data.get("filename", "unknown")
 
-            logger.info(f"MOCK: Opening gallery with screenshot: {filename}")
+            logger.info(f"Opening gallery with screenshot: {filename}")
 
-            # Emit mock gallery open event with specific screenshot
+            # Emit gallery show event with specific screenshot (gallery remains future feature)
             await self.event_bus.emit(
                 EventTypes.UI_GALLERY_SHOW,
                 {
                     "trigger_source": "overlay",
                     "screenshot_id": screenshot_id,
                     "filename": filename,
-                    "action": "open_gallery_with_selection",
-                    "mock_result": "gallery_opened_with_screenshot"
+                    "action": "open_gallery_with_selection"
                 },
                 source="OverlayManager"
             )
+
+            # For now, just log that gallery is not implemented
+            logger.info("Gallery window not implemented - keeping as future feature")
+
+            # Hide overlay after selection
+            await self.hide_overlay(reason="screenshot_selected")
 
         except Exception as e:
             logger.error(f"Error handling screenshot selection: {e}")

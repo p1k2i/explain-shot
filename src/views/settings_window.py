@@ -810,38 +810,144 @@ class SettingsWindow(QDialog):
             # Collect form data
             form_data = self.collect_form_data()
 
-            # Emit save requested event for mock processing
-            logger.info(f"Mock: Settings save requested with data: {form_data}")
-
-            # Mock: Emit settings save requested event
-            asyncio.create_task(self.event_bus.emit(
-                EventTypes.SETTINGS_SAVE_REQUESTED,
-                form_data,
-                source="SettingsWindow"
-            ))
-
-            # Mock: Simulate settings save
-            QMessageBox.information(
-                self,
-                "Settings Saved",
-                "Settings have been saved successfully!\n\nNote: This is a mock implementation - changes are not persisted."
-            )
-
-            # Mock: Emit settings saved event
-            asyncio.create_task(self.event_bus.emit(
-                EventTypes.SETTINGS_SAVED,
-                form_data,
-                source="SettingsWindow"
-            ))
-
-            # Reset unsaved changes flag
-            self.unsaved_changes = False
-
-            # Close dialog
-            self.accept()
+            # Create a task to save settings asynchronously
+            asyncio.create_task(self._save_settings_async(form_data))
 
         except Exception as e:
             logger.error(f"Error saving settings: {e}")
+            QMessageBox.critical(
+                self,
+                "Save Error",
+                f"Failed to save settings:\n{str(e)}"
+            )
+
+    async def _save_settings_async(self, form_data: Dict[str, Any]):
+        """Save settings asynchronously."""
+        try:
+            # Update settings in SettingsManager
+            success_count = 0
+            total_updates = 0
+            failed_updates = []
+
+            # Update Ollama settings
+            ollama_data = form_data.get("ollama", {})
+            if ollama_data.get("default_model") and ollama_data["default_model"] != "Select a model...":
+                total_updates += 1
+                if await self.settings_manager.update_setting("ollama.default_model", ollama_data["default_model"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("ollama.default_model")
+
+            if ollama_data.get("server_url"):
+                total_updates += 1
+                if await self.settings_manager.update_setting("ollama.server_url", ollama_data["server_url"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("ollama.server_url")
+
+            # Update screenshot settings
+            screenshot_data = form_data.get("screenshot", {})
+            if screenshot_data.get("save_directory"):
+                total_updates += 1
+                if await self.settings_manager.update_setting("screenshot.save_directory", screenshot_data["save_directory"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("screenshot.save_directory")
+
+            if "quality" in screenshot_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("screenshot.quality", screenshot_data["quality"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("screenshot.quality")
+
+            if "auto_cleanup_days" in screenshot_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("screenshot.auto_cleanup_days", screenshot_data["auto_cleanup_days"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("screenshot.auto_cleanup_days")
+
+            # Update hotkey settings
+            hotkeys_data = form_data.get("hotkeys", {})
+            if hotkeys_data.get("screenshot_capture"):
+                total_updates += 1
+                if await self.settings_manager.update_setting("hotkeys.screenshot_capture", hotkeys_data["screenshot_capture"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("hotkeys.screenshot_capture")
+
+            if hotkeys_data.get("overlay_toggle"):
+                total_updates += 1
+                if await self.settings_manager.update_setting("hotkeys.overlay_toggle", hotkeys_data["overlay_toggle"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("hotkeys.overlay_toggle")
+
+            if hotkeys_data.get("settings_open"):
+                total_updates += 1
+                if await self.settings_manager.update_setting("hotkeys.settings_open", hotkeys_data["settings_open"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("hotkeys.settings_open")
+
+            # Update advanced settings
+            advanced_data = form_data.get("advanced", {})
+            if "auto_start" in advanced_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("auto_start.enabled", advanced_data["auto_start"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("auto_start.enabled")
+
+            if "debug_mode" in advanced_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("debug_mode", advanced_data["debug_mode"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("debug_mode")
+
+            # Save all settings to persist changes
+            await self.settings_manager.save_settings()
+
+            # Emit completion events
+            await self.event_bus.emit(
+                EventTypes.SETTINGS_SAVE_REQUESTED,
+                form_data,
+                source="SettingsWindow"
+            )
+
+            await self.event_bus.emit(
+                EventTypes.SETTINGS_SAVED,
+                {
+                    "success_count": success_count,
+                    "total_updates": total_updates,
+                    "failed_updates": failed_updates,
+                    "form_data": form_data
+                },
+                source="SettingsWindow"
+            )
+
+            # Show success message on main thread
+            if failed_updates:
+                QMessageBox.warning(
+                    self,
+                    "Partial Save",
+                    f"Settings partially saved:\n\n{success_count}/{total_updates} settings updated successfully.\n\nFailed updates: {', '.join(failed_updates)}"
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    "Settings Saved",
+                    f"All settings saved successfully!\n\n{success_count} settings updated and persisted."
+                )
+
+            # Reset unsaved changes flag and close dialog
+            self.unsaved_changes = False
+            self.accept()
+
+        except Exception as e:
+            logger.error(f"Error in async settings save: {e}")
             QMessageBox.critical(
                 self,
                 "Save Error",
@@ -884,14 +990,44 @@ class SettingsWindow(QDialog):
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            # Mock: Reset to defaults
-            logger.info("Mock: Settings reset to defaults")
+            # Create a task to reset settings asynchronously
+            asyncio.create_task(self._reset_to_defaults_async())
 
-            # You would normally reload default settings here
+    async def _reset_to_defaults_async(self):
+        """Reset settings to defaults asynchronously."""
+        try:
+            logger.info("Resetting settings to defaults")
+
+            # Reset all settings sections to defaults
+            await self.settings_manager.reset_to_defaults()
+
+            # Reload the current settings
+            self.current_settings = await self.settings_manager.load_settings()
+
+            # Repopulate form fields with default values
+            self.populate_form_fields()
+
+            # Reset validation state
+            self.validate_form()
+
+            # Reset unsaved changes flag
+            self.unsaved_changes = False
+
+            # Show success message
             QMessageBox.information(
                 self,
                 "Reset Complete",
-                "Settings have been reset to defaults.\n\nNote: This is a mock implementation."
+                "All settings have been reset to their default values.\n\nChanges have been saved automatically."
+            )
+
+            logger.info("Settings reset to defaults completed")
+
+        except Exception as e:
+            logger.error(f"Error resetting settings to defaults: {e}")
+            QMessageBox.critical(
+                self,
+                "Reset Error",
+                f"Failed to reset settings to defaults:\n{str(e)}"
             )
 
     def closeEvent(self, a0):

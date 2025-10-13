@@ -99,6 +99,7 @@ class ApplicationSettings:
 
     # Metadata
     last_updated: Optional[str] = None
+    last_cleanup_date: Optional[str] = None
     update_count: int = 0
 
 
@@ -117,20 +118,17 @@ class SettingsManager:
 
     def __init__(
         self,
-        db_path: Optional[Path] = None,
-        auto_create: bool = True,
+        database_manager=None,
         validate_on_load: bool = True
     ):
         """
         Initialize SettingsManager.
 
         Args:
-            db_path: Path to SQLite database file
-            auto_create: Whether to create database if it doesn't exist
+            database_manager: DatabaseManager instance for storage
             validate_on_load: Whether to validate settings when loading
         """
-        self.db_path = db_path or Path("app_data.db")
-        self.auto_create = auto_create
+        self.database_manager = database_manager
         self.validate_on_load = validate_on_load
 
         # Current settings
@@ -146,7 +144,7 @@ class SettingsManager:
         # Event bus for settings change notifications
         self._event_bus = get_event_bus()
 
-        logger.info("SettingsManager initialized with database: %s", self.db_path)
+        logger.info("SettingsManager initialized")
 
     def _setup_validation_rules(self) -> Dict[str, Callable]:
         """Set up validation rules for settings."""
@@ -163,60 +161,13 @@ class SettingsManager:
 
     async def initialize_database(self) -> None:
         """Initialize the settings database."""
-        if not self.db_path.exists() and not self.auto_create:
-            raise FileNotFoundError(f"Database not found: {self.db_path}")
+        if self.database_manager is None:
+            logger.warning("No database manager provided to SettingsManager")
+            return
 
-        # Create directory if needed
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Create settings table
-        async with self._get_db_connection() as conn:
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL,
-                    type TEXT DEFAULT 'string',
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    metadata TEXT
-                )
-            """)
-            await conn.commit()
-
-        logger.info("Settings database initialized")
-
-    def _get_db_connection(self):
-        """Get async database connection."""
-        # For now, use a simple sync connection wrapper
-        # In a full implementation, consider using aiosqlite
-        class AsyncConnection:
-            def __init__(self, db_path):
-                self.conn = sqlite3.connect(db_path)
-                self.conn.row_factory = sqlite3.Row
-                self.cursor = None
-
-            async def execute(self, sql, params=None):
-                self.cursor = self.conn.execute(sql, params or ())
-                return self.cursor
-
-            async def fetchall(self):
-                return self.cursor.fetchall() if self.cursor else []
-
-            async def fetchone(self):
-                return self.cursor.fetchone() if self.cursor else None
-
-            async def commit(self):
-                return self.conn.commit()
-
-            async def close(self):
-                return self.conn.close()
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, exc_type, exc_val, exc_tb):
-                await self.close()
-
-        return AsyncConnection(self.db_path)
+        # The database manager handles its own initialization
+        await self.database_manager.initialize_database()
+        logger.info("Settings database initialized via DatabaseManager")
 
     async def load_settings(self) -> ApplicationSettings:
         """
@@ -232,36 +183,11 @@ class SettingsManager:
             # Initialize database if needed
             await self.initialize_database()
 
-            # Load settings from database
+            # Load settings from database using DatabaseManager
             settings_dict = {}
 
-            async with self._get_db_connection() as conn:
-                cursor = await conn.execute("SELECT key, value, type FROM settings")
-                rows = cursor.fetchall()
-
-                for row in rows:
-                    key, value_str, value_type = row
-
-                    # Parse value based on type
-                    try:
-                        if value_type == 'json':
-                            value = json.loads(value_str)
-                        elif value_type == 'bool':
-                            value = value_str.lower() == 'true'
-                        elif value_type == 'int':
-                            value = int(value_str)
-                        elif value_type == 'float':
-                            value = float(value_str)
-                        else:
-                            value = value_str
-
-                        settings_dict[key] = value
-
-                    except (json.JSONDecodeError, ValueError) as e:
-                        logger.warning(
-                            "Failed to parse setting '%s' with value '%s': %s",
-                            key, value_str, e
-                        )
+            if self.database_manager:
+                settings_dict = await self.database_manager.get_all_settings()
 
             # Create settings object with defaults and overrides
             self._settings = self._merge_with_defaults(settings_dict)
@@ -338,34 +264,12 @@ class SettingsManager:
             # Convert to flat dictionary
             flat_dict = self._flatten_settings(settings)
 
-            # Save to database
-            async with self._get_db_connection() as conn:
+            # Save to database using DatabaseManager
+            if self.database_manager:
                 for key, value in flat_dict.items():
-                    # Determine value type
-                    if isinstance(value, bool):
-                        value_str = str(value).lower()
-                        value_type = 'bool'
-                    elif isinstance(value, int):
-                        value_str = str(value)
-                        value_type = 'int'
-                    elif isinstance(value, float):
-                        value_str = str(value)
-                        value_type = 'float'
-                    elif isinstance(value, (dict, list)):
-                        value_str = json.dumps(value)
-                        value_type = 'json'
-                    else:
-                        value_str = str(value)
-                        value_type = 'string'
-
-                    # Insert or update
-                    await conn.execute("""
-                        INSERT OR REPLACE INTO settings
-                        (key, value, type, updated_at)
-                        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                    """, (key, value_str, value_type))
-
-                await conn.commit()
+                    await self.database_manager.set_setting(key, value)
+            else:
+                logger.warning("No database manager available for saving settings")
 
             self._settings = settings
 
@@ -433,14 +337,24 @@ class SettingsManager:
             if not await self.validate_setting(key, value):
                 return False
 
-            # Load current settings
+            # Update the value directly in database if available
+            if self.database_manager:
+                success = await self.database_manager.set_setting(key, value)
+                if not success:
+                    return False
+
+            # Load current settings and update in memory
             settings = await self.load_settings()
 
-            # Update the value
+            # Update the value in memory
             self._set_nested_value(settings, key, value)
 
-            # Save updated settings
-            await self.save_settings(settings)
+            # Update metadata
+            settings.last_updated = datetime.now().isoformat()
+            settings.update_count += 1
+
+            # Store updated settings
+            self._settings = settings
 
             # Emit specific setting updated event
             await self._event_bus.emit(

@@ -33,6 +33,7 @@ from ..models.screenshot_models import (
     StorageStats, CaptureRegion, ScreenshotConfig,
     CaptureError, SaveError, DirectoryError
 )
+from .. import EventTypes
 
 
 class ScreenshotManager:
@@ -196,7 +197,7 @@ class ScreenshotManager:
                 save_duration=save_duration
             )
 
-            self.logger.info(f"Screenshot captured successfully: {filename}")
+            self.logger.info(f"Screenshot captured successfully: {full_path}")
 
             # Emit success events
             await self.event_bus.emit("screenshot.captured", {
@@ -527,19 +528,35 @@ class ScreenshotManager:
     async def _subscribe_to_events(self) -> None:
         """Subscribe to relevant events from EventBus."""
         try:
-            await self.event_bus.subscribe("settings.updated", self._handle_settings_updated)
-            await self.event_bus.subscribe("app.shutdown", self._handle_app_shutdown)
+            await self.event_bus.subscribe(
+                EventTypes.SETTINGS_UPDATED,
+                self._handle_settings_updated,
+                priority=75
+            )
+            await self.event_bus.subscribe(
+                EventTypes.APP_SHUTDOWN_REQUESTED,
+                self._handle_app_shutdown,
+                priority=50
+            )
         except Exception as e:
             self.logger.warning(f"Failed to subscribe to events: {e}")
 
-    async def _handle_settings_updated(self, data: dict) -> None:
+    async def _handle_settings_updated(self, event_data) -> None:
         """Handle settings update events."""
-        if any(key.startswith("screenshot_") or key in ["filename_format", "compression_level"]
-               for key in data.get("updated_keys", [])):
-            await self.refresh_directory_config()
-        elif data.get("key", "").startswith("screenshot."):
-            # Handle specific screenshot setting update
-            await self.refresh_directory_config()
+        try:
+            data = event_data.data if event_data else {}
+            key = data.get("key", "")
+
+            # Handle screenshot-related settings
+            if key.startswith("screenshot."):
+                self.logger.info(f"Screenshot setting updated: {key}")
+                await self.refresh_directory_config()
+            elif key in ["filename_format", "compression_level"]:
+                self.logger.info(f"Screenshot configuration updated: {key}")
+                await self.refresh_directory_config()
+
+        except Exception as e:
+            self.logger.error(f"Error handling settings update: {e}")
 
     async def _handle_app_shutdown(self, data: dict) -> None:
         """Handle application shutdown events."""

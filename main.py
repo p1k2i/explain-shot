@@ -21,6 +21,8 @@ from src.controllers.event_bus import get_event_bus, EventBus
 from src.controllers.main_controller import MainController
 from src.utils.logging_config import setup_logging, get_logger
 from src.models.settings_manager import SettingsManager
+from src.models.database_manager import DatabaseManager
+from src.models.screenshot_manager import ScreenshotManager
 from src.views.tray_manager import TrayManager
 from src.views.ui_manager import UIManager
 from src.utils.auto_start import get_auto_start_manager, AutoStartManager
@@ -46,6 +48,8 @@ class Application:
         # Core components
         self.event_bus: Optional[EventBus] = None
         self.settings_manager: Optional[SettingsManager] = None
+        self.database_manager: Optional[DatabaseManager] = None
+        self.screenshot_manager: Optional[ScreenshotManager] = None
         self.tray_manager: Optional[TrayManager] = None
         self.ui_manager: Optional[UIManager] = None
         self.auto_start_manager: Optional[AutoStartManager] = None
@@ -75,15 +79,22 @@ class Application:
             self.event_bus = get_event_bus()
             await self._subscribe_to_events()
 
+            # Initialize DatabaseManager
+            self.database_manager = DatabaseManager()
+            await self.database_manager.initialize_database()
+
             # Initialize SettingsManager
-            self.settings_manager = SettingsManager()
+            self.settings_manager = SettingsManager(database_manager=self.database_manager)
             await self.settings_manager.initialize_database()
             settings = await self.settings_manager.load_settings()
 
-            # Apply settings to logging if needed
-            if settings.debug_mode:
-                logging.getLogger().setLevel(logging.DEBUG)
-                logger.debug("Debug mode enabled")
+            # Initialize ScreenshotManager
+            self.screenshot_manager = ScreenshotManager(
+                database_manager=self.database_manager,
+                settings_manager=self.settings_manager,
+                event_bus=self.event_bus
+            )
+            await self.screenshot_manager.initialize()
 
             # Initialize AutoStartManager
             self.auto_start_manager = get_auto_start_manager(self.app_name)
@@ -116,13 +127,15 @@ class Application:
             self.ui_manager = UIManager(
                 event_bus=self.event_bus,
                 settings_manager=self.settings_manager,
-                screenshot_manager=None  # Will be set later when screenshot manager is available
+                screenshot_manager=self.screenshot_manager
             )
 
             # Initialize MainController with all components
             self.main_controller = MainController(
                 event_bus=self.event_bus,
                 settings_manager=self.settings_manager,
+                database_manager=self.database_manager,
+                screenshot_manager=self.screenshot_manager,
                 tray_manager=self.tray_manager,
                 ui_manager=self.ui_manager,
                 auto_start_manager=self.auto_start_manager
@@ -312,6 +325,10 @@ class Application:
             # Shutdown MainController (this will shutdown hotkeys)
             if self.main_controller:
                 await self.main_controller.shutdown()
+
+            # Shutdown ScreenshotManager
+            if self.screenshot_manager:
+                await self.screenshot_manager.shutdown()
 
             # Shutdown TrayManager
             if self.tray_manager:

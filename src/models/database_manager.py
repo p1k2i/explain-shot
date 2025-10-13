@@ -512,6 +512,86 @@ class DatabaseManager:
             self.logger.error(f"Failed to set setting {key}: {e}")
             return False
 
+    async def get_all_settings(self) -> Dict[str, Any]:
+        """
+        Get all settings as a dictionary.
+
+        Returns:
+            Dictionary of all settings
+        """
+        if not self._initialized:
+            await self.initialize_database()
+
+        try:
+            settings = {}
+            async with self._get_connection() as conn:
+                cursor = await conn.execute("SELECT key, value, type FROM settings")
+                rows = cursor.fetchall()
+
+                for row in rows:
+                    key, value_str, value_type = row
+
+                    # Parse value based on type
+                    if value_type == 'json':
+                        value = json.loads(value_str)
+                    elif value_type == 'bool':
+                        value = value_str.lower() == 'true'
+                    elif value_type == 'int':
+                        value = int(value_str)
+                    elif value_type == 'float':
+                        value = float(value_str)
+                    else:
+                        value = value_str
+
+                    settings[key] = value
+
+            return settings
+
+        except Exception as e:
+            self.logger.error(f"Failed to get all settings: {e}")
+            return {}
+
+    async def delete_setting(self, key: str) -> bool:
+        """
+        Delete a setting.
+
+        Args:
+            key: Setting key to delete
+
+        Returns:
+            True if deleted successfully
+        """
+        if not self._initialized:
+            await self.initialize_database()
+
+        try:
+            async with self._get_connection() as conn:
+                await conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+                return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to delete setting {key}: {e}")
+            return False
+
+    async def clear_all_settings(self) -> bool:
+        """
+        Clear all settings from the database.
+
+        Returns:
+            True if cleared successfully
+        """
+        if not self._initialized:
+            await self.initialize_database()
+
+        try:
+            async with self._get_connection() as conn:
+                await conn.execute("DELETE FROM settings")
+                return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to clear all settings: {e}")
+            return False
+
     # Utility operations
 
     async def cleanup_database(self) -> None:

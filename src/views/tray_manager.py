@@ -352,13 +352,15 @@ class TrayManager:
 
             elif action == TrayMenuAction.SHOW_OVERLAY:
                 await self._event_bus.emit(
-                    EventTypes.UI_OVERLAY_SHOW,
+                    EventTypes.TRAY_OVERLAY_TOGGLE,
+                    {"trigger": "tray_menu"},
                     source="tray"
                 )
 
             elif action == TrayMenuAction.OPEN_SETTINGS:
                 await self._event_bus.emit(
-                    EventTypes.UI_SETTINGS_SHOW,
+                    EventTypes.TRAY_SETTINGS_REQUESTED,
+                    {"trigger": "tray_menu"},
                     source="tray"
                 )
 
@@ -381,7 +383,8 @@ class TrayManager:
 
             elif action == TrayMenuAction.EXIT:
                 await self._event_bus.emit(
-                    EventTypes.APP_SHUTDOWN_REQUESTED,
+                    EventTypes.TRAY_QUIT_REQUESTED,
+                    {"trigger": "tray_menu"},
                     source="tray"
                 )
 

@@ -161,6 +161,12 @@ class MainController:
 
         # Tray events
         await self.event_bus.subscribe(
+            EventTypes.SCREENSHOT_CAPTURE_REQUESTED,
+            self._handle_screenshot_capture_request,
+            priority=90
+        )
+
+        await self.event_bus.subscribe(
             EventTypes.TRAY_SETTINGS_REQUESTED,
             self._handle_tray_settings_request,
             priority=90
@@ -192,6 +198,60 @@ class MainController:
             priority=50
         )
 
+    async def _handle_screenshot_capture_request(self, event_data) -> None:
+        """
+        Handle screenshot capture request from tray or other sources.
+
+        Args:
+            event_data: Event data from capture request
+        """
+        try:
+            source = event_data.source or 'unknown'
+            logger.info("Screenshot capture requested from: %s", source)
+
+            # Perform real screenshot capture
+            result = await self._capture_screenshot_real({
+                'trigger_source': source,
+                'timestamp': event_data.timestamp
+            })
+
+            if result and result.get('success', False):
+                # Emit screenshot captured event with real metadata
+                await self.event_bus.emit(
+                    EventTypes.SCREENSHOT_CAPTURED,
+                    {
+                        'trigger_source': source,
+                        'timestamp': event_data.timestamp,
+                        'result': result,
+                        'metadata': result.get('metadata', {}),
+                        'file_path': result.get('file_path', ''),
+                        'capture_duration': result.get('capture_duration', 0),
+                        'success': True
+                    },
+                    source="MainController"
+                )
+                logger.info("Screenshot captured successfully from %s: %s",
+                          source, result.get('filename', 'unknown'))
+            else:
+                # Handle capture failure
+                error_msg = result.get('error_message', 'Unknown error') if result else 'Screenshot manager unavailable'
+                await self._emit_error("screenshot_capture_failed", error_msg)
+
+                await self.event_bus.emit(
+                    EventTypes.SCREENSHOT_CAPTURED,
+                    {
+                        'trigger_source': source,
+                        'timestamp': event_data.timestamp,
+                        'success': False,
+                        'error_message': error_msg
+                    },
+                    source="MainController"
+                )
+
+        except Exception as e:
+            logger.error("Error handling screenshot capture request: %s", e)
+            await self._emit_error("screenshot_capture_request_failed", str(e))
+
     async def _handle_screenshot_hotkey(self, event_data) -> None:
         """
         Handle screenshot capture hotkey.
@@ -200,23 +260,46 @@ class MainController:
             event_data: Event data from hotkey trigger
         """
         try:
-            logger.info("Screenshot hotkey triggered: %s",
-                       event_data.data.get('combination', 'unknown'))
+            combination = event_data.data.get('combination', 'unknown')
+            logger.info("Screenshot hotkey triggered: %s", combination)
 
-            # Mock screenshot capture implementation
-            await self._mock_screenshot_capture(event_data.data)
+            # Perform real screenshot capture
+            result = await self._capture_screenshot_real(event_data.data)
 
-            # Emit screenshot captured event
-            await self.event_bus.emit(
-                EventTypes.SCREENSHOT_CAPTURED,
-                {
-                    'trigger_source': 'hotkey',
-                    'hotkey_combination': event_data.data.get('combination'),
-                    'timestamp': event_data.data.get('timestamp'),
-                    'mock_result': 'screenshot_captured_successfully'
-                },
-                source="MainController"
-            )
+            if result and result.get('success', False):
+                # Emit screenshot captured event with real metadata
+                await self.event_bus.emit(
+                    EventTypes.SCREENSHOT_CAPTURED,
+                    {
+                        'trigger_source': 'hotkey',
+                        'hotkey_combination': combination,
+                        'timestamp': event_data.data.get('timestamp'),
+                        'result': result,
+                        'metadata': result.get('metadata', {}),
+                        'file_path': result.get('file_path', ''),
+                        'capture_duration': result.get('capture_duration', 0),
+                        'success': True
+                    },
+                    source="MainController"
+                )
+                logger.info("Screenshot captured successfully via hotkey: %s",
+                          result.get('filename', 'unknown'))
+            else:
+                # Handle capture failure
+                error_msg = result.get('error_message', 'Unknown error') if result else 'Screenshot manager unavailable'
+                await self._emit_error("screenshot_capture_failed", error_msg)
+
+                await self.event_bus.emit(
+                    EventTypes.SCREENSHOT_CAPTURED,
+                    {
+                        'trigger_source': 'hotkey',
+                        'hotkey_combination': combination,
+                        'timestamp': event_data.data.get('timestamp'),
+                        'success': False,
+                        'error_message': error_msg
+                    },
+                    source="MainController"
+                )
 
         except Exception as e:
             logger.error("Error handling screenshot hotkey: %s", e)
@@ -398,36 +481,71 @@ class MainController:
         except Exception as e:
             logger.error("Error in error handler: %s", e)
 
-    async def _mock_screenshot_capture(self, trigger_data: Dict[str, Any]) -> None:
+    async def _capture_screenshot_real(self, trigger_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Mock screenshot capture implementation.
+        Real screenshot capture implementation.
 
         Args:
             trigger_data: Data from trigger event
+
+        Returns:
+            Dictionary with capture result and metadata, or None if failed
         """
-        logger.info("MOCK: Starting screenshot capture...")
-        logger.info("MOCK: Trigger source: %s", trigger_data.get('trigger_source', 'unknown'))
+        try:
+            logger.info("Starting screenshot capture...")
+            logger.info("Trigger source: %s", trigger_data.get('trigger_source', 'unknown'))
 
-        if 'hotkey_combination' in trigger_data:
-            logger.info("MOCK: Triggered by hotkey: %s", trigger_data['hotkey_combination'])
+            if 'hotkey_combination' in trigger_data:
+                logger.info("Triggered by hotkey: %s", trigger_data['hotkey_combination'])
 
-        # Use actual screenshot manager if available
-        if self.screenshot_manager:
-            try:
-                result = await self.screenshot_manager.capture_screenshot()
-                if result.success and result.metadata:
-                    logger.info("REAL: Screenshot captured successfully: %s", result.metadata.filename)
-                else:
-                    logger.error("REAL: Screenshot capture failed: %s", result.error_message)
-            except Exception as e:
-                logger.error("Error capturing screenshot: %s", e)
-        else:
-            # Simulate processing delay
-            await asyncio.sleep(0.1)
-            logger.info("MOCK: Screenshot captured successfully")
-            logger.info("MOCK: File saved to: screenshots/mock_screenshot.png")
-            logger.info("MOCK: Thumbnail generated")
-            logger.info("MOCK: Database entry created")
+            # Check if screenshot manager is available
+            if not self.screenshot_manager:
+                logger.error("Screenshot manager not available")
+                return {
+                    'success': False,
+                    'error_message': 'Screenshot manager not initialized'
+                }
+
+            # Perform the actual screenshot capture
+            result = await self.screenshot_manager.capture_screenshot()
+
+            if result.success and result.metadata:
+                logger.info("Screenshot captured successfully: %s", result.metadata.filename)
+
+                return {
+                    'success': True,
+                    'filename': result.metadata.filename,
+                    'file_path': result.metadata.full_path,
+                    'file_size': result.metadata.file_size,
+                    'resolution': result.metadata.resolution,
+                    'capture_duration': result.capture_duration,
+                    'save_duration': result.save_duration,
+                    'total_duration': result.total_duration,
+                    'metadata': {
+                        'id': result.metadata.id,
+                        'filename': result.metadata.filename,
+                        'full_path': result.metadata.full_path,
+                        'timestamp': result.metadata.timestamp.isoformat() if result.metadata.timestamp else None,
+                        'file_size': result.metadata.file_size,
+                        'resolution': result.metadata.resolution,
+                        'format': result.metadata.format
+                    }
+                }
+            else:
+                error_msg = result.error_message or "Unknown capture error"
+                logger.error("Screenshot capture failed: %s", error_msg)
+                return {
+                    'success': False,
+                    'error_message': error_msg
+                }
+
+        except Exception as e:
+            error_msg = f"Exception during screenshot capture: {e}"
+            logger.error(error_msg)
+            return {
+                'success': False,
+                'error_message': error_msg
+            }
 
     async def _mock_overlay_toggle(self, trigger_data: Dict[str, Any]) -> None:
         """
