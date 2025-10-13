@@ -14,8 +14,10 @@ from PyQt6.QtWidgets import QApplication
 from ..controllers.event_bus import EventBus
 from ..models.settings_manager import SettingsManager
 from ..models.screenshot_manager import ScreenshotManager
+from ..models.database_manager import DatabaseManager
 from .overlay_manager import OverlayManager
 from .settings_window import SettingsWindow
+from .gallery_window import GalleryWindow
 from src import EventTypes
 
 logger = logging.getLogger(__name__)
@@ -36,7 +38,8 @@ class UIManager(QObject):
         self,
         event_bus: EventBus,
         settings_manager: SettingsManager,
-        screenshot_manager: Optional[ScreenshotManager] = None
+        screenshot_manager: Optional[ScreenshotManager] = None,
+        database_manager: Optional[DatabaseManager] = None
     ):
         """
         Initialize UIManager.
@@ -45,16 +48,19 @@ class UIManager(QObject):
             event_bus: EventBus instance for communication
             settings_manager: SettingsManager for configuration
             screenshot_manager: Optional ScreenshotManager for data
+            database_manager: Optional DatabaseManager for data persistence
         """
         super().__init__()
 
         self.event_bus = event_bus
         self.settings_manager = settings_manager
         self.screenshot_manager = screenshot_manager
+        self.database_manager = database_manager
 
         # UI Components
         self.overlay_manager: Optional[OverlayManager] = None
         self.settings_window: Optional[SettingsWindow] = None
+        self.gallery_window: Optional[GalleryWindow] = None
 
         # State management
         self._initialized = False
@@ -166,6 +172,25 @@ class UIManager(QObject):
                 priority=95
             )
 
+            # Gallery events
+            await self.event_bus.subscribe(
+                EventTypes.UI_GALLERY_SHOW,
+                self._handle_show_gallery,
+                priority=95
+            )
+
+            await self.event_bus.subscribe(
+                EventTypes.TRAY_GALLERY_REQUESTED,
+                self._handle_show_gallery,
+                priority=95
+            )
+
+            await self.event_bus.subscribe(
+                EventTypes.GALLERY_REQUESTED,
+                self._handle_show_gallery,
+                priority=95
+            )
+
             await self.event_bus.subscribe(
                 EventTypes.SETTINGS_UPDATED,
                 self._handle_settings_updated,
@@ -238,6 +263,64 @@ class UIManager(QObject):
 
         except Exception as e:
             logger.error(f"Error handling show settings request: {e}")
+
+    async def _handle_show_gallery(self, event_data) -> None:
+        """
+        Handle gallery window show request.
+
+        Args:
+            event_data: Event data containing gallery parameters
+        """
+        try:
+            # Queue UI action for main thread processing
+            self._queue_ui_action("show_gallery", event_data.data or {})
+
+        except Exception as e:
+            logger.error(f"Error handling show gallery request: {e}")
+
+    async def _handle_gallery_screenshot_selected(self, screenshot_id: int) -> None:
+        """Handle gallery screenshot selection events."""
+        try:
+            await self.event_bus.emit(
+                EventTypes.GALLERY_SCREENSHOT_SELECTED,
+                {"screenshot_id": screenshot_id},
+                source="UIManager"
+            )
+        except Exception as e:
+            logger.error(f"Error handling gallery screenshot selection: {e}")
+
+    async def _handle_gallery_preset_executed(self, preset_id: int, context: str) -> None:
+        """Handle gallery preset execution events."""
+        try:
+            await self.event_bus.emit(
+                EventTypes.GALLERY_PRESET_EXECUTED,
+                {"preset_id": preset_id, "context": context},
+                source="UIManager"
+            )
+        except Exception as e:
+            logger.error(f"Error handling gallery preset execution: {e}")
+
+    async def _handle_gallery_chat_message(self, message: str, context: Dict[str, Any]) -> None:
+        """Handle gallery chat message events."""
+        try:
+            await self.event_bus.emit(
+                EventTypes.GALLERY_CHAT_MESSAGE_SENT,
+                {"message": message, "context": context},
+                source="UIManager"
+            )
+        except Exception as e:
+            logger.error(f"Error handling gallery chat message: {e}")
+
+    async def _handle_gallery_closed(self) -> None:
+        """Handle gallery window close events."""
+        try:
+            await self.event_bus.emit(
+                EventTypes.GALLERY_CLOSED,
+                {"timestamp": asyncio.get_event_loop().time()},
+                source="UIManager"
+            )
+        except Exception as e:
+            logger.error(f"Error handling gallery close: {e}")
 
     async def _handle_settings_updated(self, event_data) -> None:
         """
@@ -337,6 +420,10 @@ class UIManager(QObject):
                 # Schedule settings window show for next event loop iteration
                 QTimer.singleShot(0, self._show_settings_sync)
 
+            elif action == "show_gallery":
+                # Schedule gallery window show for next event loop iteration
+                QTimer.singleShot(0, lambda: self._show_gallery_sync(data))
+
             else:
                 logger.warning(f"Unknown UI action: {action}")
 
@@ -368,6 +455,16 @@ class UIManager(QObject):
             asyncio.create_task(self.show_settings_window())
         except Exception as e:
             logger.error(f"Error showing settings window synchronously: {e}")
+
+    def _show_gallery_sync(self, data: Dict[str, Any]) -> None:
+        """Show gallery window synchronously in main thread."""
+        try:
+            # Extract pre-selected screenshot ID if provided
+            pre_selected_id = data.get("screenshot_id")
+            # Create task but don't await it - let it run in background
+            asyncio.create_task(self.show_gallery_window(pre_selected_screenshot_id=pre_selected_id))
+        except Exception as e:
+            logger.error(f"Error showing gallery window synchronously: {e}")
 
     async def show_overlay(self, **kwargs) -> bool:
         """
@@ -476,6 +573,106 @@ class UIManager(QObject):
             logger.error(f"Error hiding settings window: {e}")
             return False
 
+    async def show_gallery_window(self, pre_selected_screenshot_id: Optional[int] = None, **kwargs) -> bool:
+        """
+        Show the gallery window.
+
+        Args:
+            pre_selected_screenshot_id: Optional screenshot ID to pre-select
+            **kwargs: Arguments to pass to gallery window
+
+        Returns:
+            True if gallery window shown successfully
+        """
+        try:
+            # Check if required components are available
+            if not self.screenshot_manager:
+                logger.error("Screenshot manager not available for gallery")
+                return False
+
+            if not self.database_manager:
+                logger.error("Database manager not available for gallery")
+                return False
+
+            # Create gallery window if not exists or if it was closed
+            if not self.gallery_window or not self.gallery_window.isVisible():
+                self.gallery_window = GalleryWindow(
+                    event_bus=self.event_bus,
+                    screenshot_manager=self.screenshot_manager,
+                    database_manager=self.database_manager,
+                    settings_manager=self.settings_manager,
+                    parent=None  # Independent window
+                )
+
+                # Connect gallery signals
+                self.gallery_window.screenshot_selected.connect(
+                    lambda screenshot_id: asyncio.create_task(
+                        self._handle_gallery_screenshot_selected(screenshot_id)
+                    )
+                )
+                self.gallery_window.preset_executed.connect(
+                    lambda preset_id, context: asyncio.create_task(
+                        self._handle_gallery_preset_executed(preset_id, context)
+                    )
+                )
+                self.gallery_window.chat_message_sent.connect(
+                    lambda message, context: asyncio.create_task(
+                        self._handle_gallery_chat_message(message, context)
+                    )
+                )
+                self.gallery_window.gallery_closed.connect(
+                    lambda: asyncio.create_task(
+                        self._handle_gallery_closed()
+                    )
+                )
+
+                # Initialize the gallery window
+                if not await self.gallery_window.initialize():
+                    logger.error("Failed to initialize gallery window")
+                    return False
+
+            # Show the gallery with optional pre-selection
+            await self.gallery_window.show_gallery(pre_selected_screenshot_id)
+
+            # Emit gallery window shown event
+            await self.event_bus.emit(
+                EventTypes.GALLERY_SHOWN,
+                {
+                    "timestamp": asyncio.get_event_loop().time(),
+                    "pre_selected_screenshot": pre_selected_screenshot_id
+                },
+                source="UIManager"
+            )
+
+            logger.info(f"Gallery window shown successfully (pre-selected: {pre_selected_screenshot_id})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error showing gallery window: {e}")
+            return False
+
+    async def hide_gallery_window(self, **kwargs) -> bool:
+        """
+        Hide the gallery window.
+
+        Args:
+            **kwargs: Arguments for hiding gallery window
+
+        Returns:
+            True if gallery window hidden successfully
+        """
+        try:
+            if self.gallery_window and self.gallery_window.isVisible():
+                self.gallery_window.close()
+                logger.info("Gallery window hidden successfully")
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Error hiding gallery window: {e}")
+            return False
+
     async def get_ui_status(self) -> Dict[str, Any]:
         """
         Get current UI status.
@@ -495,6 +692,11 @@ class UIManager(QObject):
             "settings_window": {
                 "available": self.settings_window is not None,
                 "visible": self.settings_window.isVisible() if self.settings_window else False
+            },
+            "gallery_window": {
+                "available": self.gallery_window is not None,
+                "visible": self.gallery_window.isVisible() if self.gallery_window else False,
+                "initialized": self.gallery_window._initialized if self.gallery_window else False
             }
         }
 
@@ -519,6 +721,11 @@ class UIManager(QObject):
             if self.settings_window:
                 self.settings_window.close()
                 self.settings_window = None
+
+            # Close gallery window
+            if self.gallery_window:
+                self.gallery_window.close()
+                self.gallery_window = None
 
             # Clear event queue
             self._event_queue.clear()

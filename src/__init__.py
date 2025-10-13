@@ -51,6 +51,16 @@ class EventTypes:
     UI_OVERLAY_HIDE = "ui.overlay.hide"
     UI_SETTINGS_SHOW = "ui.settings.show"
     UI_GALLERY_SHOW = "ui.gallery.show"
+    UI_GALLERY_HIDE = "ui.gallery.hide"
+
+    # Gallery events
+    GALLERY_REQUESTED = "gallery.requested"
+    GALLERY_SHOWN = "gallery.shown"
+    GALLERY_HIDDEN = "gallery.hidden"
+    GALLERY_SCREENSHOT_SELECTED = "gallery.screenshot_selected"
+    GALLERY_PRESET_EXECUTED = "gallery.preset_executed"
+    GALLERY_CHAT_MESSAGE_SENT = "gallery.chat_message_sent"
+    GALLERY_CLOSED = "gallery.closed"
 
     # Overlay events
     OVERLAY_SHOWN = "overlay.shown"

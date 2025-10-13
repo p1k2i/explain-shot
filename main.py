@@ -127,7 +127,8 @@ class Application:
             self.ui_manager = UIManager(
                 event_bus=self.event_bus,
                 settings_manager=self.settings_manager,
-                screenshot_manager=self.screenshot_manager
+                screenshot_manager=self.screenshot_manager,
+                database_manager=self.database_manager
             )
 
             # Initialize MainController with all components
