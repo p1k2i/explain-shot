@@ -1,0 +1,1062 @@
+"""
+Settings Window Module
+
+Implements the main settings dialog window using PyQt6 with dark theme styling,
+form validation, and EventBus integration for the MVC architecture.
+"""
+
+import asyncio
+import logging
+from typing import Optional, Dict, Any, List, Callable
+from pathlib import Path
+
+from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QTabWidget, QWidget,
+    QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QCheckBox,
+    QSlider, QSpinBox, QKeySequenceEdit, QFileDialog, QProgressBar,
+    QSpacerItem, QSizePolicy, QMessageBox
+)
+from PyQt6.QtGui import QKeySequence
+
+from ..controllers.event_bus import EventBus
+from ..models.settings_manager import SettingsManager, ApplicationSettings
+from src import EventTypes
+
+logger = logging.getLogger(__name__)
+
+
+class MockOllamaClient:
+    """
+    Mock Ollama client for development and testing.
+    Simulates model fetching and connection testing.
+    """
+
+    def __init__(self):
+        self.available_models = [
+            "gemma3:4b",
+            "llama3:8b",
+            "mistral:7b",
+            "codellama:13b",
+            "phi3:medium"
+        ]
+        self.connection_success_rate = 0.9  # 90% success rate for testing
+
+    async def get_available_models(self) -> List[str]:
+        """
+        Mock method to fetch available Ollama models.
+
+        Returns:
+            List of model names
+        """
+        # Simulate network delay
+        await asyncio.sleep(0.1)
+        logger.info(f"Mock: Retrieved {len(self.available_models)} Ollama models")
+        return self.available_models.copy()
+
+    async def test_connection(self, server_url: str) -> Dict[str, Any]:
+        """
+        Mock connection test to Ollama server.
+
+        Args:
+            server_url: Server URL to test
+
+        Returns:
+            Connection test result
+        """
+        # Simulate network delay
+        await asyncio.sleep(0.5)
+
+        import random
+        success = random.random() < self.connection_success_rate
+
+        if success:
+            result = {
+                "success": True,
+                "message": "Connection successful",
+                "server_version": "0.1.17",
+                "models_count": len(self.available_models)
+            }
+        else:
+            result = {
+                "success": False,
+                "message": "Connection timeout - server not responding",
+                "error_code": "TIMEOUT"
+            }
+
+        logger.info(f"Mock: Connection test to {server_url} - {'SUCCESS' if success else 'FAILED'}")
+        return result
+
+
+class FieldValidator:
+    """
+    Validator for settings form fields with visual feedback.
+    """
+
+    def __init__(self, field_widget, error_label):
+        self.field_widget = field_widget
+        self.error_label = error_label
+        self.validation_func = None
+        self.error_message = ""
+
+    def set_validation(self, func: Callable[[Any], bool], error_msg: str):
+        """Set validation function and error message."""
+        self.validation_func = func
+        self.error_message = error_msg
+
+    def validate(self) -> bool:
+        """Validate field and update UI feedback."""
+        if not self.validation_func:
+            return True
+
+        # Get field value based on widget type
+        if isinstance(self.field_widget, QLineEdit):
+            value = self.field_widget.text()
+        elif isinstance(self.field_widget, QComboBox):
+            value = self.field_widget.currentText()
+        elif isinstance(self.field_widget, QSpinBox):
+            value = self.field_widget.value()
+        elif isinstance(self.field_widget, QSlider):
+            value = self.field_widget.value()
+        elif isinstance(self.field_widget, QKeySequenceEdit):
+            key_sequence = self.field_widget.keySequence()
+            value = key_sequence.toString() if key_sequence else ""
+        else:
+            value = None
+
+        try:
+            is_valid = self.validation_func(value)
+        except Exception as e:
+            logger.warning(f"Validation error for field: {e}")
+            is_valid = False
+
+        self._update_ui_feedback(is_valid)
+        return is_valid
+
+    def _update_ui_feedback(self, is_valid: bool):
+        """Update UI visual feedback based on validation result."""
+        if is_valid:
+            # Clear error styling
+            self.field_widget.setStyleSheet("")
+            self.error_label.setText("")
+            self.error_label.hide()
+        else:
+            # Apply error styling
+            self.field_widget.setStyleSheet("""
+                QLineEdit, QComboBox {
+                    border: 2px solid #FF6B6B;
+                    background-color: #4A2626;
+                }
+            """)
+            self.error_label.setText(self.error_message)
+            self.error_label.show()
+
+
+class SettingsWindow(QDialog):
+    """
+    Main settings dialog window with dark theme and form validation.
+
+    Provides a modal interface for configuring all application settings
+    including Ollama models, screenshot preferences, and hotkeys.
+    """
+
+    # Signals for async communication
+    settings_save_requested = pyqtSignal(dict)
+    settings_cancelled = pyqtSignal()
+    model_refresh_requested = pyqtSignal()
+
+    def __init__(
+        self,
+        event_bus: EventBus,
+        settings_manager: SettingsManager,
+        parent=None
+    ):
+        """
+        Initialize the settings window.
+
+        Args:
+            event_bus: EventBus for communication
+            settings_manager: SettingsManager for data persistence
+            parent: Parent widget
+        """
+        super().__init__(parent)
+
+        self.event_bus = event_bus
+        self.settings_manager = settings_manager
+        self.mock_ollama = MockOllamaClient()
+
+        # Current settings data
+        self.current_settings: Optional[ApplicationSettings] = None
+        self.unsaved_changes = False
+
+        # Form validators
+        self.validators: List[FieldValidator] = []
+
+        # UI elements (will be created in setup_ui)
+        self.model_dropdown: Optional[QComboBox] = None
+        self.server_url_field: Optional[QLineEdit] = None
+        self.directory_field: Optional[QLineEdit] = None
+        self.quality_slider: Optional[QSlider] = None
+        self.quality_label: Optional[QLabel] = None
+        self.capture_hotkey: Optional[QKeySequenceEdit] = None
+        self.overlay_hotkey: Optional[QKeySequenceEdit] = None
+        self.settings_hotkey: Optional[QKeySequenceEdit] = None
+        self.auto_start_checkbox: Optional[QCheckBox] = None
+        self.debug_mode_checkbox: Optional[QCheckBox] = None
+        self.cleanup_days_spinbox: Optional[QSpinBox] = None
+        self.save_button: Optional[QPushButton] = None
+        self.cancel_button: Optional[QPushButton] = None
+        self.test_connection_button: Optional[QPushButton] = None
+        self.progress_bar: Optional[QProgressBar] = None
+
+        # Setup UI and styling
+        self.setup_ui()
+        self.setup_styling()
+        self.setup_validation()
+        self.connect_signals()
+
+        logger.info("SettingsWindow initialized")
+
+    def setup_ui(self):
+        """Setup the main UI layout and components."""
+        self.setWindowTitle("Application Settings")
+        self.setModal(True)
+        self.resize(600, 500)
+        self.setMinimumSize(550, 450)
+
+        # Set window flags for modern appearance
+        self.setWindowFlags(
+            Qt.WindowType.Dialog |
+            Qt.WindowType.WindowTitleHint |
+            Qt.WindowType.WindowCloseButtonHint
+        )
+
+        # Main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+
+        # Title
+        title_label = QLabel("Application Settings")
+        title_label.setObjectName("title_label")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(title_label)
+
+        # Progress bar (hidden by default)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        main_layout.addWidget(self.progress_bar)
+
+        # Tab widget for organized settings
+        tab_widget = QTabWidget()
+        tab_widget.setObjectName("settings_tabs")
+
+        # General tab
+        general_tab = self.create_general_tab()
+        tab_widget.addTab(general_tab, "General")
+
+        # Hotkeys tab
+        hotkeys_tab = self.create_hotkeys_tab()
+        tab_widget.addTab(hotkeys_tab, "Hotkeys")
+
+        # Advanced tab
+        advanced_tab = self.create_advanced_tab()
+        tab_widget.addTab(advanced_tab, "Advanced")
+
+        main_layout.addWidget(tab_widget)
+
+        # Button layout
+        button_layout = self.create_button_layout()
+        main_layout.addLayout(button_layout)
+
+    def create_general_tab(self) -> QWidget:
+        """Create the general settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # AI Model Group
+        ai_group = QGroupBox("AI Model Configuration")
+        ai_layout = QFormLayout(ai_group)
+
+        # Ollama model dropdown
+        self.model_dropdown = QComboBox()
+        self.model_dropdown.setMinimumWidth(200)
+        model_error_label = QLabel()
+        model_error_label.setObjectName("error_label")
+        model_error_label.hide()
+
+        model_layout = QVBoxLayout()
+        model_layout.addWidget(self.model_dropdown)
+        model_layout.addWidget(model_error_label)
+        ai_layout.addRow("Ollama Model:", model_layout)
+
+        # Server URL
+        self.server_url_field = QLineEdit()
+        self.server_url_field.setPlaceholderText("http://localhost:11434")
+        server_error_label = QLabel()
+        server_error_label.setObjectName("error_label")
+        server_error_label.hide()
+
+        server_layout = QVBoxLayout()
+        server_layout.addWidget(self.server_url_field)
+        server_layout.addWidget(server_error_label)
+        ai_layout.addRow("Server URL:", server_layout)
+
+        # Connection test button
+        self.test_connection_button = QPushButton("Test Connection")
+        self.test_connection_button.setMaximumWidth(150)
+        ai_layout.addRow("", self.test_connection_button)
+
+        layout.addWidget(ai_group)
+
+        # Screenshot Group
+        screenshot_group = QGroupBox("Screenshot Configuration")
+        screenshot_layout = QFormLayout(screenshot_group)
+
+        # Directory selection
+        directory_container = QHBoxLayout()
+        self.directory_field = QLineEdit()
+        self.directory_field.setPlaceholderText("Select screenshot directory...")
+        browse_button = QPushButton("Browse...")
+        browse_button.setMaximumWidth(80)
+        browse_button.clicked.connect(self.browse_directory)
+
+        directory_container.addWidget(self.directory_field)
+        directory_container.addWidget(browse_button)
+
+        directory_error_label = QLabel()
+        directory_error_label.setObjectName("error_label")
+        directory_error_label.hide()
+
+        directory_layout = QVBoxLayout()
+        directory_layout.addLayout(directory_container)
+        directory_layout.addWidget(directory_error_label)
+        screenshot_layout.addRow("Save Directory:", directory_layout)
+
+        # Image format
+        format_dropdown = QComboBox()
+        format_dropdown.addItems(["PNG", "JPEG", "BMP", "TIFF"])
+        screenshot_layout.addRow("Image Format:", format_dropdown)
+
+        # Quality slider
+        quality_container = QHBoxLayout()
+        self.quality_slider = QSlider(Qt.Orientation.Horizontal)
+        self.quality_slider.setRange(1, 100)
+        self.quality_slider.setValue(95)
+        self.quality_slider.valueChanged.connect(self.update_quality_label)
+
+        self.quality_label = QLabel("95%")
+        self.quality_label.setMinimumWidth(40)
+
+        quality_container.addWidget(self.quality_slider)
+        quality_container.addWidget(self.quality_label)
+        screenshot_layout.addRow("Quality:", quality_container)
+
+        layout.addWidget(screenshot_group)
+
+        # Add validators
+        model_validator = FieldValidator(self.model_dropdown, model_error_label)
+        model_validator.set_validation(
+            lambda x: x and x != "Select a model...",
+            "Please select a valid Ollama model"
+        )
+        self.validators.append(model_validator)
+
+        server_validator = FieldValidator(self.server_url_field, server_error_label)
+        server_validator.set_validation(
+            lambda x: x and x.startswith(("http://", "https://")),
+            "Please enter a valid HTTP/HTTPS URL"
+        )
+        self.validators.append(server_validator)
+
+        directory_validator = FieldValidator(self.directory_field, directory_error_label)
+        directory_validator.set_validation(
+            lambda x: x and Path(x).exists() if x else False,
+            "Please select a valid directory"
+        )
+        self.validators.append(directory_validator)
+
+        return tab
+
+    def create_hotkeys_tab(self) -> QWidget:
+        """Create the hotkeys configuration tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # Hotkeys group
+        hotkeys_group = QGroupBox("Global Hotkeys")
+        hotkeys_layout = QFormLayout(hotkeys_group)
+
+        # Screenshot capture hotkey
+        self.capture_hotkey = QKeySequenceEdit()
+        capture_error_label = QLabel()
+        capture_error_label.setObjectName("error_label")
+        capture_error_label.hide()
+
+        capture_layout = QVBoxLayout()
+        capture_layout.addWidget(self.capture_hotkey)
+        capture_layout.addWidget(capture_error_label)
+        hotkeys_layout.addRow("Screenshot Capture:", capture_layout)
+
+        # Overlay toggle hotkey
+        self.overlay_hotkey = QKeySequenceEdit()
+        overlay_error_label = QLabel()
+        overlay_error_label.setObjectName("error_label")
+        overlay_error_label.hide()
+
+        overlay_layout = QVBoxLayout()
+        overlay_layout.addWidget(self.overlay_hotkey)
+        overlay_layout.addWidget(overlay_error_label)
+        hotkeys_layout.addRow("Overlay Toggle:", overlay_layout)
+
+        # Settings window hotkey
+        self.settings_hotkey = QKeySequenceEdit()
+        settings_error_label = QLabel()
+        settings_error_label.setObjectName("error_label")
+        settings_error_label.hide()
+
+        settings_layout = QVBoxLayout()
+        settings_layout.addWidget(self.settings_hotkey)
+        settings_layout.addWidget(settings_error_label)
+        hotkeys_layout.addRow("Settings Window:", settings_layout)
+
+        layout.addWidget(hotkeys_group)
+
+        # Add spacer
+        layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+
+        # Add validators for hotkeys
+        capture_validator = FieldValidator(self.capture_hotkey, capture_error_label)
+        capture_validator.set_validation(
+            lambda x: len(x) > 0 if x else False,
+            "Please set a valid hotkey combination"
+        )
+        self.validators.append(capture_validator)
+
+        overlay_validator = FieldValidator(self.overlay_hotkey, overlay_error_label)
+        overlay_validator.set_validation(
+            lambda x: len(x) > 0 if x else False,
+            "Please set a valid hotkey combination"
+        )
+        self.validators.append(overlay_validator)
+
+        settings_validator = FieldValidator(self.settings_hotkey, settings_error_label)
+        settings_validator.set_validation(
+            lambda x: len(x) > 0 if x else False,
+            "Please set a valid hotkey combination"
+        )
+        self.validators.append(settings_validator)
+
+        return tab
+
+    def create_advanced_tab(self) -> QWidget:
+        """Create the advanced settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # System integration group
+        system_group = QGroupBox("System Integration")
+        system_layout = QFormLayout(system_group)
+
+        # Auto-start checkbox
+        self.auto_start_checkbox = QCheckBox("Start with Windows")
+        system_layout.addRow("Startup:", self.auto_start_checkbox)
+
+        # Debug mode checkbox
+        self.debug_mode_checkbox = QCheckBox("Enable debug logging")
+        system_layout.addRow("Debugging:", self.debug_mode_checkbox)
+
+        layout.addWidget(system_group)
+
+        # Maintenance group
+        maintenance_group = QGroupBox("Maintenance")
+        maintenance_layout = QFormLayout(maintenance_group)
+
+        # Cleanup days spinbox
+        self.cleanup_days_spinbox = QSpinBox()
+        self.cleanup_days_spinbox.setRange(1, 365)
+        self.cleanup_days_spinbox.setValue(30)
+        self.cleanup_days_spinbox.setSuffix(" days")
+        maintenance_layout.addRow("Auto-cleanup after:", self.cleanup_days_spinbox)
+
+        layout.addWidget(maintenance_group)
+
+        # Add spacer
+        layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+
+        return tab
+
+    def create_button_layout(self) -> QHBoxLayout:
+        """Create the bottom button layout."""
+        button_layout = QHBoxLayout()
+
+        # Add spacer to push buttons to the right
+        button_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+
+        # Reset button
+        reset_button = QPushButton("Reset to Defaults")
+        reset_button.clicked.connect(self.reset_to_defaults)
+        button_layout.addWidget(reset_button)
+
+        # Cancel button
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.cancel_settings)
+        button_layout.addWidget(self.cancel_button)
+
+        # Save button
+        self.save_button = QPushButton("Save Changes")
+        self.save_button.clicked.connect(self.save_settings)
+        self.save_button.setDefault(True)
+        button_layout.addWidget(self.save_button)
+
+        return button_layout
+
+    def setup_styling(self):
+        """Apply dark theme styling to the window."""
+        # Main window styling
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #2E2E2E;
+                color: #FFFFFF;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 10pt;
+            }
+
+            QLabel#title_label {
+                font-size: 16pt;
+                font-weight: bold;
+                color: #4A9EFF;
+                margin: 10px 0px;
+            }
+
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #555555;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 15px;
+                color: #CCCCCC;
+            }
+
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                background-color: #2E2E2E;
+            }
+
+            QTabWidget::pane {
+                border: 1px solid #555555;
+                background-color: #3A3A3A;
+                border-radius: 4px;
+            }
+
+            QTabBar::tab {
+                background-color: #444444;
+                color: #CCCCCC;
+                padding: 8px 16px;
+                margin-right: 2px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }
+
+            QTabBar::tab:selected {
+                background-color: #4A9EFF;
+                color: #FFFFFF;
+            }
+
+            QTabBar::tab:hover {
+                background-color: #555555;
+            }
+
+            QLineEdit, QComboBox, QSpinBox {
+                background-color: #444444;
+                border: 1px solid #666666;
+                border-radius: 4px;
+                padding: 6px;
+                color: #FFFFFF;
+                selection-background-color: #4A9EFF;
+            }
+
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+                border: 2px solid #4A9EFF;
+                background-color: #4A4A4A;
+            }
+
+            QComboBox::drop-down {
+                border: none;
+                background-color: #555555;
+                width: 20px;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #CCCCCC;
+                margin: 0px 5px;
+            }
+
+            QPushButton {
+                background-color: #4A9EFF;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+                min-width: 80px;
+            }
+
+            QPushButton:hover {
+                background-color: #6BB0FF;
+            }
+
+            QPushButton:pressed {
+                background-color: #3A8EEF;
+            }
+
+            QPushButton:disabled {
+                background-color: #666666;
+                color: #999999;
+            }
+
+            QCheckBox {
+                color: #FFFFFF;
+                spacing: 8px;
+            }
+
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 2px solid #666666;
+                border-radius: 3px;
+                background-color: #444444;
+            }
+
+            QCheckBox::indicator:checked {
+                background-color: #4A9EFF;
+                border-color: #4A9EFF;
+            }
+
+            QCheckBox::indicator:checked::after {
+                content: "✓";
+                color: #FFFFFF;
+                font-weight: bold;
+            }
+
+            QSlider::groove:horizontal {
+                border: 1px solid #666666;
+                height: 6px;
+                background-color: #444444;
+                border-radius: 3px;
+            }
+
+            QSlider::handle:horizontal {
+                background-color: #4A9EFF;
+                border: 1px solid #4A9EFF;
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                margin: -6px 0;
+            }
+
+            QSlider::handle:horizontal:hover {
+                background-color: #6BB0FF;
+            }
+
+            QKeySequenceEdit {
+                background-color: #444444;
+                border: 1px solid #666666;
+                border-radius: 4px;
+                padding: 6px;
+                color: #FFFFFF;
+            }
+
+            QKeySequenceEdit:focus {
+                border: 2px solid #4A9EFF;
+                background-color: #4A4A4A;
+            }
+
+            QProgressBar {
+                border: 1px solid #666666;
+                border-radius: 4px;
+                text-align: center;
+                color: #FFFFFF;
+                background-color: #444444;
+            }
+
+            QProgressBar::chunk {
+                background-color: #4A9EFF;
+                border-radius: 3px;
+            }
+
+            QLabel#error_label {
+                color: #FF6B6B;
+                font-size: 9pt;
+                margin-top: 2px;
+            }
+        """)
+
+    def setup_validation(self):
+        """Setup real-time validation for form fields."""
+        # Connect validation events
+        for validator in self.validators:
+            if isinstance(validator.field_widget, QLineEdit):
+                validator.field_widget.textChanged.connect(lambda: self.validate_form())
+            elif isinstance(validator.field_widget, QComboBox):
+                validator.field_widget.currentTextChanged.connect(lambda: self.validate_form())
+            elif isinstance(validator.field_widget, QKeySequenceEdit):
+                validator.field_widget.keySequenceChanged.connect(lambda: self.validate_form())
+
+    def connect_signals(self):
+        """Connect internal signals and slots."""
+        # Connect test connection button
+        if self.test_connection_button:
+            self.test_connection_button.clicked.connect(self.test_ollama_connection)
+
+        # Connect quality slider
+        if self.quality_slider:
+            self.quality_slider.valueChanged.connect(self.update_quality_label)
+
+    async def initialize(self) -> bool:
+        """
+        Initialize the settings window with current data.
+
+        Returns:
+            True if initialization successful
+        """
+        try:
+            logger.info("Initializing settings window...")
+
+            # Show progress
+            if self.progress_bar:
+                self.progress_bar.setVisible(True)
+                self.progress_bar.setRange(0, 0)  # Indeterminate progress
+
+            # Load current settings
+            self.current_settings = await self.settings_manager.load_settings()
+
+            # Load Ollama models
+            await self.load_ollama_models()
+
+            # Populate form fields
+            self.populate_form_fields()
+
+            # Hide progress
+            if self.progress_bar:
+                self.progress_bar.setVisible(False)
+
+            # Reset unsaved changes flag
+            self.unsaved_changes = False
+
+            logger.info("Settings window initialization complete")
+            return True
+
+        except Exception as e:
+            logger.error(f"Settings window initialization failed: {e}")
+            if self.progress_bar:
+                self.progress_bar.setVisible(False)
+            return False
+
+    async def load_ollama_models(self):
+        """Load available Ollama models into dropdown."""
+        try:
+            models = await self.mock_ollama.get_available_models()
+
+            if self.model_dropdown:
+                self.model_dropdown.clear()
+                self.model_dropdown.addItem("Select a model...")
+                self.model_dropdown.addItems(models)
+
+        except Exception as e:
+            logger.error(f"Failed to load Ollama models: {e}")
+            if self.model_dropdown:
+                self.model_dropdown.clear()
+                self.model_dropdown.addItem("Error loading models")
+
+    def populate_form_fields(self):
+        """Populate form fields with current settings."""
+        if not self.current_settings:
+            return
+
+        try:
+            # AI Model settings
+            if self.model_dropdown and self.current_settings.ollama.default_model:
+                index = self.model_dropdown.findText(self.current_settings.ollama.default_model)
+                if index >= 0:
+                    self.model_dropdown.setCurrentIndex(index)
+
+            if self.server_url_field:
+                self.server_url_field.setText(self.current_settings.ollama.server_url)
+
+            # Screenshot settings
+            if self.directory_field:
+                self.directory_field.setText(self.current_settings.screenshot.save_directory)
+
+            if self.quality_slider:
+                self.quality_slider.setValue(self.current_settings.screenshot.quality)
+                self.update_quality_label()
+
+            # Hotkey settings
+            if self.capture_hotkey:
+                self.capture_hotkey.setKeySequence(QKeySequence(self.current_settings.hotkeys.screenshot_capture))
+
+            if self.overlay_hotkey:
+                self.overlay_hotkey.setKeySequence(QKeySequence(self.current_settings.hotkeys.overlay_toggle))
+
+            if self.settings_hotkey:
+                self.settings_hotkey.setKeySequence(QKeySequence(self.current_settings.hotkeys.settings_open))
+
+            # Advanced settings
+            if self.auto_start_checkbox:
+                self.auto_start_checkbox.setChecked(self.current_settings.auto_start.enabled)
+
+            if self.debug_mode_checkbox:
+                self.debug_mode_checkbox.setChecked(self.current_settings.debug_mode)
+
+            if self.cleanup_days_spinbox:
+                self.cleanup_days_spinbox.setValue(self.current_settings.screenshot.auto_cleanup_days)
+
+        except Exception as e:
+            logger.error(f"Error populating form fields: {e}")
+
+    def collect_form_data(self) -> Dict[str, Any]:
+        """
+        Collect all form data into a dictionary.
+
+        Returns:
+            Dictionary with current form values
+        """
+        try:
+            data = {
+                "ollama": {
+                    "default_model": self.model_dropdown.currentText() if self.model_dropdown else "",
+                    "server_url": self.server_url_field.text() if self.server_url_field else "",
+                },
+                "screenshot": {
+                    "save_directory": self.directory_field.text() if self.directory_field else "",
+                    "quality": self.quality_slider.value() if self.quality_slider else 95,
+                    "auto_cleanup_days": self.cleanup_days_spinbox.value() if self.cleanup_days_spinbox else 30,
+                },
+                "hotkeys": {
+                    "screenshot_capture": self.capture_hotkey.keySequence().toString() if self.capture_hotkey else "",
+                    "overlay_toggle": self.overlay_hotkey.keySequence().toString() if self.overlay_hotkey else "",
+                    "settings_open": self.settings_hotkey.keySequence().toString() if self.settings_hotkey else "",
+                },
+                "advanced": {
+                    "auto_start": self.auto_start_checkbox.isChecked() if self.auto_start_checkbox else False,
+                    "debug_mode": self.debug_mode_checkbox.isChecked() if self.debug_mode_checkbox else False,
+                }
+            }
+
+            return data
+
+        except Exception as e:
+            logger.error(f"Error collecting form data: {e}")
+            return {}
+
+    def validate_form(self) -> bool:
+        """
+        Validate all form fields.
+
+        Returns:
+            True if all fields are valid
+        """
+        all_valid = True
+
+        for validator in self.validators:
+            if not validator.validate():
+                all_valid = False
+
+        # Enable/disable save button based on validation
+        if self.save_button:
+            self.save_button.setEnabled(all_valid)
+
+        return all_valid
+
+    def update_quality_label(self):
+        """Update the quality percentage label."""
+        if self.quality_slider and self.quality_label:
+            value = self.quality_slider.value()
+            self.quality_label.setText(f"{value}%")
+
+    def browse_directory(self):
+        """Open directory selection dialog."""
+        try:
+            current_dir = self.directory_field.text() if self.directory_field else ""
+            if not current_dir or not Path(current_dir).exists():
+                current_dir = str(Path.home() / "Screenshots")
+
+            selected_dir = QFileDialog.getExistingDirectory(
+                self,
+                "Select Screenshot Directory",
+                current_dir,
+                QFileDialog.Option.ShowDirsOnly
+            )
+
+            if selected_dir and self.directory_field:
+                self.directory_field.setText(selected_dir)
+                self.unsaved_changes = True
+                self.validate_form()
+
+        except Exception as e:
+            logger.error(f"Error in directory selection: {e}")
+
+    def test_ollama_connection(self):
+        """Test connection to Ollama server."""
+        async def _test_connection():
+            try:
+                if self.test_connection_button:
+                    self.test_connection_button.setEnabled(False)
+                    self.test_connection_button.setText("Testing...")
+
+                server_url = self.server_url_field.text() if self.server_url_field else ""
+                result = await self.mock_ollama.test_connection(server_url)
+
+                if result["success"]:
+                    QMessageBox.information(
+                        self,
+                        "Connection Test",
+                        f"Connection successful!\n\nServer Version: {result.get('server_version', 'Unknown')}\nAvailable Models: {result.get('models_count', 0)}"
+                    )
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Connection Test",
+                        f"Connection failed!\n\n{result.get('message', 'Unknown error')}"
+                    )
+
+            except Exception as e:
+                logger.error(f"Connection test error: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Connection Test",
+                    f"Test failed with error:\n{str(e)}"
+                )
+            finally:
+                if self.test_connection_button:
+                    self.test_connection_button.setEnabled(True)
+                    self.test_connection_button.setText("Test Connection")
+
+        # Run async test
+        asyncio.create_task(_test_connection())
+
+    def save_settings(self):
+        """Save current settings."""
+        try:
+            if not self.validate_form():
+                QMessageBox.warning(
+                    self,
+                    "Validation Error",
+                    "Please correct the validation errors before saving."
+                )
+                return
+
+            # Collect form data
+            form_data = self.collect_form_data()
+
+            # Emit save requested event for mock processing
+            logger.info(f"Mock: Settings save requested with data: {form_data}")
+
+            # Mock: Emit settings save requested event
+            asyncio.create_task(self.event_bus.emit(
+                EventTypes.SETTINGS_SAVE_REQUESTED,
+                form_data,
+                source="SettingsWindow"
+            ))
+
+            # Mock: Simulate settings save
+            QMessageBox.information(
+                self,
+                "Settings Saved",
+                "Settings have been saved successfully!\n\nNote: This is a mock implementation - changes are not persisted."
+            )
+
+            # Mock: Emit settings saved event
+            asyncio.create_task(self.event_bus.emit(
+                EventTypes.SETTINGS_SAVED,
+                form_data,
+                source="SettingsWindow"
+            ))
+
+            # Reset unsaved changes flag
+            self.unsaved_changes = False
+
+            # Close dialog
+            self.accept()
+
+        except Exception as e:
+            logger.error(f"Error saving settings: {e}")
+            QMessageBox.critical(
+                self,
+                "Save Error",
+                f"Failed to save settings:\n{str(e)}"
+            )
+
+    def cancel_settings(self):
+        """Cancel settings changes."""
+        if self.unsaved_changes:
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "You have unsaved changes. Are you sure you want to cancel?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        logger.info("Settings dialog cancelled")
+
+        # Emit window closed event
+        asyncio.create_task(self.event_bus.emit(
+            EventTypes.SETTINGS_WINDOW_CLOSED,
+            {"reason": "cancelled"},
+            source="SettingsWindow"
+        ))
+
+        self.reject()
+
+    def reset_to_defaults(self):
+        """Reset all settings to defaults."""
+        reply = QMessageBox.question(
+            self,
+            "Reset to Defaults",
+            "This will reset all settings to their default values. Are you sure?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # Mock: Reset to defaults
+            logger.info("Mock: Settings reset to defaults")
+
+            # You would normally reload default settings here
+            QMessageBox.information(
+                self,
+                "Reset Complete",
+                "Settings have been reset to defaults.\n\nNote: This is a mock implementation."
+            )
+
+    def closeEvent(self, a0):
+        """Handle window close event."""
+        if self.unsaved_changes:
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "You have unsaved changes. Are you sure you want to close?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+
+            if reply != QMessageBox.StandardButton.Yes:
+                if a0:
+                    a0.ignore()
+                return
+
+        logger.info("Settings window closed")
+        if a0:
+            a0.accept()

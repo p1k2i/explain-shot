@@ -61,6 +61,11 @@ class EventTypes:
     # Settings events
     SETTINGS_UPDATED = "settings.updated"
     SETTINGS_CHANGED = "settings.changed"
+    SETTINGS_SAVE_REQUESTED = "settings.save_requested"
+    SETTINGS_SAVED = "settings.saved"
+    SETTINGS_RESET_REQUESTED = "settings.reset_requested"
+    SETTINGS_WINDOW_SHOWN = "settings.window.shown"
+    SETTINGS_WINDOW_CLOSED = "settings.window.closed"
 
     # Error events
     ERROR_OCCURRED = "error.occurred"

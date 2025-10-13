@@ -15,6 +15,7 @@ from ..controllers.event_bus import EventBus
 from ..models.settings_manager import SettingsManager
 from ..models.screenshot_manager import ScreenshotManager
 from .overlay_manager import OverlayManager
+from .settings_window import SettingsWindow
 from src import EventTypes
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ class UIManager(QObject):
 
         # UI Components
         self.overlay_manager: Optional[OverlayManager] = None
+        self.settings_window: Optional[SettingsWindow] = None
 
         # State management
         self._initialized = False
@@ -147,6 +149,24 @@ class UIManager(QObject):
 
             # Settings events
             await self.event_bus.subscribe(
+                EventTypes.TRAY_SETTINGS_REQUESTED,
+                self._handle_show_settings,
+                priority=95
+            )
+
+            await self.event_bus.subscribe(
+                EventTypes.UI_SETTINGS_SHOW,
+                self._handle_show_settings,
+                priority=95
+            )
+
+            await self.event_bus.subscribe(
+                EventTypes.HOTKEY_SETTINGS_OPEN,
+                self._handle_show_settings,
+                priority=95
+            )
+
+            await self.event_bus.subscribe(
                 EventTypes.SETTINGS_UPDATED,
                 self._handle_settings_updated,
                 priority=80
@@ -204,6 +224,20 @@ class UIManager(QObject):
 
         except Exception as e:
             logger.error(f"Error handling hide overlay request: {e}")
+
+    async def _handle_show_settings(self, event_data) -> None:
+        """
+        Handle settings window show request.
+
+        Args:
+            event_data: Event data containing show parameters
+        """
+        try:
+            # Queue UI action for main thread processing
+            self._queue_ui_action("show_settings", event_data.data or {})
+
+        except Exception as e:
+            logger.error(f"Error handling show settings request: {e}")
 
     async def _handle_settings_updated(self, event_data) -> None:
         """
@@ -299,6 +333,10 @@ class UIManager(QObject):
                 # Schedule overlay hide for next event loop iteration
                 QTimer.singleShot(0, lambda: self._hide_overlay_sync(data.get("reason", "unknown")))
 
+            elif action == "show_settings":
+                # Schedule settings window show for next event loop iteration
+                QTimer.singleShot(0, self._show_settings_sync)
+
             else:
                 logger.warning(f"Unknown UI action: {action}")
 
@@ -322,6 +360,14 @@ class UIManager(QObject):
                 asyncio.create_task(self.overlay_manager.hide_overlay(reason=reason))
         except Exception as e:
             logger.error(f"Error hiding overlay synchronously: {e}")
+
+    def _show_settings_sync(self) -> None:
+        """Show settings window synchronously in main thread."""
+        try:
+            # Create task but don't await it - let it run in background
+            asyncio.create_task(self.show_settings_window())
+        except Exception as e:
+            logger.error(f"Error showing settings window synchronously: {e}")
 
     async def show_overlay(self, **kwargs) -> bool:
         """
@@ -365,6 +411,71 @@ class UIManager(QObject):
             logger.error(f"Error hiding overlay: {e}")
             return False
 
+    async def show_settings_window(self, **kwargs) -> bool:
+        """
+        Show the settings window.
+
+        Args:
+            **kwargs: Arguments to pass to settings window
+
+        Returns:
+            True if settings window shown successfully
+        """
+        try:
+            # Create settings window if not exists or if it was closed
+            if not self.settings_window or not self.settings_window.isVisible():
+                self.settings_window = SettingsWindow(
+                    event_bus=self.event_bus,
+                    settings_manager=self.settings_manager,
+                    parent=None  # Modal window, no parent needed
+                )
+
+                # Initialize the settings window
+                if not await self.settings_window.initialize():
+                    logger.error("Failed to initialize settings window")
+                    return False
+
+            # Show the window
+            self.settings_window.show()
+            self.settings_window.raise_()
+            self.settings_window.activateWindow()
+
+            # Emit settings window shown event
+            await self.event_bus.emit(
+                "settings.window.shown",
+                {"timestamp": asyncio.get_event_loop().time()},
+                source="UIManager"
+            )
+
+            logger.info("Settings window shown successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error showing settings window: {e}")
+            return False
+
+    async def hide_settings_window(self, **kwargs) -> bool:
+        """
+        Hide the settings window.
+
+        Args:
+            **kwargs: Arguments for hiding settings window
+
+        Returns:
+            True if settings window hidden successfully
+        """
+        try:
+            if self.settings_window and self.settings_window.isVisible():
+                self.settings_window.close()
+                logger.info("Settings window hidden successfully")
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Error hiding settings window: {e}")
+            return False
+
     async def get_ui_status(self) -> Dict[str, Any]:
         """
         Get current UI status.
@@ -380,6 +491,10 @@ class UIManager(QObject):
                 "available": self.overlay_manager is not None,
                 "initialized": self.overlay_manager.is_initialized if self.overlay_manager else False,
                 "visible": self.overlay_manager.is_overlay_visible() if self.overlay_manager else False
+            },
+            "settings_window": {
+                "available": self.settings_window is not None,
+                "visible": self.settings_window.isVisible() if self.settings_window else False
             }
         }
 
@@ -399,6 +514,11 @@ class UIManager(QObject):
             # Shutdown overlay manager
             if self.overlay_manager:
                 await self.overlay_manager.shutdown()
+
+            # Close settings window
+            if self.settings_window:
+                self.settings_window.close()
+                self.settings_window = None
 
             # Clear event queue
             self._event_queue.clear()
