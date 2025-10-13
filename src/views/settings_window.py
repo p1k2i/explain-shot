@@ -217,6 +217,47 @@ class SettingsWindow(QDialog):
 
         logger.info("SettingsWindow initialized")
 
+    def load_css_from_file(self, css_file_path: str) -> str:
+        """
+        Load CSS content from a file.
+
+        Args:
+            css_file_path: Path to the CSS file
+
+        Returns:
+            CSS content as string, or empty string if file not found
+        """
+        try:
+            css_path = Path(css_file_path)
+            if css_path.exists():
+                with open(css_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            else:
+                logger.warning(f"CSS file not found: {css_file_path}")
+                return ""
+        except Exception as e:
+            logger.error(f"Error loading CSS file {css_file_path}: {e}")
+            return ""
+
+    def setup_styling(self):
+        """Apply dark theme styling to the window."""
+        # Load CSS from file
+        css_file_path = Path(__file__).parent.parent.parent / "resources" / "settings" / "styles" / "dark_theme.css"
+        css_content = self.load_css_from_file(str(css_file_path))
+
+        if css_content:
+            self.setStyleSheet(css_content)
+        else:
+            logger.warning("Failed to load CSS file, using fallback styling")
+            # Fallback minimal styling
+            self.setStyleSheet("""
+                QDialog {
+                    background-color: #2E2E2E;
+                    color: #FFFFFF;
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                }
+            """)
+
     def setup_ui(self):
         """Setup the main UI layout and components."""
         self.setWindowTitle("ExplainScreenshot Settings")
@@ -510,194 +551,6 @@ class SettingsWindow(QDialog):
         button_layout.addWidget(self.save_button)
 
         return button_layout
-
-    def setup_styling(self):
-        """Apply dark theme styling to the window."""
-        # Main window styling
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #2E2E2E;
-                color: #FFFFFF;
-                font-family: 'Segoe UI', Arial, sans-serif;
-                font-size: 10pt;
-            }
-
-            QLabel#title_label {
-                font-size: 16pt;
-                font-weight: bold;
-                color: #4A9EFF;
-                margin: 10px 0px;
-            }
-
-            QGroupBox {
-                font-weight: bold;
-                border: 2px solid #555555;
-                border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 15px;
-                color: #CCCCCC;
-            }
-
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 10px 0 10px;
-                background-color: #2E2E2E;
-            }
-
-            QTabWidget::pane {
-                border: 1px solid #555555;
-                background-color: #3A3A3A;
-                border-radius: 4px;
-            }
-
-            QTabBar::tab {
-                background-color: #444444;
-                color: #CCCCCC;
-                padding: 8px 16px;
-                margin-right: 2px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-
-            QTabBar::tab:selected {
-                background-color: #4A9EFF;
-                color: #FFFFFF;
-            }
-
-            QTabBar::tab:hover {
-                background-color: #555555;
-            }
-
-            QLineEdit, QComboBox, QSpinBox {
-                background-color: #444444;
-                border: 1px solid #666666;
-                border-radius: 4px;
-                padding: 6px;
-                color: #FFFFFF;
-                selection-background-color: #4A9EFF;
-            }
-
-            QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
-                border: 2px solid #4A9EFF;
-                background-color: #4A4A4A;
-            }
-
-            QComboBox::drop-down {
-                border: none;
-                background-color: #555555;
-                width: 20px;
-                border-top-right-radius: 4px;
-                border-bottom-right-radius: 4px;
-            }
-
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid #CCCCCC;
-                margin: 0px 5px;
-            }
-
-            QPushButton {
-                background-color: #4A9EFF;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-                min-width: 80px;
-            }
-
-            QPushButton:hover {
-                background-color: #6BB0FF;
-            }
-
-            QPushButton:pressed {
-                background-color: #3A8EEF;
-            }
-
-            QPushButton:disabled {
-                background-color: #666666;
-                color: #999999;
-            }
-
-            QCheckBox {
-                color: #FFFFFF;
-                spacing: 8px;
-            }
-
-            QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
-                border: 2px solid #666666;
-                border-radius: 3px;
-                background-color: #444444;
-            }
-
-            QCheckBox::indicator:checked {
-                background-color: #4A9EFF;
-                border-color: #4A9EFF;
-            }
-
-            QCheckBox::indicator:checked::after {
-                content: "✓";
-                color: #FFFFFF;
-                font-weight: bold;
-            }
-
-            QSlider::groove:horizontal {
-                border: 1px solid #666666;
-                height: 6px;
-                background-color: #444444;
-                border-radius: 3px;
-            }
-
-            QSlider::handle:horizontal {
-                background-color: #4A9EFF;
-                border: 1px solid #4A9EFF;
-                width: 16px;
-                height: 16px;
-                border-radius: 8px;
-                margin: -6px 0;
-            }
-
-            QSlider::handle:horizontal:hover {
-                background-color: #6BB0FF;
-            }
-
-            QKeySequenceEdit {
-                background-color: #444444;
-                border: 1px solid #666666;
-                border-radius: 4px;
-                padding: 6px;
-                color: #FFFFFF;
-            }
-
-            QKeySequenceEdit:focus {
-                border: 2px solid #4A9EFF;
-                background-color: #4A4A4A;
-            }
-
-            QProgressBar {
-                border: 1px solid #666666;
-                border-radius: 4px;
-                text-align: center;
-                color: #FFFFFF;
-                background-color: #444444;
-            }
-
-            QProgressBar::chunk {
-                background-color: #4A9EFF;
-                border-radius: 3px;
-            }
-
-            QLabel#error_label {
-                color: #FF6B6B;
-                font-size: 9pt;
-                margin-top: 2px;
-            }
-        """)
 
     def setup_validation(self):
         """Setup real-time validation for form fields."""
