@@ -647,14 +647,14 @@ class SettingsWindow(QDialog):
         try:
             models = await self.mock_ollama.get_available_models()
 
-            if self.model_dropdown:
+            if self.model_dropdown is not None:
                 self.model_dropdown.clear()
                 self.model_dropdown.addItem("Select a model...")
                 self.model_dropdown.addItems(models)
 
         except Exception as e:
             logger.error(f"Failed to load Ollama models: {e}")
-            if self.model_dropdown:
+            if self.model_dropdown is not None:
                 self.model_dropdown.clear()
                 self.model_dropdown.addItem("Error loading models")
 
@@ -665,7 +665,7 @@ class SettingsWindow(QDialog):
 
         try:
             # AI Model settings
-            if self.model_dropdown and self.current_settings.ollama.default_model:
+            if self.model_dropdown is not None and self.current_settings.ollama.default_model:
                 logger.debug(f"Trying to set model: {self.current_settings.ollama.default_model}")
                 index = self.model_dropdown.findText(self.current_settings.ollama.default_model)
                 logger.debug(f"Model index found: {index}, current text: {self.model_dropdown.currentText()}")
@@ -732,7 +732,7 @@ class SettingsWindow(QDialog):
         try:
             data = {
                 "ollama": {
-                    "default_model": self.model_dropdown.currentText() if self.model_dropdown else "",
+                    "default_model": self.model_dropdown.currentText() if self.model_dropdown is not None else "",
                     "server_url": self.server_url_field.text() if self.server_url_field else "",
                 },
                 "screenshot": {
