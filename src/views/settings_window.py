@@ -204,6 +204,7 @@ class SettingsWindow(QDialog):
         self.model_dropdown: Optional[QComboBox] = None
         self.server_url_field: Optional[QLineEdit] = None
         self.directory_field: Optional[QLineEdit] = None
+        self.format_dropdown: Optional[QComboBox] = None
         self.quality_slider: Optional[QSlider] = None
         self.quality_label: Optional[QLabel] = None
         self.capture_hotkey: Optional[QKeySequenceEdit] = None
@@ -386,9 +387,9 @@ class SettingsWindow(QDialog):
         screenshot_layout.addRow("Save Directory:", directory_layout)
 
         # Image format
-        format_dropdown = QComboBox()
-        format_dropdown.addItems(["PNG", "JPEG", "BMP", "TIFF"])
-        screenshot_layout.addRow("Image Format:", format_dropdown)
+        self.format_dropdown = QComboBox()
+        self.format_dropdown.addItems(["PNG", "JPEG", "BMP", "TIFF"])
+        screenshot_layout.addRow("Image Format:", self.format_dropdown)
 
         # Quality slider
         quality_container = QHBoxLayout()
@@ -689,6 +690,11 @@ class SettingsWindow(QDialog):
             if self.directory_field:
                 self.directory_field.setText(self.current_settings.screenshot.save_directory)
 
+            if self.format_dropdown:
+                index = self.format_dropdown.findText(self.current_settings.screenshot.image_format.upper())
+                if index >= 0:
+                    self.format_dropdown.setCurrentIndex(index)
+
             if self.quality_slider:
                 self.quality_slider.setValue(self.current_settings.screenshot.quality)
                 self.update_quality_label()
@@ -737,6 +743,7 @@ class SettingsWindow(QDialog):
                 },
                 "screenshot": {
                     "save_directory": self.directory_field.text() if self.directory_field else "",
+                    "image_format": self.format_dropdown.currentText() if self.format_dropdown else "PNG",
                     "quality": self.quality_slider.value() if self.quality_slider else 95,
                     "auto_cleanup_days": self.cleanup_days_spinbox.value() if self.cleanup_days_spinbox else 30,
                 },
@@ -907,6 +914,13 @@ class SettingsWindow(QDialog):
                     success_count += 1
                 else:
                     failed_updates.append("screenshot.save_directory")
+
+            if screenshot_data.get("image_format"):
+                total_updates += 1
+                if await self.settings_manager.update_setting("screenshot.image_format", screenshot_data["image_format"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("screenshot.image_format")
 
             if "quality" in screenshot_data:
                 total_updates += 1
