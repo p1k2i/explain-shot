@@ -155,49 +155,6 @@ async def test_event_integration():
         await event_bus.shutdown()
 
 
-async def test_mock_functionality():
-    """Test mock implementations."""
-    print("Testing mock functionality...")
-
-    event_bus = EventBus()
-    settings_manager = SettingsManager(auto_create=True, validate_on_load=False)
-    await settings_manager.initialize_database()
-
-    main_controller = MainController(event_bus, settings_manager)
-
-    try:
-        # Initialize controller
-        await main_controller.initialize()
-        print("✓ Controller initialized for mock testing")
-
-        # Test mock screenshot capture
-        await main_controller._mock_screenshot_capture({
-            'trigger_source': 'test',
-            'hotkey_combination': 'Ctrl+Shift+S'
-        })
-        print("✓ Mock screenshot capture executed")
-
-        # Test mock overlay toggle
-        await main_controller._mock_overlay_toggle({
-            'trigger_source': 'test',
-            'hotkey_combination': 'Ctrl+Shift+O'
-        })
-        print("✓ Mock overlay toggle executed")
-
-        # Test mock settings open
-        await main_controller._mock_settings_open({
-            'trigger_source': 'test',
-            'hotkey_combination': 'Ctrl+Shift+P'
-        })
-        print("✓ Mock settings open executed")
-
-        print("Mock functionality test PASSED\n")
-
-    finally:
-        await main_controller.shutdown()
-        await event_bus.shutdown()
-
-
 async def run_complete_hotkey_test():
     """Run complete hotkey system test."""
     print("=== Starting Complete Hotkey System Test ===\n")
@@ -206,7 +163,6 @@ async def run_complete_hotkey_test():
         await test_hotkey_combination_parsing()
         await test_hotkey_registration()
         await test_event_integration()
-        await test_mock_functionality()
 
         print("=== All Tests PASSED ===")
 

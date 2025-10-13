@@ -330,8 +330,7 @@ class MainController:
                     # Show overlay if it's not visible
                     await self.ui_manager.show_overlay()
             else:
-                # Mock overlay toggle implementation
-                await self._mock_overlay_toggle(event_data.data)
+                logger.error("UI manager not available, cannot toggle overlay via hotkey")
 
             # Emit overlay event
             await self.event_bus.emit(
@@ -360,9 +359,6 @@ class MainController:
             logger.info("Settings hotkey triggered: %s",
                        event_data.data.get('combination', 'unknown'))
 
-            # Mock settings window opening
-            await self._mock_settings_open(event_data.data)
-
             # Emit settings show event
             await self.event_bus.emit(
                 EventTypes.UI_SETTINGS_SHOW,
@@ -383,9 +379,6 @@ class MainController:
         """Handle settings request from tray."""
         try:
             logger.info("Settings requested from tray")
-
-            # Mock settings window opening
-            await self._mock_settings_open({'trigger_source': 'tray'})
 
             await self.event_bus.emit(
                 EventTypes.UI_SETTINGS_SHOW,
@@ -409,8 +402,7 @@ class MainController:
             if self.ui_manager:
                 await self.ui_manager.show_overlay()
             else:
-                # Mock overlay toggle
-                await self._mock_overlay_toggle({'trigger_source': 'tray'})
+                logger.error("UI manager not available, cannot show overlay from tray")
 
             await self.event_bus.emit(
                 EventTypes.UI_OVERLAY_SHOW,
@@ -546,43 +538,6 @@ class MainController:
                 'success': False,
                 'error_message': error_msg
             }
-
-    async def _mock_overlay_toggle(self, trigger_data: Dict[str, Any]) -> None:
-        """
-        Mock overlay toggle implementation.
-
-        Args:
-            trigger_data: Data from trigger event
-        """
-        logger.info("MOCK: Toggling overlay window...")
-
-        if 'hotkey_combination' in trigger_data:
-            logger.info("MOCK: Triggered by hotkey: %s", trigger_data['hotkey_combination'])
-
-        # Simulate state toggle
-        await asyncio.sleep(0.05)
-
-        logger.info("MOCK: Overlay window toggled successfully")
-
-    async def _mock_settings_open(self, trigger_data: Dict[str, Any]) -> None:
-        """
-        Mock settings window opening.
-
-        Args:
-            trigger_data: Data from trigger event
-        """
-        logger.info("MOCK: Opening settings window...")
-        logger.info("MOCK: Trigger source: %s", trigger_data.get('trigger_source', 'unknown'))
-
-        if 'hotkey_combination' in trigger_data:
-            logger.info("MOCK: Triggered by hotkey: %s", trigger_data['hotkey_combination'])
-
-        # Simulate window creation
-        await asyncio.sleep(0.05)
-
-        logger.info("MOCK: Settings window opened successfully")
-        logger.info("MOCK: Configuration panels loaded")
-        logger.info("MOCK: Hotkey assignments displayed")
 
     async def _emit_error(self, error_type: str, error_message: str) -> None:
         """

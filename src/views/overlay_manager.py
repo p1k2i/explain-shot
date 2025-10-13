@@ -349,8 +349,8 @@ class OverlayManager(QObject):
                 except Exception as e:
                     logger.error(f"Error fetching screenshots from manager: {e}")
 
-            # Fallback to mock data if no screenshot manager or error
-            return self._get_mock_screenshot_data()
+            logger.error("ScreenshotManager not available, returning empty screenshot list")
+            return []
 
         except Exception as e:
             logger.error(f"Error fetching screenshot data: {e}")
@@ -375,40 +375,6 @@ class OverlayManager(QObject):
                 "title": "🖼️ Open Gallery",
                 "description": "View screenshot gallery",
                 "action": "open_gallery"
-            }
-        ]
-
-    def _get_mock_screenshot_data(self) -> List[Dict[str, Any]]:
-        """
-        Get mock screenshot data for testing.
-
-        Returns:
-            List of mock screenshot data dictionaries
-        """
-        import datetime
-        now = datetime.datetime.now()
-
-        return [
-            {
-                "id": "mock_1",
-                "filename": "screenshot_001.png",
-                "timestamp": (now - datetime.timedelta(minutes=5)).isoformat(),
-                "file_size": 1048576,  # 1MB
-                "resolution": "1920x1080"
-            },
-            {
-                "id": "mock_2",
-                "filename": "screenshot_002.png",
-                "timestamp": (now - datetime.timedelta(minutes=15)).isoformat(),
-                "file_size": 851968,  # ~830KB
-                "resolution": "1366x768"
-            },
-            {
-                "id": "mock_3",
-                "filename": "screenshot_003.png",
-                "timestamp": (now - datetime.timedelta(hours=1)).isoformat(),
-                "file_size": 2097152,  # 2MB
-                "resolution": "2560x1440"
             }
         ]
 
