@@ -12,7 +12,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set, Any
 from datetime import datetime
 import time
 from queue import Queue, Empty
@@ -246,6 +246,9 @@ class HotkeyHandler:
         self._fallback_keys = ['f9', 'f10', 'f11', 'f12']
         self._used_fallbacks: Set[str] = set()
 
+        # Current hotkey configuration
+        self._hotkey_config: Optional[Any] = None
+
         logger.info("HotkeyHandler initialized")
 
     def _setup_validation_rules(self) -> Dict[str, Callable[[HotkeyCombo], bool]]:
@@ -366,9 +369,9 @@ class HotkeyHandler:
         """Load hotkey configuration from settings."""
         try:
             settings = await self.settings_manager.load_settings()
-            hotkey_config = settings.hotkeys
+            self._hotkey_config = settings.hotkeys
 
-            logger.debug("Loaded hotkey configuration: %s", hotkey_config)
+            logger.debug("Loaded hotkey configuration: %s", self._hotkey_config)
 
         except Exception as e:
             logger.error("Failed to load hotkey configuration: %s", e)
@@ -376,22 +379,53 @@ class HotkeyHandler:
 
     async def _register_default_hotkeys(self) -> None:
         """Register default application hotkeys."""
-        default_hotkeys = [
-            {
-                'hotkey_id': 'screenshot_capture',
-                'combination': 'ctrl+shift+s',
-                'action': 'capture_screenshot',
-                'description': 'Capture screenshot'
-            },
-            {
-                'hotkey_id': 'overlay_toggle',
-                'combination': 'ctrl+shift+o',
-                'action': 'toggle_overlay',
-                'description': 'Toggle overlay window'
-            }
-        ]
+        # Use configured hotkeys from settings, or fall back to defaults
+        if self._hotkey_config:
+            hotkey_definitions = [
+                {
+                    'hotkey_id': 'screenshot_capture',
+                    'combination': self._hotkey_config.screenshot_capture,
+                    'action': 'capture_screenshot',
+                    'description': 'Capture screenshot'
+                },
+                {
+                    'hotkey_id': 'overlay_toggle',
+                    'combination': self._hotkey_config.overlay_toggle,
+                    'action': 'toggle_overlay',
+                    'description': 'Toggle overlay window'
+                },
+                {
+                    'hotkey_id': 'settings_open',
+                    'combination': self._hotkey_config.settings_open,
+                    'action': 'open_settings',
+                    'description': 'Open settings window'
+                }
+            ]
+        else:
+            # Fallback to hardcoded defaults if config not loaded
+            logger.warning("No hotkey configuration loaded, using defaults")
+            hotkey_definitions = [
+                {
+                    'hotkey_id': 'screenshot_capture',
+                    'combination': 'ctrl+shift+s',
+                    'action': 'capture_screenshot',
+                    'description': 'Capture screenshot'
+                },
+                {
+                    'hotkey_id': 'overlay_toggle',
+                    'combination': 'ctrl+shift+o',
+                    'action': 'toggle_overlay',
+                    'description': 'Toggle overlay window'
+                },
+                {
+                    'hotkey_id': 'settings_open',
+                    'combination': 'ctrl+shift+p',
+                    'action': 'open_settings',
+                    'description': 'Open settings window'
+                }
+            ]
 
-        for hotkey_def in default_hotkeys:
+        for hotkey_def in hotkey_definitions:
             try:
                 combo = self._parse_hotkey_combination(hotkey_def['combination'])
                 success = await self.register_hotkey(
@@ -1002,6 +1036,18 @@ class HotkeyHandler:
                         'combination': event.combination.display_name,
                         'timestamp': event.timestamp,
                         'mock_action': 'overlay_toggle_requested'
+                    },
+                    source="HotkeyHandler"
+                )
+
+            elif event.action == 'open_settings':
+                await self.event_bus.emit(
+                    EventTypes.HOTKEY_SETTINGS_OPEN,
+                    {
+                        'hotkey_id': event.hotkey_id,
+                        'combination': event.combination.display_name,
+                        'timestamp': event.timestamp,
+                        'mock_action': 'settings_open_requested'
                     },
                     source="HotkeyHandler"
                 )
