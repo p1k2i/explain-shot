@@ -241,10 +241,8 @@ class Application:
             key = event_data.data['key']
             value = event_data.data['value']
 
-            # Update the setting
-            if self.settings_manager:
-                await self.settings_manager.update_setting(key, value)
-                logger.debug("Setting updated: %s = %s", key, value)
+            # Note: Settings are already updated by SettingsManager, no need to update again
+            logger.debug("Settings updated notification: %s = %s", key, value)
 
     async def run(self) -> int:
         """

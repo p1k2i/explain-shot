@@ -546,13 +546,20 @@ class ScreenshotManager:
         try:
             data = event_data.data if event_data else {}
             key = data.get("key", "")
+            is_full_save = data.get("full_save", False)
 
             # Handle screenshot-related settings
             if key.startswith("screenshot."):
-                self.logger.info(f"Screenshot setting updated: {key}")
-                await self.refresh_directory_config()
+                self.logger.debug(f"Screenshot setting updated: {key}")
+                if not is_full_save:  # Only refresh on individual updates, not full saves
+                    await self.refresh_directory_config()
             elif key in ["filename_format", "compression_level"]:
-                self.logger.info(f"Screenshot configuration updated: {key}")
+                self.logger.debug(f"Screenshot configuration updated: {key}")
+                if not is_full_save:
+                    await self.refresh_directory_config()
+            elif is_full_save:
+                # On full save, refresh once
+                self.logger.debug("Screenshot settings full save, refreshing configuration")
                 await self.refresh_directory_config()
 
         except Exception as e:

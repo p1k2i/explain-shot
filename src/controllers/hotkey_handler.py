@@ -231,6 +231,7 @@ class HotkeyHandler:
         self._initialized = False
         self._shutdown_requested = False
         self._registration_lock = asyncio.Lock()
+        self._reload_scheduled = False
 
         # Thread-safe event queue for hotkey events
         self._event_queue = ThreadSafeEventQueue()
@@ -1029,11 +1030,30 @@ class HotkeyHandler:
                 'key' in event_data.data and
                 event_data.data['key'].startswith('hotkeys.')):
 
-                logger.info("Hotkey settings updated, reloading configuration")
-                await self.reload_configuration()
+                is_full_save = event_data.data.get("full_save", False)
+                if not is_full_save:  # Only schedule reload on individual updates, not full saves
+                    # Schedule a reload with debouncing to avoid multiple reloads for batch updates
+                    if not hasattr(self, '_reload_scheduled') or not self._reload_scheduled:
+                        self._reload_scheduled = True
+                        # Schedule reload after a short delay to batch multiple updates
+                        asyncio.create_task(self._delayed_reload())
+                else:
+                    logger.debug("Hotkey settings full save, skipping individual reload")
 
         except Exception as e:
             logger.error("Error handling settings update: %s", e)
+
+    async def _delayed_reload(self) -> None:
+        """Delayed reload to batch multiple hotkey setting updates."""
+        try:
+            await asyncio.sleep(0.1)  # Short delay to batch updates
+            if self._reload_scheduled:
+                self._reload_scheduled = False
+                logger.debug("Hotkey settings updated, reloading configuration")
+                await self.reload_configuration()
+        except Exception as e:
+            logger.error("Error in delayed reload: %s", e)
+            self._reload_scheduled = False
 
     def get_registered_hotkeys(self) -> Dict[str, HotkeyCombo]:
         """
