@@ -174,7 +174,7 @@ class ScreenshotManager:
                 timestamp=datetime.now(),
                 file_size=os.path.getsize(full_path),
                 resolution=image.size,
-                format="PNG"
+                format=self._config.format if self._config else "PNG"
             )
 
             # Register in database
@@ -466,7 +466,7 @@ class ScreenshotManager:
         """Load configuration from SettingsManager."""
         try:
             screenshot_dir = await self.settings_manager.get_setting(
-                "screenshot_directory",
+                "screenshot.save_directory",
                 self._get_default_directory()
             )
             filename_format = await self.settings_manager.get_setting(
@@ -477,6 +477,7 @@ class ScreenshotManager:
             auto_create = await self.settings_manager.get_setting("auto_create_directory", True)
             max_screenshots = await self.settings_manager.get_setting("max_screenshots", 1000)
             cleanup_days = await self.settings_manager.get_setting("cleanup_days", 30)
+            image_format = await self.settings_manager.get_setting("screenshot.image_format", "PNG")
 
             self._config = ScreenshotConfig(
                 directory=screenshot_dir,
@@ -484,7 +485,8 @@ class ScreenshotManager:
                 compression_level=compression_level,
                 auto_create_directory=auto_create,
                 max_screenshots=max_screenshots,
-                cleanup_days=cleanup_days
+                cleanup_days=cleanup_days,
+                format=image_format
             )
 
         except Exception as e:
@@ -553,7 +555,7 @@ class ScreenshotManager:
                 self.logger.debug(f"Screenshot setting updated: {key}")
                 if not is_full_save:  # Only refresh on individual updates, not full saves
                     await self.refresh_directory_config()
-            elif key in ["filename_format", "compression_level"]:
+            elif key in ["filename_format", "compression_level", "image_format"]:
                 self.logger.debug(f"Screenshot configuration updated: {key}")
                 if not is_full_save:
                     await self.refresh_directory_config()
@@ -651,14 +653,44 @@ class ScreenshotManager:
 
             # Save image to temporary file
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: image.save(
-                    temp_path,
-                    "PNG",
-                    compress_level=self._config.compression_level if self._config else 6
+            format_upper = (self._config.format if self._config else "PNG").upper()
+
+            if format_upper == "PNG":
+                await loop.run_in_executor(
+                    None,
+                    lambda: image.save(
+                        temp_path,
+                        format_upper,
+                        compress_level=self._config.compression_level if self._config else 6
+                    )
                 )
-            )
+            elif format_upper in ["JPEG", "JPG"]:
+                await loop.run_in_executor(
+                    None,
+                    lambda: image.save(
+                        temp_path,
+                        format_upper,
+                        quality=self._config.quality if self._config else 95
+                    )
+                )
+            elif format_upper in ["BMP", "TIFF"]:
+                await loop.run_in_executor(
+                    None,
+                    lambda: image.save(
+                        temp_path,
+                        format_upper
+                    )
+                )
+            else:
+                # Default to PNG for unsupported formats
+                await loop.run_in_executor(
+                    None,
+                    lambda: image.save(
+                        temp_path,
+                        "PNG",
+                        compress_level=self._config.compression_level if self._config else 6
+                    )
+                )
 
             # Verify the file was saved correctly
             if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
@@ -712,19 +744,30 @@ class ScreenshotManager:
         else:
             base_filename = f"{base_name}_{now.strftime('%Y%m%d_%H%M%S_%f')[:-3]}"
 
-        filename = f"{base_filename}.png"
+        # Determine file extension based on format
+        format_upper = (self._config.format if self._config else "PNG").upper()
+        if format_upper in ["JPEG", "JPG"]:
+            extension = ".jpg"
+        elif format_upper == "BMP":
+            extension = ".bmp"
+        elif format_upper == "TIFF":
+            extension = ".tiff"
+        else:
+            extension = ".png"  # Default to PNG for unsupported formats
+
+        filename = f"{base_filename}{extension}"
         full_path = os.path.join(self._current_directory, filename)
 
         # Handle collisions
         counter = 1
         while os.path.exists(full_path) and counter <= 1000:
-            filename = f"{base_filename}_{counter}.png"
+            filename = f"{base_filename}_{counter}{extension}"
             full_path = os.path.join(self._current_directory, filename)
             counter += 1
 
         if counter > 1000:
             # Emergency fallback with UUID
             import uuid
-            filename = f"{base_filename}_{uuid.uuid4().hex[:8]}.png"
+            filename = f"{base_filename}_{uuid.uuid4().hex[:8]}{extension}"
 
         return filename

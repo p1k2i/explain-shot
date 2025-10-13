@@ -188,6 +188,7 @@ class ScreenshotConfig:
     max_screenshots: int = 1000  # 0 = unlimited
     cleanup_days: int = 30  # 0 = never cleanup
     quality: int = 95  # For future JPEG support
+    format: str = "PNG"  # Image format (PNG, JPEG, etc.)
 
     def __post_init__(self):
         """Validate configuration values."""
