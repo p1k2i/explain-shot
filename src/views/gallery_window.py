@@ -13,7 +13,7 @@ from typing import Optional, List, TYPE_CHECKING
 from dataclasses import dataclass
 
 from PyQt6.QtCore import (
-    Qt, QObject, QTimer, pyqtSignal, QSize, QBuffer
+    Qt, QObject, QTimer, pyqtSignal, QSize, QBuffer, QFile
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QScrollArea, QTextBrowser,
@@ -1044,41 +1044,14 @@ class GalleryWindow(QWidget):
 
     def _apply_theme(self):
         """Apply dark theme styling."""
-        self.setStyleSheet("""
-            GalleryWindow {
-                background-color: #2E2E2E;
-                border-radius: 8px;
-            }
-            QFrame#TitleBar {
-                background-color: #3A3A3A;
-                border-bottom: 1px solid #555;
-            }
-            QPushButton {
-                background-color: #555;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #666;
-            }
-            QPushButton:pressed {
-                background-color: #444;
-            }
-            QSplitter::handle {
-                background-color: #555;
-                width: 2px;
-            }
-            QSplitter::handle:hover {
-                background-color: #007ACC;
-            }
-            QScrollArea {
-                background-color: #2E2E2E;
-                border: 1px solid #555;
-                border-radius: 4px;
-            }
-        """)
+        css_file_path = "resources/gallery/styles/dark_theme.css"
+        css_file = QFile(css_file_path)
+        if css_file.open(QFile.OpenModeFlag.ReadOnly | QFile.OpenModeFlag.Text):
+            css_content = css_file.readAll().data().decode('utf-8')
+            self.setStyleSheet(css_content)
+            css_file.close()
+        else:
+            logger.warning("Failed to load gallery stylesheet")
 
     def closeEvent(self, a0):
         """Handle window close event."""
