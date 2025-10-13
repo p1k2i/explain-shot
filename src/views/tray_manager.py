@@ -42,7 +42,6 @@ class TrayMenuAction(Enum):
     SHOW_GALLERY = "show_gallery"
     SHOW_OVERLAY = "show_overlay"
     OPEN_SETTINGS = "open_settings"
-    TOGGLE_AUTO_START = "toggle_auto_start"
     ABOUT = "about"
     EXIT = "exit"
 
@@ -127,17 +126,6 @@ class TrayManager:
                 'type': MenuItemType.ACTION,
                 'enabled': True,
                 'tooltip': 'Open application settings'
-            },
-            {
-                'text': '🚀 Auto-start',
-                'action': TrayMenuAction.TOGGLE_AUTO_START,
-                'type': MenuItemType.CHECKABLE,
-                'checked': False,
-                'enabled': True,
-                'tooltip': 'Toggle auto-start on Windows boot'
-            },
-            {
-                'type': MenuItemType.SEPARATOR
             },
             {
                 'text': 'About',
@@ -364,16 +352,6 @@ class TrayManager:
                     source="tray"
                 )
 
-            elif action == TrayMenuAction.TOGGLE_AUTO_START:
-                await self._event_bus.emit(
-                    EventTypes.SETTINGS_UPDATED,
-                    {
-                        'key': 'auto_start.enabled',
-                        'value': not self._settings.get('auto_start_enabled', False)
-                    },
-                    source="tray"
-                )
-
             elif action == TrayMenuAction.ABOUT:
                 await self._event_bus.emit(
                     EventTypes.TRAY_MENU_SELECTED,
@@ -468,9 +446,7 @@ class TrayManager:
 
         try:
             # Update menu items based on current settings
-            for item in self._menu_items:
-                if item.get('action') == TrayMenuAction.TOGGLE_AUTO_START:
-                    item['checked'] = self._settings.get('auto_start_enabled', False)
+            # for item in self._menu_items:
 
             # Rebuild menu (in detached mode, we can update directly)
             if force_rebuild:
