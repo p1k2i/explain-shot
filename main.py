@@ -309,7 +309,7 @@ class Application:
             while not self._shutdown_event.is_set():
                 if self.qt_app:
                     self.qt_app.processEvents()
-                await asyncio.sleep(0.01)  # 10ms intervals
+                await asyncio.sleep(0)
 
         except asyncio.CancelledError:
             logger.info("Qt event processing cancelled")
