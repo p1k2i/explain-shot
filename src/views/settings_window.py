@@ -26,68 +26,6 @@ from src import EventTypes
 logger = logging.getLogger(__name__)
 
 
-class MockOllamaClient:
-    """
-    Mock Ollama client for development and testing.
-    Simulates model fetching and connection testing.
-    """
-
-    def __init__(self):
-        self.available_models = [
-            "gemma3:4b",
-            "llama3:8b",
-            "mistral:7b",
-            "codellama:13b",
-            "phi3:medium"
-        ]
-        self.connection_success_rate = 0.9  # 90% success rate for testing
-
-    async def get_available_models(self) -> List[str]:
-        """
-        Mock method to fetch available Ollama models.
-
-        Returns:
-            List of model names
-        """
-        # Simulate network delay
-        await asyncio.sleep(0.1)
-        logger.info(f"Mock: Retrieved {len(self.available_models)} Ollama models")
-        return self.available_models.copy()
-
-    async def test_connection(self, server_url: str) -> Dict[str, Any]:
-        """
-        Mock connection test to Ollama server.
-
-        Args:
-            server_url: Server URL to test
-
-        Returns:
-            Connection test result
-        """
-        # Simulate network delay
-        await asyncio.sleep(0.5)
-
-        import random
-        success = random.random() < self.connection_success_rate
-
-        if success:
-            result = {
-                "success": True,
-                "message": "Connection successful",
-                "server_version": "0.1.17",
-                "models_count": len(self.available_models)
-            }
-        else:
-            result = {
-                "success": False,
-                "message": "Connection timeout - server not responding",
-                "error_code": "TIMEOUT"
-            }
-
-        logger.info(f"Mock: Connection test to {server_url} - {'SUCCESS' if success else 'FAILED'}")
-        return result
-
-
 class FieldValidator:
     """
     Validator for settings form fields with visual feedback.
@@ -177,6 +115,7 @@ class SettingsWindow(QDialog):
         self,
         event_bus: EventBus,
         settings_manager: SettingsManager,
+        ollama_client=None,
         parent=None
     ):
         """
@@ -185,13 +124,14 @@ class SettingsWindow(QDialog):
         Args:
             event_bus: EventBus for communication
             settings_manager: SettingsManager for data persistence
+            ollama_client: OllamaClient for model fetching and connection testing
             parent: Parent widget
         """
         super().__init__(parent)
 
         self.event_bus = event_bus
         self.settings_manager = settings_manager
-        self.mock_ollama = MockOllamaClient()
+        self.ollama_client = ollama_client
 
         # Current settings data
         self.current_settings: Optional[ApplicationSettings] = None
@@ -713,7 +653,22 @@ class SettingsWindow(QDialog):
     async def load_ollama_models(self):
         """Load available Ollama models into dropdown."""
         try:
-            models = await self.mock_ollama.get_available_models()
+            models = []
+
+            if self.ollama_client and self.ollama_client.is_online():
+                # Get models from real OllamaClient
+                models = await self.ollama_client.get_available_models()
+                logger.info(f"Retrieved {len(models)} Ollama models from server")
+            else:
+                # Fallback: use mock data when offline
+                models = [
+                    "gemma2:9b",
+                    "llama3.1:8b",
+                    "qwen2.5:7b",
+                    "deepseek-r1:8b",
+                    "mistral:7b"
+                ]
+                logger.info(f"Using fallback models (Ollama offline): {len(models)} models")
 
             if self.model_dropdown is not None:
                 self.model_dropdown.clear()
@@ -894,19 +849,45 @@ class SettingsWindow(QDialog):
                     self.test_connection_button.setText("Testing...")
 
                 server_url = self.server_url_field.text() if self.server_url_field else ""
-                result = await self.mock_ollama.test_connection(server_url)
 
-                if result["success"]:
-                    QMessageBox.information(
-                        self,
-                        "Connection Test",
-                        f"Connection successful!\n\nServer Version: {result.get('server_version', 'Unknown')}\nAvailable Models: {result.get('models_count', 0)}"
-                    )
+                if self.ollama_client:
+                    # Test with real OllamaClient
+                    try:
+                        # Save current server URL and temporarily update it for testing
+                        original_server = self.ollama_client.server_url
+                        self.ollama_client.server_url = server_url
+
+                        # Perform health check
+                        success = await self.ollama_client._perform_health_check()
+
+                        # Restore original server URL
+                        self.ollama_client.server_url = original_server
+
+                        if success:
+                            models = self.ollama_client._available_models
+                            QMessageBox.information(
+                                self,
+                                "Connection Test",
+                                f"Connection successful!\n\nServer: {server_url}\nAvailable Models: {len(models)}\nModels: {', '.join(models[:3])}{'...' if len(models) > 3 else ''}"
+                            )
+                        else:
+                            QMessageBox.warning(
+                                self,
+                                "Connection Test",
+                                f"Connection failed!\n\nServer: {server_url}\nUnable to connect to Ollama server.\nPlease check that Ollama is running and accessible."
+                            )
+                    except Exception as e:
+                        QMessageBox.warning(
+                            self,
+                            "Connection Test",
+                            f"Connection failed!\n\nServer: {server_url}\nError: {str(e)}"
+                        )
                 else:
+                    # Fallback when no OllamaClient available
                     QMessageBox.warning(
                         self,
                         "Connection Test",
-                        f"Connection failed!\n\n{result.get('message', 'Unknown error')}"
+                        f"Cannot test connection!\n\nOllamaClient not available.\nServer: {server_url}"
                     )
 
             except Exception as e:

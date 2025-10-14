@@ -23,6 +23,7 @@ from src.utils.logging_config import setup_logging, get_logger
 from src.models.settings_manager import SettingsManager
 from src.models.database_manager import DatabaseManager
 from src.models.screenshot_manager import ScreenshotManager
+from src.models.ollama_client import OllamaClient
 from src.views.tray_manager import TrayManager
 from src.views.ui_manager import UIManager
 from src.utils.auto_start import get_auto_start_manager, AutoStartManager
@@ -50,6 +51,7 @@ class Application:
         self.settings_manager: Optional[SettingsManager] = None
         self.database_manager: Optional[DatabaseManager] = None
         self.screenshot_manager: Optional[ScreenshotManager] = None
+        self.ollama_client: Optional[OllamaClient] = None
         self.tray_manager: Optional[TrayManager] = None
         self.ui_manager: Optional[UIManager] = None
         self.auto_start_manager: Optional[AutoStartManager] = None
@@ -96,6 +98,14 @@ class Application:
             )
             await self.screenshot_manager.initialize()
 
+            # Initialize OllamaClient
+            self.ollama_client = OllamaClient(
+                event_bus=self.event_bus,
+                database_manager=self.database_manager,
+                settings_manager=self.settings_manager
+            )
+            await self.ollama_client.initialize()
+
             # Initialize AutoStartManager
             self.auto_start_manager = get_auto_start_manager(self.app_name)
 
@@ -128,7 +138,8 @@ class Application:
                 event_bus=self.event_bus,
                 settings_manager=self.settings_manager,
                 screenshot_manager=self.screenshot_manager,
-                database_manager=self.database_manager
+                database_manager=self.database_manager,
+                ollama_client=self.ollama_client
             )
 
             # Initialize MainController with all components
@@ -328,6 +339,10 @@ class Application:
             # Shutdown ScreenshotManager
             if self.screenshot_manager:
                 await self.screenshot_manager.shutdown()
+
+            # Shutdown OllamaClient
+            if self.ollama_client:
+                await self.ollama_client.shutdown()
 
             # Shutdown TrayManager
             if self.tray_manager:

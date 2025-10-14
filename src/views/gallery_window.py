@@ -13,7 +13,7 @@ from typing import Optional, List, TYPE_CHECKING
 from dataclasses import dataclass
 
 from PyQt6.QtCore import (
-    Qt, QObject, QTimer, pyqtSignal, QSize, QBuffer, QFile
+    Qt, QObject, pyqtSignal, QSize, QBuffer, QFile
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QScrollArea, QTextBrowser,
@@ -36,6 +36,8 @@ if TYPE_CHECKING:
     from ..models.screenshot_manager import ScreenshotManager
     from ..models.database_manager import DatabaseManager
     from ..models.settings_manager import SettingsManager
+
+from .. import EventTypes
 
 logger = logging.getLogger(__name__)
 
@@ -696,6 +698,50 @@ class GalleryWindow(QWidget):
 
         logger.info("GalleryWindow created")
 
+    async def _subscribe_to_events(self) -> None:
+        """Subscribe to EventBus events."""
+        # Subscribe to Ollama response events
+        await self.event_bus.subscribe(
+            EventTypes.OLLAMA_RESPONSE_RECEIVED,
+            self._handle_ollama_response,
+            priority=90
+        )
+
+        # Subscribe to streaming updates
+        await self.event_bus.subscribe(
+            "ollama.streaming.update",
+            self._handle_streaming_update,
+            priority=90
+        )
+
+    def _handle_ollama_response(self, event_data) -> None:
+        """Handle Ollama response events."""
+        try:
+            data = event_data.data
+            response_content = data.get('response', '')
+
+            if response_content:
+                # Add AI response to chat
+                self.chat_widget.add_ai_message(response_content)
+
+        except Exception as e:
+            logger.error(f"Error handling Ollama response: {e}")
+            self.chat_widget.add_system_message("Error processing AI response")
+
+    def _handle_streaming_update(self, event_data) -> None:
+        """Handle streaming update events."""
+        try:
+            data = event_data.data
+            content = data.get('content', '')
+
+            # For now, we'll collect the full response and display it
+            # In a full implementation, we'd update the current message incrementally
+            if content:
+                logger.debug(f"Streaming update: {content[:50]}...")
+
+        except Exception as e:
+            logger.error(f"Error handling streaming update: {e}")
+
     async def initialize(self) -> bool:
         """Initialize the gallery window."""
         try:
@@ -705,6 +751,9 @@ class GalleryWindow(QWidget):
             self.thumbnail_loader = ThumbnailLoader(self.screenshot_manager)
             self.thumbnail_loader.thumbnail_loaded.connect(self._on_thumbnail_loaded)
             self.thumbnail_loader.loading_failed.connect(self._on_thumbnail_failed)
+
+            # Subscribe to Ollama events
+            await self._subscribe_to_events()
 
             # Load initial data
             await self._load_screenshots()
@@ -1009,19 +1058,21 @@ class GalleryWindow(QWidget):
         try:
             preset = await self._get_preset_by_id(preset_id)
             if preset:
-                # Mock AI interaction
+                # Show user message
                 self.chat_widget.add_user_message(f"Running preset: {preset.name}")
 
-                # Generate mock AI response
-                mock_response = f"Mock AI analysis using '{preset.name}' preset: This is a simulated response for screenshot {self.gallery_state.selected_screenshot_id}. The analysis would appear here in the final implementation."
-
-                QTimer.singleShot(1000, lambda: self.chat_widget.add_ai_message(mock_response))
+                # Emit preset execution event through EventBus
+                await self.event_bus.emit(
+                    EventTypes.GALLERY_PRESET_EXECUTED,
+                    {
+                        "preset_id": preset_id,
+                        "screenshot_context": str(self.gallery_state.selected_screenshot_id)
+                    },
+                    source="GalleryWindow"
+                )
 
                 # Increment usage count in database
                 await self.database_manager.increment_preset_usage(preset_id)
-
-                # Emit execution event
-                self.preset_executed.emit(preset_id, str(self.gallery_state.selected_screenshot_id))
 
                 logger.info(f"Preset run: {preset_id} on screenshot {self.gallery_state.selected_screenshot_id}")
         except Exception as e:
@@ -1046,12 +1097,17 @@ class GalleryWindow(QWidget):
             "timestamp": datetime.now().isoformat()
         }
 
-        # Emit chat event
-        self.chat_message_sent.emit(message, context)
-
-        # Mock AI response
-        mock_response = f"Mock AI response to: '{message}'. This would be the actual AI analysis in the final implementation."
-        QTimer.singleShot(1500, lambda: self.chat_widget.add_ai_message(mock_response))
+        # Emit chat event through EventBus
+        asyncio.create_task(
+            self.event_bus.emit(
+                EventTypes.GALLERY_CHAT_MESSAGE_SENT,
+                {
+                    "message": message,
+                    "context": context
+                },
+                source="GalleryWindow"
+            )
+        )
 
         logger.info(f"Chat message sent: {message}")
 

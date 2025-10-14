@@ -39,7 +39,8 @@ class UIManager(QObject):
         event_bus: EventBus,
         settings_manager: SettingsManager,
         screenshot_manager: Optional[ScreenshotManager] = None,
-        database_manager: Optional[DatabaseManager] = None
+        database_manager: Optional[DatabaseManager] = None,
+        ollama_client=None
     ):
         """
         Initialize UIManager.
@@ -56,6 +57,7 @@ class UIManager(QObject):
         self.settings_manager = settings_manager
         self.screenshot_manager = screenshot_manager
         self.database_manager = database_manager
+        self.ollama_client = ollama_client
 
         # UI Components
         self.overlay_manager: Optional[OverlayManager] = None
@@ -524,6 +526,7 @@ class UIManager(QObject):
                 self.settings_window = SettingsWindow(
                     event_bus=self.event_bus,
                     settings_manager=self.settings_manager,
+                    ollama_client=self.ollama_client,
                     parent=None  # Modal window, no parent needed
                 )
 

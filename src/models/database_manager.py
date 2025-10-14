@@ -274,6 +274,49 @@ class DatabaseManager:
             self.logger.error(f"Failed to get screenshots: {e}")
             return []
 
+    async def get_screenshot_by_id(self, screenshot_id: int) -> Optional[ScreenshotMetadata]:
+        """
+        Get a specific screenshot by ID.
+
+        Args:
+            screenshot_id: ID of the screenshot to retrieve
+
+        Returns:
+            ScreenshotMetadata instance or None if not found
+        """
+        if not self._initialized:
+            await self.initialize_database()
+
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.execute("""
+                    SELECT id, filename, path, timestamp, file_size, thumbnail_path, metadata
+                    FROM screenshots
+                    WHERE id = ?
+                """, (screenshot_id,))
+
+                row = cursor.fetchone()
+                if row:
+                    metadata_json = json.loads(row['metadata'] or '{}')
+
+                    return ScreenshotMetadata(
+                        id=row['id'],
+                        filename=row['filename'],
+                        full_path=row['path'],
+                        timestamp=datetime.fromisoformat(row['timestamp']),
+                        file_size=row['file_size'],
+                        thumbnail_path=row['thumbnail_path'],
+                        resolution=tuple(metadata_json.get('resolution', [0, 0])),
+                        format=metadata_json.get('format', 'PNG'),
+                        checksum=metadata_json.get('checksum')
+                    )
+
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Failed to get screenshot by ID {screenshot_id}: {e}")
+            return None
+
     async def get_screenshots_before_date(self, cutoff_date: datetime) -> List[ScreenshotMetadata]:
         """
         Get screenshots older than the specified date.
@@ -978,6 +1021,52 @@ class DatabaseManager:
 
         except Exception as e:
             self.logger.error(f"Failed to initialize builtin presets: {e}")
+
+    async def store_chat_message(
+        self,
+        screenshot_id: int,
+        prompt: str,
+        response: str,
+        model_name: str = "unknown",
+        processing_time: float = 0.0
+    ) -> bool:
+        """
+        Store chat message in the database.
+
+        Args:
+            screenshot_id: ID of associated screenshot
+            prompt: User prompt text
+            response: AI response text
+            model_name: Name of AI model used
+            processing_time: Time taken to process request
+
+        Returns:
+            True if stored successfully
+        """
+        if not self._initialized:
+            await self.initialize_database()
+
+        try:
+            async with self._get_connection() as conn:
+                await conn.execute("""
+                    INSERT INTO chat_history (
+                        screenshot_id, prompt, response, model_name, processing_time
+                    ) VALUES (?, ?, ?, ?, ?)
+                """, (
+                    screenshot_id,
+                    prompt,
+                    response,
+                    model_name,
+                    processing_time
+                ))
+
+                await conn.commit()
+                self.logger.debug("Stored chat message for screenshot %d", screenshot_id)
+                return True
+
+        except Exception as e:
+            self.logger.error("Failed to store chat message: %s", e)
+            return False
 
     async def close(self) -> None:
         """Close database connections and cleanup."""
