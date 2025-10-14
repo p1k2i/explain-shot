@@ -23,6 +23,8 @@ from PyQt6.QtGui import (
     QPixmap, QFont, QColor, QPainter
 )
 
+from src.utils.style_loader import load_stylesheet
+
 try:
     from PIL import Image, ImageQt
     PIL_AVAILABLE = True
@@ -1188,14 +1190,12 @@ class GalleryWindow(QWidget):
 
     def _apply_theme(self):
         """Apply dark theme styling."""
-        css_file_path = "resources/gallery/styles/dark_theme.css"
-        css_file = QFile(css_file_path)
-        if css_file.open(QFile.OpenModeFlag.ReadOnly | QFile.OpenModeFlag.Text):
-            css_content = css_file.readAll().data().decode('utf-8')
-            self.setStyleSheet(css_content)
-            css_file.close()
+        theme = "dark"
+        stylesheet = load_stylesheet("gallery", theme, "base")
+        if stylesheet:
+            self.setStyleSheet(stylesheet)
         else:
-            logger.warning("Failed to load gallery stylesheet")
+            logger.error(f"Failed to load stylesheet for gallery/{theme}/base")
 
     def _truncate_filename_for_indicator(self, filename: str, max_length: int = 36) -> str:
         """Truncate filename for the selection indicator."""

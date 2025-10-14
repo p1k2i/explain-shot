@@ -19,6 +19,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QKeySequence
 
+from src.utils.style_loader import load_stylesheet
+
 from ..controllers.event_bus import EventBus
 from ..models.settings_manager import SettingsManager, ApplicationSettings
 from src import EventTypes
@@ -169,46 +171,14 @@ class SettingsWindow(QDialog):
 
         logger.info("SettingsWindow initialized")
 
-    def load_css_from_file(self, css_file_path: str) -> str:
-        """
-        Load CSS content from a file.
-
-        Args:
-            css_file_path: Path to the CSS file
-
-        Returns:
-            CSS content as string, or empty string if file not found
-        """
-        try:
-            css_path = Path(css_file_path)
-            if css_path.exists():
-                with open(css_path, 'r', encoding='utf-8') as f:
-                    return f.read()
-            else:
-                logger.warning(f"CSS file not found: {css_file_path}")
-                return ""
-        except Exception as e:
-            logger.error(f"Error loading CSS file {css_file_path}: {e}")
-            return ""
-
     def setup_styling(self):
         """Apply dark theme styling to the window."""
-        # Load CSS from file
-        css_file_path = Path(__file__).parent.parent.parent / "resources" / "settings" / "styles" / "dark_theme.css"
-        css_content = self.load_css_from_file(str(css_file_path))
-
-        if css_content:
-            self.setStyleSheet(css_content)
+        theme = "dark"
+        stylesheet = load_stylesheet("settings", theme, "base")
+        if stylesheet:
+            self.setStyleSheet(stylesheet)
         else:
-            logger.warning("Failed to load CSS file, using fallback styling")
-            # Fallback minimal styling
-            self.setStyleSheet("""
-                QDialog {
-                    background-color: #2E2E2E;
-                    color: #FFFFFF;
-                    font-family: 'Segoe UI', Arial, sans-serif;
-                }
-            """)
+            logger.error(f"Failed to load stylesheet for settings/{theme}/base")
 
     def setup_ui(self):
         """Setup the main UI layout and components."""

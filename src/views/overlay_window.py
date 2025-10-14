@@ -7,13 +7,14 @@ and recent screenshots. Handles user interactions and auto-dismiss behavior.
 
 import logging
 from typing import Dict, Any, List, Optional
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QEvent, QFile
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QEvent
 from PyQt6.QtGui import QFont, QKeyEvent, QMouseEvent, QFocusEvent, QEnterEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QListWidget, QListWidgetItem,
     QFrame, QLabel
 )
 
+from ..utils.style_loader import load_stylesheet
 from ..controllers.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
@@ -167,15 +168,11 @@ class OverlayWindow(QWidget):
         """Apply theme styling to the window."""
         try:
             theme = self.config.get("overlay.theme", "dark")
-            css_file_path = f"resources/overlay/styles/{theme}_theme.css"
-
-            file = QFile(css_file_path)
-            if file.open(QFile.OpenModeFlag.ReadOnly | QFile.OpenModeFlag.Text):
-                stylesheet = file.readAll().data().decode('utf-8')
+            stylesheet = load_stylesheet("overlay", theme, "base")
+            if stylesheet:
                 self.setStyleSheet(stylesheet)
-                file.close()
             else:
-                logger.error(f"Could not load stylesheet: {css_file_path}")
+                logger.error(f"Failed to load stylesheet for overlay/{theme}/base")
 
             # Set font
             font = QFont("Segoe UI", 9)
