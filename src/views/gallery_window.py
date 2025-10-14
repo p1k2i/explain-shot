@@ -13,7 +13,7 @@ from typing import Optional, List, TYPE_CHECKING
 from dataclasses import dataclass
 
 from PyQt6.QtCore import (
-    Qt, QObject, pyqtSignal, QSize, QBuffer, QFile
+    Qt, QObject, pyqtSignal, QSize, QBuffer
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QScrollArea, QTextBrowser,
@@ -23,7 +23,7 @@ from PyQt6.QtGui import (
     QPixmap, QFont, QColor, QPainter
 )
 
-from src.utils.style_loader import load_stylesheet
+from src.utils.style_loader import load_stylesheets
 
 try:
     from PIL import Image, ImageQt
@@ -221,6 +221,10 @@ class ScreenshotItem(QWidget):
         self.setFixedSize(140, 160)
         self.setObjectName("ScreenshotItem")
 
+        # Enable mouse tracking for hover events
+        self.setMouseTracking(True)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+
         # Main layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -230,7 +234,7 @@ class ScreenshotItem(QWidget):
         self.thumbnail_label = QLabel()
         self.thumbnail_label.setFixedSize(120, 120)
         self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.thumbnail_label.setStyleSheet("border: 1px solid #555; background-color: #404040;")
+        self.thumbnail_label.setObjectName("thumbnail_label")
         layout.addWidget(self.thumbnail_label)
 
         # Filename label (overlay on thumbnail)
@@ -238,21 +242,19 @@ class ScreenshotItem(QWidget):
         self.filename_label.setParent(self.thumbnail_label)
         self.filename_label.setGeometry(0, 0, 120, 20)  # Top overlay
         self.filename_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.filename_label.setStyleSheet("""
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0,0,0,0.8), stop:1 rgba(0,0,0,0.2));
-            color: #FFFFFF;
-            font-size: 10px;
-            font-weight: bold;
-            border-radius: 0;
-        """)
+        self.filename_label.setObjectName("filename_label")
 
         # Timestamp label
         self.timestamp_label = QLabel(timestamp.strftime("%H:%M:%S"))
         self.timestamp_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.timestamp_label.setStyleSheet("color: #999; font-size: 10px;")
+        self.timestamp_label.setObjectName("timestamp_label")
         layout.addWidget(self.timestamp_label)
 
-        self._apply_theme()
+        # Initialize properties for CSS selectors
+        self.setProperty("selected", False)
+        self.setProperty("hovered", False)
+        self.filename_label.setProperty("selected", False)
+
         self._setup_animations()
 
     def _truncate_filename(self, filename: str, max_length: int = 20) -> str:
@@ -274,9 +276,18 @@ class ScreenshotItem(QWidget):
 
     def set_selected(self, selected: bool):
         """Set selection state."""
-        if self._is_selected != selected:
-            self._is_selected = selected
-            self._update_appearance()
+        self._is_selected = selected
+
+        if self._is_selected:
+            # Selected state
+            self.setProperty("selected", True)
+            self.filename_label.setProperty("selected", True)
+        else:
+            # Normal state
+            self.setProperty("selected", False)
+            self.filename_label.setProperty("selected", False)
+
+        self._update_appearance()
 
     def is_selected(self) -> bool:
         """Check if item is selected."""
@@ -300,72 +311,13 @@ class ScreenshotItem(QWidget):
         self._update_appearance()
         super().leaveEvent(a0)
 
-    def _apply_theme(self):
-        """Apply dark theme styling."""
-        self.setStyleSheet("""
-            ScreenshotItem {
-                background-color: #3A3A3A;
-                border: 2px solid transparent;
-                border-radius: 8px;
-            }
-            ScreenshotItem:hover {
-                border-color: #555555;
-                background-color: #404040;
-            }
-        """)
-
-        self.filename_label.setStyleSheet("""
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0,0,0,0.8), stop:1 rgba(0,0,0,0.2));
-            color: #FFFFFF;
-            font-size: 10px;
-            font-weight: bold;
-            border-radius: 0;
-        """)
-
     def _setup_animations(self):
         """Setup hover and selection animations."""
         pass  # Placeholder for future animations
 
     def _update_appearance(self):
         """Update visual appearance based on state."""
-        if self._is_selected:
-            border_color = "#00A0FF"
-            border_width = "5px"
-            bg_color = "#1E3A5F"
-        elif self._is_hovered:
-            border_color = "#555555"
-            border_width = "2px"
-            bg_color = "#404040"
-        else:
-            border_color = "transparent"
-            border_width = "2px"
-            bg_color = "#3A3A3A"
-
-        self.setStyleSheet(f"""
-            ScreenshotItem {{
-                background-color: {bg_color};
-                border: {border_width} solid {border_color};
-                border-radius: 8px;
-            }}
-        """)
-
-        # Update filename label styling based on selection
-        if self._is_selected:
-            self.filename_label.setStyleSheet("""
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0,160,255,0.95), stop:1 rgba(0,160,255,0.4));
-                color: #FFFFFF;
-                font-size: 12px;
-                font-weight: bold;
-                border-radius: 0;
-            """)
-        else:
-            self.filename_label.setStyleSheet("""
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0,0,0,0.8), stop:1 rgba(0,0,0,0.2));
-                color: #FFFFFF;
-                font-size: 10px;
-                font-weight: bold;
-                border-radius: 0;
-            """)
+        self.update()
 
 
 class PresetItem(QWidget):
@@ -390,12 +342,12 @@ class PresetItem(QWidget):
         top_layout = QHBoxLayout()
 
         self.name_label = QLabel(preset.name)
-        self.name_label.setStyleSheet("font-weight: bold; color: #FFFFFF;")
+        self.name_label.setObjectName("preset_name")
         top_layout.addWidget(self.name_label)
 
         if preset.usage_count > 0:
             usage_label = QLabel(f"({preset.usage_count})")
-            usage_label.setStyleSheet("color: #999; font-size: 10px;")
+            usage_label.setObjectName("preset_usage")
             top_layout.addWidget(usage_label)
 
         top_layout.addStretch()
@@ -404,7 +356,7 @@ class PresetItem(QWidget):
         # Prompt preview
         preview_text = self._truncate_prompt(preset.prompt)
         self.preview_label = QLabel(preview_text)
-        self.preview_label.setStyleSheet("color: #CCC; font-size: 10px;")
+        self.preview_label.setObjectName("preset_preview")
         self.preview_label.setWordWrap(True)
         self.preview_label.setMaximumHeight(24)
         layout.addWidget(self.preview_label)
@@ -426,48 +378,11 @@ class PresetItem(QWidget):
 
         layout.addLayout(button_layout)
 
-        self._apply_theme()
-
     def _truncate_prompt(self, prompt: str, max_length: int = 80) -> str:
         """Truncate prompt for preview."""
         if len(prompt) <= max_length:
             return prompt
         return prompt[:max_length - 3] + "..."
-
-    def _apply_theme(self):
-        """Apply dark theme styling."""
-        self.setStyleSheet("""
-            PresetItem {
-                background-color: #3A3A3A;
-                border: 1px solid #555;
-                border-radius: 4px;
-                margin: 2px;
-            }
-            PresetItem:hover {
-                background-color: #404040;
-                border-color: #007ACC;
-            }
-        """)
-
-        button_style = """
-            QPushButton {
-                background-color: #007ACC;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                font-size: 9px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #0099FF;
-            }
-            QPushButton:pressed {
-                background-color: #0066CC;
-            }
-        """
-
-        self.run_button.setStyleSheet(button_style)
-        self.paste_button.setStyleSheet(button_style)
 
 
 class ChatWidget(QWidget):
@@ -478,6 +393,8 @@ class ChatWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.chat_messages = []
+
+        self.setObjectName("ChatWidget")
 
         # Main layout
         layout = QVBoxLayout(self)
@@ -498,6 +415,7 @@ class ChatWidget(QWidget):
 
         self.send_button = QPushButton("Send")
         self.send_button.setFixedSize(60, 30)
+        self.send_button.setObjectName("send_button")
         self.send_button.clicked.connect(self._send_message)
 
         input_layout.addWidget(self.chat_input)
@@ -507,10 +425,10 @@ class ChatWidget(QWidget):
 
         # Status bar
         self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: #999; font-size: 10px; padding: 4px;")
+        self.status_label.setObjectName("status_label")
         layout.addWidget(self.status_label)
 
-        self._apply_theme()
+        # Remove hardcoded theme application since we'll use CSS classes
         self._add_welcome_message()
 
     def _send_message(self):
@@ -644,42 +562,6 @@ class ChatWidget(QWidget):
         html += "</body>"
         return html
 
-    def _apply_theme(self):
-        """Apply dark theme styling."""
-        self.setStyleSheet("""
-            QTextBrowser {
-                background-color: #2E2E2E;
-                border: 1px solid #555;
-                border-radius: 4px;
-            }
-            QLineEdit {
-                background-color: #404040;
-                border: 1px solid #555;
-                border-radius: 4px;
-                padding: 8px;
-                color: #FFFFFF;
-            }
-            QLineEdit:focus {
-                border-color: #007ACC;
-            }
-        """)
-
-        self.send_button.setStyleSheet("""
-            QPushButton {
-                background-color: #007ACC;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #0099FF;
-            }
-            QPushButton:pressed {
-                background-color: #0066CC;
-            }
-        """)
-
 
 class GalleryWindow(QWidget):
     """Main gallery window with three-column layout."""
@@ -705,6 +587,8 @@ class GalleryWindow(QWidget):
         self.database_manager = database_manager
         self.settings_manager = settings_manager
 
+        self.setObjectName("GalleryWindow")
+
         # State management
         self.gallery_state = GalleryState()
         self._initialized = False
@@ -712,8 +596,8 @@ class GalleryWindow(QWidget):
 
         # Components
         self.thumbnail_loader = None
-        self.screenshot_items = {}  # screenshot_id -> ScreenshotItem
-        self.preset_items = {}  # preset_id -> PresetItem
+        self.screenshot_items: dict[int, ScreenshotItem] = {}  # screenshot_id -> ScreenshotItem
+        self.preset_items: dict[int, PresetItem] = {}  # preset_id -> PresetItem
         self.selection_indicator = None  # Will be created in _setup_ui
 
         # Initialize UI
@@ -802,7 +686,7 @@ class GalleryWindow(QWidget):
         self.setGeometry(100, 100, 1200, 800)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWindowOpacity(0.9)
+        self.setWindowOpacity(0.93)
 
         # Main layout
         main_layout = QVBoxLayout(self)
@@ -845,7 +729,7 @@ class GalleryWindow(QWidget):
 
         # Title
         title_label = QLabel("Screenshot Gallery")
-        title_label.setStyleSheet("color: #FFFFFF; font-weight: bold; font-size: 14px;")
+        title_label.setObjectName("column_header")
         layout.addWidget(title_label)
 
         layout.addStretch()
@@ -853,10 +737,12 @@ class GalleryWindow(QWidget):
         # Window controls
         self.minimize_button = QPushButton("−")
         self.minimize_button.setFixedSize(30, 30)
+        self.minimize_button.setObjectName("title_bar_minimize")
         self.minimize_button.clicked.connect(self.showMinimized)
 
         self.close_button = QPushButton("×")
         self.close_button.setFixedSize(30, 30)
+        self.close_button.setObjectName("title_bar_close")
         self.close_button.clicked.connect(self.close)
 
         layout.addWidget(self.minimize_button)
@@ -871,11 +757,11 @@ class GalleryWindow(QWidget):
         # Column header with selection indicator
         header_layout = QHBoxLayout()
         header = QLabel("Screenshots")
-        header.setStyleSheet("font-size: 16px; font-weight: bold; color: #FFFFFF; padding: 8px;")
+        header.setObjectName("column_header")
         header_layout.addWidget(header)
 
         self.selection_indicator = QLabel("None selected")
-        self.selection_indicator.setStyleSheet("font-size: 12px; color: #999; padding: 8px; font-style: italic;")
+        self.selection_indicator.setObjectName("selection_indicator")
         header_layout.addWidget(self.selection_indicator)
         header_layout.addStretch()
 
@@ -903,7 +789,7 @@ class GalleryWindow(QWidget):
 
         # Column header
         header = QLabel("AI Chat")
-        header.setStyleSheet("font-size: 16px; font-weight: bold; color: #FFFFFF; padding: 8px;")
+        header.setObjectName("column_header")
         layout.addWidget(header)
 
         # Chat widget
@@ -918,7 +804,7 @@ class GalleryWindow(QWidget):
 
         # Column header
         header = QLabel("Presets")
-        header.setStyleSheet("font-size: 16px; font-weight: bold; color: #FFFFFF; padding: 8px;")
+        header.setObjectName("column_header")
         layout.addWidget(header)
 
         # Scroll area for presets
@@ -1070,14 +956,17 @@ class GalleryWindow(QWidget):
                 filename = item.filename
                 truncated = self._truncate_filename_for_indicator(filename)
                 self.selection_indicator.setText(f"{truncated}")
-                self.selection_indicator.setStyleSheet("font-size: 12px; color: #00A0FF; padding: 8px; font-weight: bold;")
+                self.selection_indicator.setProperty("selected", True)
+                # Force style refresh
+                style = self.selection_indicator.style()
+                if style:
+                    style.polish(self.selection_indicator)
 
             # Emit selection event
             self.screenshot_selected.emit(screenshot_id)
 
             # Update chat context
             item = self.screenshot_items[screenshot_id]
-            self.chat_widget.add_system_message(f"Selected screenshot: {item.filename}")
 
             logger.info(f"Screenshot selected: {screenshot_id}")
         else:
@@ -1085,7 +974,11 @@ class GalleryWindow(QWidget):
             self.gallery_state.selected_screenshot_id = None
             if self.selection_indicator:
                 self.selection_indicator.setText("None selected")
-                self.selection_indicator.setStyleSheet("font-size: 12px; color: #999; padding: 8px; font-style: italic;")
+                self.selection_indicator.setProperty("selected", False)
+                # Force style refresh
+                style = self.selection_indicator.style()
+                if style:
+                    style.polish(self.selection_indicator)
 
     def _on_screenshot_clicked(self, screenshot_id: int):
         """Handle screenshot item clicks."""
@@ -1197,11 +1090,11 @@ class GalleryWindow(QWidget):
     def _apply_theme(self):
         """Apply theme styling."""
         theme = self._current_theme
-        stylesheet = load_stylesheet("gallery", theme, "base")
+        stylesheet = load_stylesheets("gallery", theme, ["base"])
         if stylesheet:
             self.setStyleSheet(stylesheet)
         else:
-            logger.error(f"Failed to load stylesheet for gallery/{theme}/base")
+            logger.error(f"Failed to load stylesheets for gallery/{theme}")
 
     def _truncate_filename_for_indicator(self, filename: str, max_length: int = 36) -> str:
         """Truncate filename for the selection indicator."""

@@ -1,0 +1,38 @@
+/* Settings Validation Styles - Dark Theme */
+
+/* Normal field styles */
+QLineEdit, QComboBox, QSpinBox, QSlider, QKeySequenceEdit {
+    background-color: #444444;
+    border: 1px solid #666666;
+    border-radius: 4px;
+    padding: 6px;
+    color: #FFFFFF;
+}
+
+/* Error field styles */
+QLineEdit[error="true"], QComboBox[error="true"], QSpinBox[error="true"],
+QSlider[error="true"], QKeySequenceEdit[error="true"] {
+    border: 2px solid #FF6B6B;
+    background-color: #4A2626;
+    border-radius: 4px;
+    padding: 6px;
+    color: #FFFFFF;
+}
+
+/* Error label styles */
+QLabel[objectName="error_label"] {
+    color: #FF6B6B;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 2px 0;
+}
+
+/* Hotkey listening state */
+QKeySequenceEdit[listening="true"] {
+    background-color: #FFFF99;
+    border: 2px solid #FFA500;
+    border-radius: 4px;
+    padding: 4px;
+    color: #000000;
+    font-weight: bold;
+}

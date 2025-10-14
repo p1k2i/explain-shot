@@ -5,7 +5,7 @@ Provides functionality to load CSS stylesheets for different components and them
 """
 
 import logging
-from typing import Optional
+from typing import Optional, List, Union
 from PyQt6.QtCore import QFile
 
 logger = logging.getLogger(__name__)
@@ -35,3 +35,67 @@ def load_stylesheet(component: str, theme: str, element: str) -> Optional[str]:
     else:
         logger.error(f"Could not load stylesheet: {css_file_path}")
         return None
+
+
+def load_stylesheets(component: str, theme: str, elements: List[str]) -> Optional[str]:
+    """
+    Load multiple CSS stylesheets and combine them.
+
+    Args:
+        component: The component name (e.g., "overlay", "gallery")
+        theme: The theme name (e.g., "dark", "light")
+        elements: List of element names (e.g., ["base", "validation", "states"])
+
+    Returns:
+        The combined CSS content as a string, or None if all files failed to load
+    """
+    combined_css = []
+
+    for element in elements:
+        css_content = load_stylesheet(component, theme, element)
+        if css_content:
+            combined_css.append(f"/* {element}.css */")
+            combined_css.append(css_content)
+            combined_css.append("")  # Add spacing between files
+
+    if combined_css:
+        return "\n".join(combined_css)
+    else:
+        logger.warning(f"No stylesheets could be loaded for {component}/{theme} with elements: {elements}")
+        return None
+
+
+def get_dynamic_css(css_class: str, styles: dict) -> str:
+    """
+    Generate dynamic CSS from a dictionary of styles.
+
+    Args:
+        css_class: CSS class or selector
+        styles: Dictionary of CSS properties and values
+
+    Returns:
+        Generated CSS string
+    """
+    if not styles:
+        return ""
+
+    css_lines = [f"{css_class} {{"]
+    for property_name, value in styles.items():
+        css_lines.append(f"    {property_name}: {value};")
+    css_lines.append("}")
+
+    return "\n".join(css_lines)
+
+
+def combine_css(*css_contents: Union[str, None]) -> str:
+    """
+    Combine multiple CSS content strings, ignoring None values.
+
+    Args:
+        *css_contents: Variable number of CSS content strings
+
+    Returns:
+        Combined CSS string
+    """
+    valid_contents = [content for content in css_contents if content is not None]
+    return "\n\n".join(valid_contents)

@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QKeySequence
 
-from src.utils.style_loader import load_stylesheet
+from src.utils.style_loader import load_stylesheets
 
 from ..controllers.event_bus import EventBus
 from ..models.settings_manager import SettingsManager, ApplicationSettings
@@ -77,27 +77,20 @@ class FieldValidator:
     def _update_ui_feedback(self, is_valid: bool):
         """Update UI visual feedback based on validation result."""
         if is_valid:
-            # Clear error styling by resetting to normal styling
-            self.field_widget.setStyleSheet("""
-                background-color: #444444;
-                border: 1px solid #666666;
-                border-radius: 4px;
-                padding: 6px;
-                color: #FFFFFF;
-            """)
+            # Apply normal field styling using CSS class
+            self.field_widget.setProperty("error", False)
             self.error_label.setText("")
             self.error_label.hide()
         else:
-            # Apply error styling
-            self.field_widget.setStyleSheet("""
-                border: 2px solid #FF6B6B;
-                background-color: #4A2626;
-                border-radius: 4px;
-                padding: 6px;
-                color: #FFFFFF;
-            """)
+            # Apply error styling using CSS class
+            self.field_widget.setProperty("error", True)
             self.error_label.setText(self.error_message)
             self.error_label.show()
+
+        # Force style refresh
+        style = self.field_widget.style()
+        if style:
+            style.polish(self.field_widget)
 
 
 class SettingsWindow(QDialog):
@@ -142,9 +135,6 @@ class SettingsWindow(QDialog):
         # Form validators
         self.validators: List[FieldValidator] = []
 
-        # Store original stylesheets for hotkey widgets
-        self.original_stylesheets: Dict[QKeySequenceEdit, str] = {}
-
         # UI elements (will be created in setup_ui)
         self.model_dropdown: Optional[QComboBox] = None
         self.server_url_field: Optional[QLineEdit] = None
@@ -174,11 +164,11 @@ class SettingsWindow(QDialog):
     def setup_styling(self):
         """Apply theme styling to the window."""
         theme = self.current_settings.ui.theme if self.current_settings else "dark"
-        stylesheet = load_stylesheet("settings", theme, "base")
+        stylesheet = load_stylesheets("settings", theme, ["base", "validation"])
         if stylesheet:
             self.setStyleSheet(stylesheet)
         else:
-            logger.error(f"Failed to load stylesheet for settings/{theme}/base")
+            logger.error(f"Failed to load stylesheets for settings/{theme}")
 
     def setup_ui(self):
         """Setup the main UI layout and components."""
@@ -541,37 +531,20 @@ class SettingsWindow(QDialog):
 
     def _on_hotkey_focus_in(self, hotkey_widget: QKeySequenceEdit):
         """Highlight hotkey field when it gains focus (listening for input)."""
-        # Store original stylesheet to restore later
-        if hotkey_widget not in self.original_stylesheets:
-            self.original_stylesheets[hotkey_widget] = hotkey_widget.styleSheet()
-
-        hotkey_widget.setStyleSheet("""
-            QKeySequenceEdit {
-                background-color: #FFFF99;
-                border: 2px solid #FFA500;
-                border-radius: 4px;
-                padding: 4px;
-                color: #000000;
-                font-weight: bold;
-            }
-        """)
+        hotkey_widget.setProperty("listening", True)
+        # Force style refresh
+        style = hotkey_widget.style()
+        if style:
+            style.polish(hotkey_widget)
         logger.debug(f"Hotkey field {hotkey_widget.objectName()} is now listening for input")
 
     def _on_hotkey_focus_out(self, hotkey_widget: QKeySequenceEdit):
         """Reset hotkey field styling when it loses focus."""
-        # Restore original stylesheet
-        if hotkey_widget in self.original_stylesheets:
-            hotkey_widget.setStyleSheet(self.original_stylesheets[hotkey_widget])
-            del self.original_stylesheets[hotkey_widget]
-        else:
-            # Fallback: reset to normal styling
-            hotkey_widget.setStyleSheet("""
-                background-color: #444444;
-                border: 1px solid #666666;
-                border-radius: 4px;
-                padding: 6px;
-                color: #FFFFFF;
-            """)
+        hotkey_widget.setProperty("listening", False)
+        # Force style refresh
+        style = hotkey_widget.style()
+        if style:
+            style.polish(hotkey_widget)
         logger.debug(f"Hotkey field {hotkey_widget.objectName()} stopped listening for input")
 
     async def initialize(self) -> bool:
