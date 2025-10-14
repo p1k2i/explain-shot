@@ -255,15 +255,11 @@ class ScreenshotItem(QWidget):
 
     def _truncate_filename(self, filename: str, max_length: int = 20) -> str:
         """Truncate filename for display."""
-        if len(filename) <= max_length:
-            return filename
-
-        name, ext = os.path.splitext(filename)
-        if len(ext) > max_length - 3:
-            return filename[:max_length - 3] + "..."
-
-        available = max_length - len(ext) - 3
-        return name[:available] + "..." + ext
+        # Remove extension
+        name_without_ext = os.path.splitext(filename)[0]
+        if len(name_without_ext) <= max_length:
+            return name_without_ext
+        return name_without_ext[:max_length - 3] + "..."
 
     def set_thumbnail(self, pixmap: QPixmap):
         """Set the thumbnail pixmap."""
@@ -310,12 +306,18 @@ class ScreenshotItem(QWidget):
                 border: 2px solid transparent;
                 border-radius: 8px;
             }
+            ScreenshotItem:hover {
+                border-color: #555555;
+                background-color: #404040;
+            }
         """)
 
         self.filename_label.setStyleSheet("""
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0,0,0,0.8), stop:1 rgba(0,0,0,0.2));
             color: #FFFFFF;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: bold;
+            border-radius: 0;
         """)
 
     def _setup_animations(self):
@@ -326,8 +328,8 @@ class ScreenshotItem(QWidget):
         """Update visual appearance based on state."""
         if self._is_selected:
             border_color = "#00A0FF"
-            border_width = "3px"
-            bg_color = "#4A4A4A"
+            border_width = "5px"
+            bg_color = "#1E3A5F"
         elif self._is_hovered:
             border_color = "#555555"
             border_width = "2px"
@@ -344,6 +346,24 @@ class ScreenshotItem(QWidget):
                 border-radius: 8px;
             }}
         """)
+
+        # Update filename label styling based on selection
+        if self._is_selected:
+            self.filename_label.setStyleSheet("""
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0,160,255,0.95), stop:1 rgba(0,160,255,0.4));
+                color: #FFFFFF;
+                font-size: 12px;
+                font-weight: bold;
+                border-radius: 0;
+            """)
+        else:
+            self.filename_label.setStyleSheet("""
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0,0,0,0.8), stop:1 rgba(0,0,0,0.2));
+                color: #FFFFFF;
+                font-size: 10px;
+                font-weight: bold;
+                border-radius: 0;
+            """)
 
 
 class PresetItem(QWidget):
@@ -691,6 +711,7 @@ class GalleryWindow(QWidget):
         self.thumbnail_loader = None
         self.screenshot_items = {}  # screenshot_id -> ScreenshotItem
         self.preset_items = {}  # preset_id -> PresetItem
+        self.selection_indicator = None  # Will be created in _setup_ui
 
         # Initialize UI
         self._setup_ui()
@@ -839,10 +860,18 @@ class GalleryWindow(QWidget):
         layout = QVBoxLayout(self.screenshots_frame)
         layout.setContentsMargins(8, 8, 8, 8)
 
-        # Column header
+        # Column header with selection indicator
+        header_layout = QHBoxLayout()
         header = QLabel("Screenshots")
         header.setStyleSheet("font-size: 16px; font-weight: bold; color: #FFFFFF; padding: 8px;")
-        layout.addWidget(header)
+        header_layout.addWidget(header)
+
+        self.selection_indicator = QLabel("None selected")
+        self.selection_indicator.setStyleSheet("font-size: 12px; color: #999; padding: 8px; font-style: italic;")
+        header_layout.addWidget(self.selection_indicator)
+        header_layout.addStretch()
+
+        layout.addLayout(header_layout)
 
         # Scroll area for screenshots
         self.screenshots_scroll = QScrollArea()
@@ -1027,13 +1056,28 @@ class GalleryWindow(QWidget):
             self.screenshot_items[screenshot_id].set_selected(True)
             self.gallery_state.selected_screenshot_id = screenshot_id
 
+            # Update selection indicator
+            if self.selection_indicator:
+                item = self.screenshot_items[screenshot_id]
+                filename = item.filename
+                truncated = self._truncate_filename_for_indicator(filename)
+                self.selection_indicator.setText(f"{truncated}")
+                self.selection_indicator.setStyleSheet("font-size: 12px; color: #00A0FF; padding: 8px; font-weight: bold;")
+
             # Emit selection event
             self.screenshot_selected.emit(screenshot_id)
 
             # Update chat context
-            self.chat_widget.add_system_message(f"Selected screenshot: {screenshot_id}")
+            item = self.screenshot_items[screenshot_id]
+            self.chat_widget.add_system_message(f"Selected screenshot: {item.filename}")
 
             logger.info(f"Screenshot selected: {screenshot_id}")
+        else:
+            # No selection
+            self.gallery_state.selected_screenshot_id = None
+            if self.selection_indicator:
+                self.selection_indicator.setText("None selected")
+                self.selection_indicator.setStyleSheet("font-size: 12px; color: #999; padding: 8px; font-style: italic;")
 
     def _on_screenshot_clicked(self, screenshot_id: int):
         """Handle screenshot item clicks."""
@@ -1152,6 +1196,12 @@ class GalleryWindow(QWidget):
             css_file.close()
         else:
             logger.warning("Failed to load gallery stylesheet")
+
+    def _truncate_filename_for_indicator(self, filename: str, max_length: int = 36) -> str:
+        """Truncate filename for the selection indicator."""
+        if len(filename) <= max_length:
+            return filename
+        return filename[:max_length - 3] + "..."
 
     def closeEvent(self, a0):
         """Handle window close event."""
