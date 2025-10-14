@@ -708,6 +708,7 @@ class GalleryWindow(QWidget):
         # State management
         self.gallery_state = GalleryState()
         self._initialized = False
+        self._current_theme = "dark"  # Default theme, will be loaded from settings
 
         # Components
         self.thumbnail_loader = None
@@ -717,7 +718,6 @@ class GalleryWindow(QWidget):
 
         # Initialize UI
         self._setup_ui()
-        self._apply_theme()
 
         logger.info("GalleryWindow created")
 
@@ -769,6 +769,12 @@ class GalleryWindow(QWidget):
         """Initialize the gallery window."""
         try:
             logger.info("Initializing GalleryWindow...")
+
+            # Load theme from settings
+            self._current_theme = await self.settings_manager.get_setting("ui.theme", "dark")
+
+            # Apply theme with loaded settings
+            self._apply_theme()
 
             # Initialize thumbnail loader
             self.thumbnail_loader = ThumbnailLoader(self.screenshot_manager)
@@ -1189,8 +1195,8 @@ class GalleryWindow(QWidget):
             return None
 
     def _apply_theme(self):
-        """Apply dark theme styling."""
-        theme = "dark"
+        """Apply theme styling."""
+        theme = self._current_theme
         stylesheet = load_stylesheet("gallery", theme, "base")
         if stylesheet:
             self.setStyleSheet(stylesheet)
