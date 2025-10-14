@@ -172,8 +172,8 @@ class SettingsWindow(QDialog):
         logger.info("SettingsWindow initialized")
 
     def setup_styling(self):
-        """Apply dark theme styling to the window."""
-        theme = "dark"
+        """Apply theme styling to the window."""
+        theme = self.current_settings.ui.theme if self.current_settings else "dark"
         stylesheet = load_stylesheet("settings", theme, "base")
         if stylesheet:
             self.setStyleSheet(stylesheet)
