@@ -378,7 +378,7 @@ class OverlayManager(QObject):
             },
             {
                 "id": "settings",
-                "title": "📱 Open Settings",
+                "title": "⚙️ Open Settings",
                 "description": "Configure application settings",
                 "action": "open_settings"
             }
