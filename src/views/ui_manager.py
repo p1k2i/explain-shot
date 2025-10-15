@@ -394,9 +394,9 @@ class UIManager(QObject):
                 event = self._event_queue.pop(0)
                 self.ui_action_requested.emit(event["action"], event["data"])
 
-            # Process any pending Qt events to ensure UI updates
-            if self._app_instance:
-                self._app_instance.processEvents()
+                # Process any pending Qt events to ensure UI updates
+                if self._app_instance:
+                    self._app_instance.processEvents()
 
         except Exception as e:
             logger.error(f"Error processing async events: {e}")
