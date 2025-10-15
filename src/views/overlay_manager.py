@@ -371,16 +371,16 @@ class OverlayManager(QObject):
                 "action": "take_screenshot"
             },
             {
-                "id": "settings",
-                "title": "📱 Open Settings",
-                "description": "Configure application settings",
-                "action": "open_settings"
-            },
-            {
                 "id": "gallery",
                 "title": "🖼️ Open Gallery",
                 "description": "View screenshot gallery",
                 "action": "open_gallery"
+            },
+            {
+                "id": "settings",
+                "title": "📱 Open Settings",
+                "description": "Configure application settings",
+                "action": "open_settings"
             }
         ]
 
