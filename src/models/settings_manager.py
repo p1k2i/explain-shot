@@ -5,14 +5,12 @@ Manages application configuration with auto-start setup, validation,
 and persistence using SQLite database storage.
 """
 
-import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, List, Callable
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 import asyncio
-import sqlite3
 from datetime import datetime
 
 # Import for event emission
@@ -44,6 +42,7 @@ class UIConfig:
     """UI configuration."""
     theme: str = "dark"
     opacity: float = 0.9
+    gallery_opacity: float = 0.95
     font_size: int = 12
     window_always_on_top: bool = False
     auto_hide_overlay: bool = True
@@ -150,6 +149,7 @@ class SettingsManager:
         """Set up validation rules for settings."""
         return {
             'ui.opacity': lambda x: 0.1 <= x <= 1.0,
+            'ui.gallery_opacity': lambda x: 0.75 <= x <= 1.0,
             'ui.font_size': lambda x: 8 <= x <= 32,
             'ui.overlay_timeout_seconds': lambda x: 1 <= x <= 300,
             'screenshot.quality': lambda x: 1 <= x <= 100,

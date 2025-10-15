@@ -621,6 +621,13 @@ class GalleryWindow(QWidget):
             priority=90
         )
 
+        # Subscribe to settings updates
+        await self.event_bus.subscribe(
+            EventTypes.SETTINGS_UPDATED,
+            self._handle_settings_updated,
+            priority=80
+        )
+
     def _handle_ollama_response(self, event_data) -> None:
         """Handle Ollama response events."""
         try:
@@ -649,6 +656,27 @@ class GalleryWindow(QWidget):
         except Exception as e:
             logger.error(f"Error handling streaming update: {e}")
 
+    def _handle_settings_updated(self, event_data) -> None:
+        """Handle settings updated events."""
+        try:
+            data = event_data.data
+            key = data.get('key')
+
+            # Update gallery opacity if it was changed
+            if key == 'ui.gallery_opacity':
+                new_opacity = data.get('value', 0.95)
+                self.setWindowOpacity(new_opacity)
+                self._update_translucent_background(new_opacity)
+                logger.info(f"Gallery opacity updated to {new_opacity}")
+            elif key == 'ui.theme':
+                # Reload theme if it changed
+                self._current_theme = data.get('value', 'dark')
+                self._apply_theme()
+                logger.info(f"Gallery theme updated to {self._current_theme}")
+
+        except Exception as e:
+            logger.error(f"Error handling settings update: {e}")
+
     async def initialize(self) -> bool:
         """Initialize the gallery window."""
         try:
@@ -656,6 +684,11 @@ class GalleryWindow(QWidget):
 
             # Load theme from settings
             self._current_theme = await self.settings_manager.get_setting("ui.theme", "dark")
+
+            # Load gallery opacity from settings
+            gallery_opacity = await self.settings_manager.get_setting("ui.gallery_opacity", 0.95)
+            self.setWindowOpacity(gallery_opacity)
+            self._update_translucent_background(gallery_opacity)
 
             # Apply theme with loaded settings
             self._apply_theme()
@@ -685,8 +718,7 @@ class GalleryWindow(QWidget):
         self.setWindowTitle("Screenshot Gallery")
         self.setGeometry(100, 100, 1200, 800)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWindowOpacity(0.93)
+        # WA_TranslucentBackground is set dynamically in initialize() based on opacity
 
         # Main layout
         main_layout = QVBoxLayout(self)
@@ -1086,6 +1118,17 @@ class GalleryWindow(QWidget):
         except Exception as e:
             logger.error(f"Failed to get preset {preset_id}: {e}")
             return None
+
+    def _update_translucent_background(self, opacity: float):
+        """Update the WA_TranslucentBackground attribute based on opacity."""
+        if opacity >= 1.0:
+            # Fully opaque, no need for translucent background
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            logger.debug("Disabled WA_TranslucentBackground (opacity = 1.0)")
+        else:
+            # Translucent, enable the attribute
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            logger.debug(f"Enabled WA_TranslucentBackground (opacity = {opacity})")
 
     def _apply_theme(self):
         """Apply theme styling."""

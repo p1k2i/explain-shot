@@ -310,7 +310,25 @@ class SettingsWindow(QDialog):
 
         layout.addWidget(screenshot_group)
 
-        # Add validators
+        # UI Group
+        ui_group = QGroupBox("User Interface")
+        ui_layout = QFormLayout(ui_group)
+
+        # Gallery opacity slider
+        gallery_opacity_container = QHBoxLayout()
+        self.gallery_opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.gallery_opacity_slider.setRange(75, 100)
+        self.gallery_opacity_slider.setValue(93)
+        self.gallery_opacity_slider.valueChanged.connect(self.update_gallery_opacity_label)
+
+        self.gallery_opacity_label = QLabel("93%")
+        self.gallery_opacity_label.setMinimumWidth(40)
+
+        gallery_opacity_container.addWidget(self.gallery_opacity_slider)
+        gallery_opacity_container.addWidget(self.gallery_opacity_label)
+        ui_layout.addRow("Gallery Transparency:", gallery_opacity_container)
+
+        layout.addWidget(ui_group)
         model_validator = FieldValidator(self.model_dropdown, model_error_label)
         model_validator.set_validation(
             lambda x: bool(x and x.strip() and x != "Select a model..."),
@@ -664,6 +682,11 @@ class SettingsWindow(QDialog):
                 self.quality_slider.setValue(self.current_settings.screenshot.quality)
                 self.update_quality_label()
 
+            if self.gallery_opacity_slider:
+                opacity_value = int(self.current_settings.ui.gallery_opacity * 100)
+                self.gallery_opacity_slider.setValue(opacity_value)
+                self.update_gallery_opacity_label()
+
             # Hotkey settings
             if self.capture_hotkey:
                 key_seq = QKeySequence(self.current_settings.hotkeys.screenshot_capture)
@@ -711,6 +734,9 @@ class SettingsWindow(QDialog):
                     "image_format": self.format_dropdown.currentText() if self.format_dropdown else "PNG",
                     "quality": self.quality_slider.value() if self.quality_slider else 95,
                     "auto_cleanup_days": self.cleanup_days_spinbox.value() if self.cleanup_days_spinbox else 30,
+                },
+                "ui": {
+                    "gallery_opacity": (self.gallery_opacity_slider.value() / 100.0) if self.gallery_opacity_slider else 0.95,
                 },
                 "hotkeys": {
                     "screenshot_capture": self.capture_hotkey.keySequence().toString() if self.capture_hotkey else "",
@@ -760,6 +786,12 @@ class SettingsWindow(QDialog):
         if self.quality_slider and self.quality_label:
             value = self.quality_slider.value()
             self.quality_label.setText(f"{value}%")
+
+    def update_gallery_opacity_label(self):
+        """Update the gallery opacity percentage label."""
+        if self.gallery_opacity_slider and self.gallery_opacity_label:
+            value = self.gallery_opacity_slider.value()
+            self.gallery_opacity_label.setText(f"{value}%")
 
     def browse_directory(self):
         """Open directory selection dialog."""
@@ -926,6 +958,15 @@ class SettingsWindow(QDialog):
                     success_count += 1
                 else:
                     failed_updates.append("screenshot.auto_cleanup_days")
+
+            # Update UI settings
+            ui_data = form_data.get("ui", {})
+            if "gallery_opacity" in ui_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("ui.gallery_opacity", ui_data["gallery_opacity"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("ui.gallery_opacity")
 
             # Update hotkey settings
             hotkeys_data = form_data.get("hotkeys", {})
