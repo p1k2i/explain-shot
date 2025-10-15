@@ -60,9 +60,7 @@ python main.py
 ```bash
 python main.py --help
 python main.py --debug                    # Enable debug logging
-python main.py --minimized               # Start minimized
 python main.py --log-level DEBUG         # Set log level
-python main.py --no-tray                 # Disable tray (fallback)
 ```
 
 ### Building Executable
@@ -76,18 +74,18 @@ pyinstaller --windowed --onefile --icon=resources/icons/app.ico main.py
 
 - **Model Layer**:
   - `SettingsManager`: Configuration and validation
-  - `DatabaseManager`: SQLite operations (future)
-  - `ScreenshotManager`: Image capture and processing (future)
-  - `OllamaClient`: AI integration (future)
+  - `DatabaseManager`: SQLite operations
+  - `ScreenshotManager`: Image capture and processing
+  - `OllamaClient`: AI integration
 
 - **View Layer**:
   - `TrayManager`: System tray icon and menu
-  - `UIManager`: PyQt6 windows (future)
+  - `UIManager`: PyQt6 windows
 
 - **Controller Layer**:
   - `EventBus`: Asynchronous event distribution
-  - `MainController`: Application orchestration (future)
-  - `HotkeyHandler`: Global hotkey management (future)
+  - `MainController`: Application orchestration
+  - `HotkeyHandler`: Global hotkey management
 
 ### Event-Driven Communication
 
@@ -163,28 +161,6 @@ Comprehensive error management:
 - `PyQt6`: UI framework
 - `ollama`: AI integration
 - `psutil`: System monitoring
-
-### Development Dependencies
-- `pyinstaller`: Executable packaging
-
-## Development Status
-
-### ✅ Completed (Step 3)
-- [x] Project structure and MVC architecture
-- [x] EventBus implementation with asyncio
-- [x] Comprehensive logging system
-- [x] Settings management with SQLite persistence
-- [x] Windows auto-start implementation
-- [x] System tray integration with pystray
-- [x] Icon resource management
-- [x] Main application entry point
-
-### 🚧 Next Steps (Step 4)
-- [ ] Global hotkey handling
-- [ ] Screenshot capture functionality
-- [ ] PyQt6 UI windows (Settings, Overlay, Gallery)
-- [ ] Database schema implementation
-- [ ] Ollama AI client integration
 
 ## License
 
