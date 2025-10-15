@@ -365,6 +365,12 @@ class OverlayManager(QObject):
         """
         return [
             {
+                "id": "take_screenshot",
+                "title": "📸 Take Screenshot",
+                "description": "Capture a new screenshot",
+                "action": "take_screenshot"
+            },
+            {
                 "id": "settings",
                 "title": "📱 Open Settings",
                 "description": "Configure application settings",
@@ -505,7 +511,23 @@ class OverlayManager(QObject):
         try:
             action = item_data.get("action", "unknown")
 
-            if action == "open_settings":
+            if action == "take_screenshot":
+                logger.info("Taking screenshot from overlay...")
+
+                # Emit screenshot capture request event
+                await self.event_bus.emit(
+                    EventTypes.SCREENSHOT_CAPTURE_REQUESTED,
+                    {
+                        "trigger_source": "overlay",
+                        "function_id": item_data.get("id")
+                    },
+                    source="OverlayManager"
+                )
+
+                # Hide overlay after action
+                await self.hide_overlay(reason="screenshot_requested")
+
+            elif action == "open_settings":
                 logger.info("Opening settings window from overlay...")
 
                 # Emit real settings show event

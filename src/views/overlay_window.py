@@ -129,7 +129,7 @@ class OverlayWindow(QWidget):
 
             self.app_functions_list = QListWidget()
             self.app_functions_list.setObjectName("appFunctionsList")
-            self.app_functions_list.setFixedHeight(70)  # Fixed height for ~2 items
+            self.app_functions_list.setFixedHeight(105)  # Fixed height for ~3 items
             self.app_functions_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             self.app_functions_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self.app_functions_list.itemClicked.connect(self._on_function_item_clicked)
