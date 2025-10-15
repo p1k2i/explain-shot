@@ -1,5 +1,5 @@
 """
-Views package for Explain Screenshot Application
+Views package for ExplainShot Application
 
 This package contains the View layer components following the MVC pattern:
 - TrayManager: System tray icon and menu management

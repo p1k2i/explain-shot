@@ -1,4 +1,4 @@
-# Project Architecture: Explain Screenshot Application
+# Project Architecture: ExplainShot Application
 
 ## Overview
 
@@ -346,7 +346,7 @@ class AutoStartManager:
 
 Windows Implementation:
 - Registry key: HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
-- Application name: "ExplainScreenshot"
+- Application name: "ExplainShot"
 - Executable path validation
 ```
 

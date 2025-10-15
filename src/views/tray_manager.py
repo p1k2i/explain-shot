@@ -56,8 +56,8 @@ class TrayManager:
 
     def __init__(
         self,
-        app_name: str = "Explain Screenshot",
-        tooltip: str = "Explain Screenshot - AI-powered screenshot analysis",
+        app_name: str = "ExplainShot",
+        tooltip: str = "ExplainShot - AI-powered screenshot analysis",
         shutdown_event: Optional[asyncio.Event] = None
     ):
         """

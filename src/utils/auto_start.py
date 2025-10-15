@@ -53,7 +53,7 @@ class AutoStartManager:
     3. Automatic method selection
     """
 
-    def __init__(self, app_name: str = "ExplainScreenshot", executable_path: Optional[str] = None):
+    def __init__(self, app_name: str = "ExplainShot", executable_path: Optional[str] = None):
         """
         Initialize AutoStartManager.
 
@@ -513,7 +513,7 @@ $Shortcut.Save()
 _auto_start_manager: Optional[AutoStartManager] = None
 
 
-def get_auto_start_manager(app_name: str = "ExplainScreenshot") -> AutoStartManager:
+def get_auto_start_manager(app_name: str = "ExplainShot") -> AutoStartManager:
     """
     Get the global AutoStartManager instance.
 

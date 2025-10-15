@@ -1,4 +1,4 @@
-# Core dependencies for Explain Screenshot Application
+# Core dependencies for ExplainShot Application
 
 # System tray functionality
 pystray==0.19.5

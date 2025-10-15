@@ -715,7 +715,7 @@ class GalleryWindow(QWidget):
 
     def _setup_ui(self):
         """Setup the user interface."""
-        self.setWindowTitle("Screenshot Gallery")
+        self.setWindowTitle("ExplainShot Gallery")
         self.setGeometry(100, 100, 1200, 800)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         # WA_TranslucentBackground is set dynamically in initialize() based on opacity
@@ -760,7 +760,7 @@ class GalleryWindow(QWidget):
         layout.setContentsMargins(10, 0, 10, 0)
 
         # Title
-        title_label = QLabel("Screenshot Gallery")
+        title_label = QLabel("ExplainShot Gallery")
         title_label.setObjectName("column_header")
         layout.addWidget(title_label)
 

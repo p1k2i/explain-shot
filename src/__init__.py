@@ -1,5 +1,5 @@
 """
-Explain Screenshot Application
+ExplainShot Application
 
 A lightweight, cross-platform desktop application for capturing screenshots
 and explaining them using AI integration. Built with Python 3.12 following
@@ -7,11 +7,11 @@ the MVC pattern with minimal coupling.
 """
 
 __version__ = "0.1.0"
-__author__ = "Explain Screenshot Team"
+__author__ = "ExplainShot Team"
 __description__ = "AI-powered screenshot explanation tool"
 
 # Application metadata
-APP_NAME = "Explain Screenshot"
+APP_NAME = "ExplainShot"
 APP_VERSION = __version__
 APP_AUTHOR = __author__
 APP_DESCRIPTION = __description__

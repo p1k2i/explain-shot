@@ -2,7 +2,7 @@
 Main Application Entry Point
 
 Implements the async main function with signal handling, module initialization,
-and PyInstaller compatibility for the Explain Screenshot application.
+and PyInstaller compatibility for the ExplainShot application.
 """
 
 import asyncio

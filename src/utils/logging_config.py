@@ -2,7 +2,7 @@
 Logging Configuration Module
 
 Provides structured logging setup with file rotation, privacy considerations,
-and module-specific loggers for the Explain Screenshot application.
+and module-specific loggers for the ExplainShot application.
 """
 
 import logging

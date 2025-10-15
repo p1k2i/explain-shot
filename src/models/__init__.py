@@ -1,5 +1,5 @@
 """
-Models package for Explain Screenshot Application
+Models package for ExplainShot Application
 
 This package contains the Model layer components following the MVC pattern:
 - DatabaseManager: SQLite database operations

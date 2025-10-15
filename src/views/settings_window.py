@@ -172,7 +172,7 @@ class SettingsWindow(QDialog):
 
     def setup_ui(self):
         """Setup the main UI layout and components."""
-        self.setWindowTitle("ExplainScreenshot Settings")
+        self.setWindowTitle("ExplainShot Settings")
         self.setModal(True)
         self.resize(600, 550)
         self.setMinimumSize(550, 550)
@@ -190,7 +190,7 @@ class SettingsWindow(QDialog):
         main_layout.setContentsMargins(15, 15, 15, 15)
 
         # Title
-        title_label = QLabel("ExplainScreenshot Settings")
+        title_label = QLabel("ExplainShot Settings")
         title_label.setObjectName("title_label")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title_label)

@@ -1,4 +1,4 @@
-# Explain Screenshot
+# ExplainShot
 
 A lightweight, cross-platform desktop application for capturing screenshots and explaining them using AI integration. Built with Python 3.12 following the MVC pattern with minimal coupling.
 
@@ -15,7 +15,7 @@ A lightweight, cross-platform desktop application for capturing screenshots and 
 ## Project Structure
 
 ```
-explain-screenshot/
+explain-shot/
 ├── src/
 │   ├── models/           # Data layer (Settings, Database)
 │   ├── views/            # UI layer (Tray, Windows)
@@ -34,7 +34,7 @@ explain-screenshot/
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd explain-screenshot
+   cd explain-shot
    ```
 
 2. **Create virtual environment**

@@ -1,5 +1,5 @@
 """
-Controllers package for Explain Screenshot Application
+Controllers package for ExplainShot Application
 
 This package contains the Controller layer components following the MVC pattern:
 - MainController: Application orchestration and business logic
