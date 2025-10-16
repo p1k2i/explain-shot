@@ -81,6 +81,46 @@ class AutoStartConfig:
 
 
 @dataclass
+class OptimizationConfig:
+    """Performance optimization configuration."""
+    # Cache settings
+    cache_enabled: bool = True
+    cache_max_entries: int = 500
+    cache_ttl_hours: int = 24
+    cache_memory_limit_mb: int = 256
+
+    # Storage management
+    storage_management_enabled: bool = True
+    max_storage_gb: float = 10.0
+    max_file_count: int = 1000
+    cleanup_interval_hours: int = 24
+    auto_cleanup_enabled: bool = True
+
+    # Thumbnail optimization
+    thumbnail_cache_enabled: bool = True
+    thumbnail_cache_size: int = 100
+    thumbnail_quality: int = 85
+    preload_count: int = 5
+
+    # Request optimization
+    request_pooling_enabled: bool = True
+    max_concurrent_requests: int = 3
+    request_timeout: float = 30.0
+    retry_attempts: int = 2
+
+    # Performance monitoring
+    performance_monitoring_enabled: bool = True
+    memory_threshold_mb: int = 1024
+    disk_usage_threshold_percent: int = 90
+    cpu_threshold_percent: int = 80
+
+    # Background tasks
+    background_cleanup_enabled: bool = True
+    metrics_collection_enabled: bool = True
+    metrics_retention_days: int = 30
+
+
+@dataclass
 class ApplicationSettings:
     """Complete application settings."""
     # Core settings
@@ -95,6 +135,7 @@ class ApplicationSettings:
     screenshot: ScreenshotConfig = field(default_factory=ScreenshotConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     auto_start: AutoStartConfig = field(default_factory=AutoStartConfig)
+    optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
 
     # Metadata
     last_updated: Optional[str] = None
@@ -157,6 +198,23 @@ class SettingsManager:
             'ollama.timeout_seconds': lambda x: 5 <= x <= 300,
             'ollama.max_retries': lambda x: 0 <= x <= 10,
             'auto_start.delay_seconds': lambda x: 0 <= x <= 60,
+            # Optimization validation rules
+            'optimization.cache_max_entries': lambda x: 10 <= x <= 10000,
+            'optimization.cache_ttl_hours': lambda x: 1 <= x <= 168,  # 1 hour to 1 week
+            'optimization.cache_memory_limit_mb': lambda x: 32 <= x <= 2048,
+            'optimization.max_storage_gb': lambda x: 1.0 <= x <= 100.0,
+            'optimization.max_file_count': lambda x: 100 <= x <= 50000,
+            'optimization.cleanup_interval_hours': lambda x: 1 <= x <= 168,
+            'optimization.thumbnail_cache_size': lambda x: 10 <= x <= 1000,
+            'optimization.thumbnail_quality': lambda x: 50 <= x <= 100,
+            'optimization.preload_count': lambda x: 1 <= x <= 20,
+            'optimization.max_concurrent_requests': lambda x: 1 <= x <= 10,
+            'optimization.request_timeout': lambda x: 5.0 <= x <= 300.0,
+            'optimization.retry_attempts': lambda x: 0 <= x <= 5,
+            'optimization.memory_threshold_mb': lambda x: 256 <= x <= 8192,
+            'optimization.disk_usage_threshold_percent': lambda x: 50 <= x <= 95,
+            'optimization.cpu_threshold_percent': lambda x: 50 <= x <= 95,
+            'optimization.metrics_retention_days': lambda x: 1 <= x <= 90,
         }
 
     async def initialize_database(self) -> None:

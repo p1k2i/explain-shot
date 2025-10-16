@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QTabWidget, QWidget,
     QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QCheckBox,
     QSlider, QSpinBox, QKeySequenceEdit, QFileDialog, QProgressBar,
-    QSpacerItem, QSizePolicy, QMessageBox
+    QSpacerItem, QSizePolicy, QMessageBox, QScrollArea
 )
 from PyQt6.QtGui import QKeySequence
 
@@ -153,6 +153,26 @@ class SettingsWindow(QDialog):
         self.test_connection_button: Optional[QPushButton] = None
         self.progress_bar: Optional[QProgressBar] = None
 
+        # Optimization settings widgets
+        self.opt_cache_enabled: Optional[QCheckBox] = None
+        self.opt_cache_max_entries: Optional[QSpinBox] = None
+        self.opt_cache_ttl_hours: Optional[QSpinBox] = None
+        self.opt_cache_memory_limit: Optional[QSpinBox] = None
+        self.opt_storage_enabled: Optional[QCheckBox] = None
+        self.opt_max_storage_gb: Optional[QSpinBox] = None
+        self.opt_max_file_count: Optional[QSpinBox] = None
+        self.opt_auto_cleanup: Optional[QCheckBox] = None
+        self.opt_thumbnail_enabled: Optional[QCheckBox] = None
+        self.opt_thumbnail_cache_size: Optional[QSpinBox] = None
+        self.opt_thumbnail_quality: Optional[QSlider] = None
+        self.opt_thumbnail_quality_label: Optional[QLabel] = None
+        self.opt_request_pooling: Optional[QCheckBox] = None
+        self.opt_max_concurrent: Optional[QSpinBox] = None
+        self.opt_request_timeout: Optional[QSpinBox] = None
+        self.opt_monitoring_enabled: Optional[QCheckBox] = None
+        self.opt_memory_threshold: Optional[QSpinBox] = None
+        self.opt_disk_threshold: Optional[QSpinBox] = None
+
         # Setup UI and styling
         self.setup_ui()
         self.setup_styling()
@@ -211,6 +231,10 @@ class SettingsWindow(QDialog):
         # Hotkeys tab
         hotkeys_tab = self.create_hotkeys_tab()
         tab_widget.addTab(hotkeys_tab, "Hotkeys")
+
+        # Optimization tab
+        optimization_tab = self.create_optimization_tab()
+        tab_widget.addTab(optimization_tab, "Performance")
 
         # Advanced tab
         advanced_tab = self.create_advanced_tab()
@@ -428,6 +452,196 @@ class SettingsWindow(QDialog):
         self.validators.append(settings_validator)
 
         return tab
+
+    def create_optimization_tab(self) -> QWidget:
+        """Create the performance optimization settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # Create scroll area for the optimization settings
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+
+        # Cache Settings Group
+        cache_group = QGroupBox("AI Response Cache")
+        cache_layout = QFormLayout(cache_group)
+
+        # Cache enabled
+        self.opt_cache_enabled = QCheckBox("Enable AI response caching")
+        self.opt_cache_enabled.setToolTip("Cache AI responses to improve performance and reduce API calls")
+        cache_layout.addRow(self.opt_cache_enabled)
+
+        # Max cache entries
+        self.opt_cache_max_entries = QSpinBox()
+        self.opt_cache_max_entries.setRange(10, 10000)
+        self.opt_cache_max_entries.setValue(500)
+        self.opt_cache_max_entries.setSuffix(" entries")
+        self.opt_cache_max_entries.setToolTip("Maximum number of AI responses to cache")
+        cache_layout.addRow("Max Cached Responses:", self.opt_cache_max_entries)
+
+        # Cache TTL
+        self.opt_cache_ttl_hours = QSpinBox()
+        self.opt_cache_ttl_hours.setRange(1, 168)
+        self.opt_cache_ttl_hours.setValue(24)
+        self.opt_cache_ttl_hours.setSuffix(" hours")
+        self.opt_cache_ttl_hours.setToolTip("How long to keep cached responses (1-168 hours)")
+        cache_layout.addRow("Cache Duration:", self.opt_cache_ttl_hours)
+
+        # Cache memory limit
+        self.opt_cache_memory_limit = QSpinBox()
+        self.opt_cache_memory_limit.setRange(32, 2048)
+        self.opt_cache_memory_limit.setValue(256)
+        self.opt_cache_memory_limit.setSuffix(" MB")
+        self.opt_cache_memory_limit.setToolTip("Maximum memory usage for response cache")
+        cache_layout.addRow("Memory Limit:", self.opt_cache_memory_limit)
+
+        scroll_layout.addWidget(cache_group)
+
+        # Storage Management Group
+        storage_group = QGroupBox("Storage Management")
+        storage_layout = QFormLayout(storage_group)
+
+        # Storage management enabled
+        self.opt_storage_enabled = QCheckBox("Enable automatic storage management")
+        self.opt_storage_enabled.setToolTip("Automatically manage screenshot storage with configurable limits")
+        storage_layout.addRow(self.opt_storage_enabled)
+
+        # Max storage
+        self.opt_max_storage_gb = QSpinBox()
+        self.opt_max_storage_gb.setRange(1, 100)
+        self.opt_max_storage_gb.setValue(10)
+        self.opt_max_storage_gb.setSuffix(" GB")
+        self.opt_max_storage_gb.setToolTip("Maximum storage space for screenshots (1-100 GB)")
+        storage_layout.addRow("Storage Limit:", self.opt_max_storage_gb)
+
+        # Max file count
+        self.opt_max_file_count = QSpinBox()
+        self.opt_max_file_count.setRange(100, 50000)
+        self.opt_max_file_count.setValue(1000)
+        self.opt_max_file_count.setToolTip("Maximum number of screenshot files (100-50,000)")
+        storage_layout.addRow("Max Files:", self.opt_max_file_count)
+
+        # Auto cleanup
+        self.opt_auto_cleanup = QCheckBox("Enable automatic cleanup")
+        self.opt_auto_cleanup.setToolTip("Automatically remove old screenshots when limits are exceeded")
+        storage_layout.addRow(self.opt_auto_cleanup)
+
+        scroll_layout.addWidget(storage_group)
+
+        # Thumbnail Optimization Group
+        thumbnail_group = QGroupBox("Thumbnail Optimization")
+        thumbnail_layout = QFormLayout(thumbnail_group)
+
+        # Thumbnail cache enabled
+        self.opt_thumbnail_enabled = QCheckBox("Enable thumbnail caching")
+        self.opt_thumbnail_enabled.setToolTip("Cache thumbnails for faster gallery loading")
+        thumbnail_layout.addRow(self.opt_thumbnail_enabled)
+
+        # Thumbnail cache size
+        self.opt_thumbnail_cache_size = QSpinBox()
+        self.opt_thumbnail_cache_size.setRange(10, 1000)
+        self.opt_thumbnail_cache_size.setValue(100)
+        self.opt_thumbnail_cache_size.setToolTip("Number of thumbnails to keep in memory")
+        thumbnail_layout.addRow("Cache Size:", self.opt_thumbnail_cache_size)
+
+        # Thumbnail quality slider
+        thumbnail_quality_container = QHBoxLayout()
+        self.opt_thumbnail_quality = QSlider(Qt.Orientation.Horizontal)
+        self.opt_thumbnail_quality.setRange(50, 100)
+        self.opt_thumbnail_quality.setValue(85)
+        self.opt_thumbnail_quality.setToolTip("Thumbnail image quality (higher = better quality, more memory)")
+        self.opt_thumbnail_quality.valueChanged.connect(self.update_thumbnail_quality_label)
+
+        self.opt_thumbnail_quality_label = QLabel("85%")
+        self.opt_thumbnail_quality_label.setMinimumWidth(40)
+
+        thumbnail_quality_container.addWidget(QLabel("Low"))
+        thumbnail_quality_container.addWidget(self.opt_thumbnail_quality)
+        thumbnail_quality_container.addWidget(QLabel("High"))
+        thumbnail_quality_container.addWidget(self.opt_thumbnail_quality_label)
+
+        thumbnail_layout.addRow("Thumbnail Quality:", thumbnail_quality_container)
+
+        scroll_layout.addWidget(thumbnail_group)
+
+        # Request Optimization Group
+        request_group = QGroupBox("Request Optimization")
+        request_layout = QFormLayout(request_group)
+
+        # Request pooling
+        self.opt_request_pooling = QCheckBox("Enable request pooling")
+        self.opt_request_pooling.setToolTip("Pool and queue AI requests for better performance")
+        request_layout.addRow(self.opt_request_pooling)
+
+        # Max concurrent requests
+        self.opt_max_concurrent = QSpinBox()
+        self.opt_max_concurrent.setRange(1, 10)
+        self.opt_max_concurrent.setValue(3)
+        self.opt_max_concurrent.setToolTip("Maximum simultaneous AI requests (1-10)")
+        request_layout.addRow("Max Concurrent:", self.opt_max_concurrent)
+
+        # Request timeout
+        self.opt_request_timeout = QSpinBox()
+        self.opt_request_timeout.setRange(5, 300)
+        self.opt_request_timeout.setValue(30)
+        self.opt_request_timeout.setSuffix(" seconds")
+        self.opt_request_timeout.setToolTip("Timeout for individual AI requests (5-300 seconds)")
+        request_layout.addRow("Request Timeout:", self.opt_request_timeout)
+
+        scroll_layout.addWidget(request_group)
+
+        # Performance Monitoring Group
+        monitoring_group = QGroupBox("Performance Monitoring")
+        monitoring_layout = QFormLayout(monitoring_group)
+
+        # Monitoring enabled
+        self.opt_monitoring_enabled = QCheckBox("Enable performance monitoring")
+        self.opt_monitoring_enabled.setToolTip("Monitor system performance and trigger automatic optimizations")
+        monitoring_layout.addRow(self.opt_monitoring_enabled)
+
+        # Memory threshold
+        self.opt_memory_threshold = QSpinBox()
+        self.opt_memory_threshold.setRange(256, 8192)
+        self.opt_memory_threshold.setValue(1024)
+        self.opt_memory_threshold.setSuffix(" MB")
+        self.opt_memory_threshold.setToolTip("Memory usage threshold for performance alerts (256-8192 MB)")
+        monitoring_layout.addRow("Memory Threshold:", self.opt_memory_threshold)
+
+        # Disk threshold
+        self.opt_disk_threshold = QSpinBox()
+        self.opt_disk_threshold.setRange(50, 95)
+        self.opt_disk_threshold.setValue(90)
+        self.opt_disk_threshold.setSuffix("%")
+        self.opt_disk_threshold.setToolTip("Disk usage threshold for cleanup triggers (50-95%)")
+        monitoring_layout.addRow("Disk Threshold:", self.opt_disk_threshold)
+
+        scroll_layout.addWidget(monitoring_group)
+
+        # Add stretch to push everything to the top
+        scroll_layout.addStretch()
+
+        scroll_area.setWidget(scroll_widget)
+        layout.addWidget(scroll_area)
+
+        # Setup optimization settings validation
+        self.setup_optimization_validation()
+
+        return tab
+
+    def setup_optimization_validation(self):
+        """Setup validation for optimization settings."""
+        # Add validators for optimization settings if needed
+        # Most optimization settings have built-in range validation via QSpinBox
+        pass
+
+    def update_thumbnail_quality_label(self):
+        """Update the thumbnail quality percentage label."""
+        if self.opt_thumbnail_quality and self.opt_thumbnail_quality_label:
+            value = self.opt_thumbnail_quality.value()
+            self.opt_thumbnail_quality_label.setText(f"{value}%")
 
     def create_advanced_tab(self) -> QWidget:
         """Create the advanced settings tab."""
@@ -713,6 +927,55 @@ class SettingsWindow(QDialog):
             if self.cleanup_days_spinbox:
                 self.cleanup_days_spinbox.setValue(self.current_settings.screenshot.auto_cleanup_days)
 
+            # Optimization settings
+            if hasattr(self.current_settings, 'optimization'):
+                opt = self.current_settings.optimization
+
+                # Cache settings
+                if self.opt_cache_enabled:
+                    self.opt_cache_enabled.setChecked(opt.cache_enabled)
+                if self.opt_cache_max_entries:
+                    self.opt_cache_max_entries.setValue(opt.cache_max_entries)
+                if self.opt_cache_ttl_hours:
+                    self.opt_cache_ttl_hours.setValue(opt.cache_ttl_hours)
+                if self.opt_cache_memory_limit:
+                    self.opt_cache_memory_limit.setValue(opt.cache_memory_limit_mb)
+
+                # Storage settings
+                if self.opt_storage_enabled:
+                    self.opt_storage_enabled.setChecked(opt.storage_management_enabled)
+                if self.opt_max_storage_gb:
+                    self.opt_max_storage_gb.setValue(int(opt.max_storage_gb))
+                if self.opt_max_file_count:
+                    self.opt_max_file_count.setValue(opt.max_file_count)
+                if self.opt_auto_cleanup:
+                    self.opt_auto_cleanup.setChecked(opt.auto_cleanup_enabled)
+
+                # Thumbnail settings
+                if self.opt_thumbnail_enabled:
+                    self.opt_thumbnail_enabled.setChecked(opt.thumbnail_cache_enabled)
+                if self.opt_thumbnail_cache_size:
+                    self.opt_thumbnail_cache_size.setValue(opt.thumbnail_cache_size)
+                if self.opt_thumbnail_quality:
+                    self.opt_thumbnail_quality.setValue(opt.thumbnail_quality)
+                    self.update_thumbnail_quality_label()
+
+                # Request settings
+                if self.opt_request_pooling:
+                    self.opt_request_pooling.setChecked(opt.request_pooling_enabled)
+                if self.opt_max_concurrent:
+                    self.opt_max_concurrent.setValue(opt.max_concurrent_requests)
+                if self.opt_request_timeout:
+                    self.opt_request_timeout.setValue(int(opt.request_timeout))
+
+                # Monitoring settings
+                if self.opt_monitoring_enabled:
+                    self.opt_monitoring_enabled.setChecked(opt.performance_monitoring_enabled)
+                if self.opt_memory_threshold:
+                    self.opt_memory_threshold.setValue(opt.memory_threshold_mb)
+                if self.opt_disk_threshold:
+                    self.opt_disk_threshold.setValue(opt.disk_usage_threshold_percent)
+
         except Exception as e:
             logger.error(f"Error populating form fields: {e}")
 
@@ -746,6 +1009,34 @@ class SettingsWindow(QDialog):
                 "advanced": {
                     "auto_start": self.auto_start_checkbox.isChecked() if self.auto_start_checkbox else False,
                     "debug_mode": self.debug_mode_checkbox.isChecked() if self.debug_mode_checkbox else False,
+                },
+                "optimization": {
+                    # Cache settings
+                    "cache_enabled": self.opt_cache_enabled.isChecked() if self.opt_cache_enabled else True,
+                    "cache_max_entries": self.opt_cache_max_entries.value() if self.opt_cache_max_entries else 500,
+                    "cache_ttl_hours": self.opt_cache_ttl_hours.value() if self.opt_cache_ttl_hours else 24,
+                    "cache_memory_limit_mb": self.opt_cache_memory_limit.value() if self.opt_cache_memory_limit else 256,
+
+                    # Storage settings
+                    "storage_management_enabled": self.opt_storage_enabled.isChecked() if self.opt_storage_enabled else True,
+                    "max_storage_gb": float(self.opt_max_storage_gb.value()) if self.opt_max_storage_gb else 10.0,
+                    "max_file_count": self.opt_max_file_count.value() if self.opt_max_file_count else 1000,
+                    "auto_cleanup_enabled": self.opt_auto_cleanup.isChecked() if self.opt_auto_cleanup else True,
+
+                    # Thumbnail settings
+                    "thumbnail_cache_enabled": self.opt_thumbnail_enabled.isChecked() if self.opt_thumbnail_enabled else True,
+                    "thumbnail_cache_size": self.opt_thumbnail_cache_size.value() if self.opt_thumbnail_cache_size else 100,
+                    "thumbnail_quality": self.opt_thumbnail_quality.value() if self.opt_thumbnail_quality else 85,
+
+                    # Request settings
+                    "request_pooling_enabled": self.opt_request_pooling.isChecked() if self.opt_request_pooling else True,
+                    "max_concurrent_requests": self.opt_max_concurrent.value() if self.opt_max_concurrent else 3,
+                    "request_timeout": float(self.opt_request_timeout.value()) if self.opt_request_timeout else 30.0,
+
+                    # Monitoring settings
+                    "performance_monitoring_enabled": self.opt_monitoring_enabled.isChecked() if self.opt_monitoring_enabled else True,
+                    "memory_threshold_mb": self.opt_memory_threshold.value() if self.opt_memory_threshold else 1024,
+                    "disk_usage_threshold_percent": self.opt_disk_threshold.value() if self.opt_disk_threshold else 90,
                 }
             }
 
