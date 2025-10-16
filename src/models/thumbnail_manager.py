@@ -12,7 +12,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Set, Any, Callable
+from typing import Dict, List, Optional, Tuple, Set, Any
 from pathlib import Path
 from io import BytesIO
 
