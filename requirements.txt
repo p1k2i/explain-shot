@@ -21,8 +21,5 @@ psutil==7.1.0
 # Windows registry access (included with Python on Windows)
 # winreg - built-in module
 
-# Development and packaging dependencies
-pyinstaller==6.16.0
-
 # Optional: Better async support
 aiofiles==25.1.0

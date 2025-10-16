@@ -31,23 +31,17 @@ explain-shot/
 
 ## Installation
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd explain-shot
-   ```
+### For Production
+Install only the necessary dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-2. **Create virtual environment**
-   ```bash
-   python -m venv venv
-   venv\Scripts\activate  # Windows
-   # source venv/bin/activate  # Linux/macOS
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+### For Development
+Install all dependencies, including development tools:
+```bash
+pip install -r requirements-dev.txt
+```
 
 ## Usage
 
