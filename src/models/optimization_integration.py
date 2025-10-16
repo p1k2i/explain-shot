@@ -13,10 +13,10 @@ from ..controllers.event_bus import EventBus
 from ..models.database_manager import DatabaseManager
 from ..models.database_extensions import DatabaseExtensions
 from ..models.database_schema_migration import DatabaseSchemaMigration
-from ..models.enhanced_thumbnail_manager import ThumbnailManager
-from ..models.enhanced_storage_manager import StorageManager
-from ..models.enhanced_cache_manager import CacheManager
-from ..models.enhanced_request_manager import RequestManager
+from .thumbnail_manager import ThumbnailManager
+from .storage_manager import StorageManager
+from .cache_manager import CacheManager
+from .request_manager import RequestManager
 from ..models.performance_monitor import PerformanceMonitor
 from ..models.settings_manager import SettingsManager
 

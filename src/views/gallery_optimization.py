@@ -12,7 +12,7 @@ from PyQt6.QtGui import QPixmap
 
 if TYPE_CHECKING:
     from ..views.gallery_window import GalleryWindow
-    from ..models.enhanced_thumbnail_manager import ThumbnailManager
+    from ..models.thumbnail_manager import ThumbnailManager
     from ..models.screenshot_models import ScreenshotMetadata
 
 logger = logging.getLogger(__name__)
