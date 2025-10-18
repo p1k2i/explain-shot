@@ -744,7 +744,7 @@ class GalleryWindow(QWidget):
             preset_data = await self._get_preset_by_id(preset_id)
             if preset_data and self.chat_interface:
                 # Add user message showing preset execution
-                self.chat_interface.add_user_message(f"Running preset: {preset_data.name}")
+                self.chat_interface.add_user_message(preset_data.prompt)
 
                 # Create context for the preset execution
                 context = {
