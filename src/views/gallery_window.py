@@ -9,12 +9,13 @@ import asyncio
 import logging
 import os
 from datetime import datetime
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING, cast
 from dataclasses import dataclass
 
 from PyQt6.QtCore import (
-    Qt, QObject, pyqtSignal, QSize, QBuffer
+    Qt, QObject, pyqtSignal, QSize, QBuffer, QEvent
 )
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QScrollArea, QTextBrowser,
     QLineEdit, QPushButton, QLabel, QFrame, QGridLayout
@@ -572,10 +573,57 @@ class GalleryWindow(QWidget):
         self.preset_items: dict[int, PresetItem] = {}  # preset_id -> PresetItem
         self.selection_indicator = None  # Will be created in _setup_ui
 
+        # Install event filter for window dragging
+        self.installEventFilter(self)
+
         # Initialize UI
         self._setup_ui()
 
         logger.info("GalleryWindow created")
+
+    def eventFilter(self, a0: 'QObject | None', a1: 'QEvent | None') -> bool:
+        """Handle window dragging through event filter."""
+        # Defensive: if there's no event, defer to base
+        if a1 is None:
+            return super().eventFilter(a0, a1)
+
+        # Mouse press: potentially start dragging only when pressing in the title bar
+        if a1.type() == QEvent.Type.MouseButtonPress:
+            mouse_event = cast(QMouseEvent, a1)
+            if mouse_event.button() == Qt.MouseButton.LeftButton:
+                pos = self.mapFromGlobal(mouse_event.globalPosition().toPoint())
+                # Only allow starting a drag from the top zone (title bar height)
+                if pos.y() < 40:
+                    # If the title bar exists, ensure the press was within it and not on a button
+                    if self.title_bar and self.title_bar.geometry().contains(pos):
+                        title_bar_pos = self.title_bar.mapFrom(self, pos)
+                        widget_in_title_bar = self.title_bar.childAt(title_bar_pos)
+                        if widget_in_title_bar and isinstance(widget_in_title_bar, QPushButton):
+                            # Clicked an interactive control -> don't start dragging
+                            return False
+
+                    # Start dragging and mark that drag originated from title
+                    self._drag_active = True
+                    self.drag_pos = mouse_event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                    return True
+
+        # Mouse move: move window only while a drag started from title bar is active
+        if a1.type() == QEvent.Type.MouseMove:
+            if getattr(self, '_drag_active', False) and hasattr(self, 'drag_pos'):
+                mouse_event = cast(QMouseEvent, a1)
+                if mouse_event.buttons() == Qt.MouseButton.LeftButton:
+                    self.move(mouse_event.globalPosition().toPoint() - self.drag_pos)
+                    return True
+
+        # Mouse release: stop any active drag so subsequent presses won't reuse previous state
+        if a1.type() == QEvent.Type.MouseButtonRelease:
+            if getattr(self, '_drag_active', False):
+                self._drag_active = False
+                if hasattr(self, 'drag_pos'):
+                    del self.drag_pos
+                return True
+
+        return super().eventFilter(a0, a1)
 
     async def _subscribe_to_events(self) -> None:
         """Subscribe to EventBus events."""
@@ -1155,17 +1203,3 @@ class GalleryWindow(QWidget):
         self.gallery_closed.emit()
         logger.info("Gallery window closed")
         super().closeEvent(a0)
-
-    def mousePressEvent(self, a0):
-        """Handle mouse press for window dragging."""
-        if a0 and hasattr(a0, 'button') and hasattr(a0, 'position'):
-            if a0.button() == Qt.MouseButton.LeftButton and a0.position().y() < 40:
-                self.drag_pos = a0.globalPosition().toPoint() - self.frameGeometry().topLeft()
-                a0.accept()
-
-    def mouseMoveEvent(self, a0):
-        """Handle mouse move for window dragging."""
-        if a0 and hasattr(self, 'drag_pos') and hasattr(a0, 'buttons') and hasattr(a0, 'globalPosition'):
-            if a0.buttons() == Qt.MouseButton.LeftButton:
-                self.move(a0.globalPosition().toPoint() - self.drag_pos)
-                a0.accept()
