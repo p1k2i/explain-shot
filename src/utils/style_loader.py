@@ -217,6 +217,23 @@ class DynamicStyleManager:
         widget.setStyleSheet(combined_css)
         refresh_widget_style(widget)
 
+    def apply_screenshot_item_state(self, widget, state: str) -> None:
+        """
+        Apply a specific state CSS to a screenshot item widget.
+
+        Args:
+            widget: The screenshot item widget
+            state: The state to apply ('normal', 'hover', 'selected', 'selected-hover')
+        """
+        if state == 'normal':
+            css_content = self.get_state_css('screenshot-items')
+        else:
+            css_content = self.get_state_css(f'screenshot-items-{state}')
+
+        if css_content:
+            widget.setStyleSheet(css_content)
+            refresh_widget_style(widget)
+
     def refresh_theme(self, new_theme: str) -> None:
         """
         Change theme and clear cache.
@@ -228,3 +245,32 @@ class DynamicStyleManager:
             self.theme = new_theme
             self._base_css = None
             self._state_css_cache.clear()
+
+
+class ScreenshotItemStyleManager:
+    """
+    Specialized style manager for screenshot items with state management.
+    """
+
+    def __init__(self, style_manager: DynamicStyleManager):
+        self.style_manager = style_manager
+
+    def apply_state(self, widget, is_selected: bool, is_hovered: bool) -> None:
+        """
+        Apply the appropriate state CSS based on selection and hover states.
+
+        Args:
+            widget: The screenshot item widget
+            is_selected: Whether the item is selected
+            is_hovered: Whether the item is hovered
+        """
+        if is_selected and is_hovered:
+            state = 'selected-hover'
+        elif is_selected:
+            state = 'selected'
+        elif is_hovered:
+            state = 'hover'
+        else:
+            state = 'normal'
+
+        self.style_manager.apply_screenshot_item_state(widget, state)

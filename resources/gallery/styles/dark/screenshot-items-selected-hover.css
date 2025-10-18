@@ -1,0 +1,37 @@
+/* Screenshot Item Selected+Hover Styles - Dark Theme */
+/* Styles applied programmatically when both selected and hovered */
+
+/* Selected and Hovered Screenshot Item */
+#ScreenshotItem {
+    background-color: #2A4A6F;
+    border: 3px solid #33B5FF;
+    border-radius: 8px;
+    padding: 3px;
+}
+
+/* Selected and Hovered Thumbnail Label */
+QLabel#thumbnail_label {
+    border: 2px solid #33B5FF;
+    background-color: #3A5A7F;
+    border-radius: 6px;
+}
+
+/* Selected and Hovered Filename Label */
+QLabel#filename_label {
+    color: #FFFFFF;
+    font-size: 12px;
+    font-weight: bold;
+    background-color: rgba(51, 181, 255, 0.95);
+    border: 1px solid #33B5FF;
+    border-radius: 4px;
+    padding: 2px 4px;
+}
+
+/* Selected and Hovered Timestamp Label */
+QLabel#timestamp_label {
+    color: #33B5FF;
+    font-size: 11px;
+    font-weight: bold;
+    background-color: transparent;
+    border: none;
+}

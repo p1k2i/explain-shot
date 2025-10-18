@@ -23,7 +23,7 @@ from PyQt6.QtGui import (
     QPixmap, QFont, QColor, QPainter
 )
 
-from src.utils.style_loader import load_stylesheets, load_stylesheet, DynamicStyleManager
+from src.utils.style_loader import load_stylesheets, load_stylesheet, DynamicStyleManager, ScreenshotItemStyleManager
 
 try:
     from PIL import Image, ImageQt
@@ -218,6 +218,7 @@ class ScreenshotItem(QWidget):
         self.timestamp = timestamp
         self._is_selected = False
         self._is_hovered = False
+        self._style_manager = None  # Will be set by parent
 
         self.setFixedSize(140, 160)
         self.setObjectName("ScreenshotItem")
@@ -252,12 +253,18 @@ class ScreenshotItem(QWidget):
         self.timestamp_label.setObjectName("timestamp_label")
         layout.addWidget(self.timestamp_label)
 
-        # Initialize properties for CSS selectors
-        self.setProperty("selected", False)
-        self.setProperty("hovered", False)
-        self.filename_label.setProperty("selected", False)
+        # Apply initial normal state styling
+        self._apply_current_state()
 
-        self._setup_animations()
+    def set_style_manager(self, style_manager: 'ScreenshotItemStyleManager') -> None:
+        """Set the style manager for this item."""
+        self._style_manager = style_manager
+        self._apply_current_state()
+
+    def _apply_current_state(self) -> None:
+        """Apply the current state CSS to the item."""
+        if self._style_manager:
+            self._style_manager.apply_state(self, self._is_selected, self._is_hovered)
 
     def _truncate_filename(self, filename: str, max_length: int = 20) -> str:
         """Truncate filename for display."""
@@ -278,18 +285,9 @@ class ScreenshotItem(QWidget):
 
     def set_selected(self, selected: bool):
         """Set selection state."""
-        self._is_selected = selected
-
-        if self._is_selected:
-            # Selected state
-            self.setProperty("selected", True)
-            self.filename_label.setProperty("selected", True)
-        else:
-            # Normal state
-            self.setProperty("selected", False)
-            self.filename_label.setProperty("selected", False)
-
-        self._update_appearance()
+        if self._is_selected != selected:
+            self._is_selected = selected
+            self._apply_current_state()
 
     def is_selected(self) -> bool:
         """Check if item is selected."""
@@ -303,16 +301,16 @@ class ScreenshotItem(QWidget):
 
     def enterEvent(self, event):
         """Handle mouse enter."""
-        self._is_hovered = True
-        self.setProperty("hovered", True)
-        self._update_appearance()
+        if not self._is_hovered:
+            self._is_hovered = True
+            self._apply_current_state()
         super().enterEvent(event)
 
     def leaveEvent(self, a0):
         """Handle mouse leave."""
-        self._is_hovered = False
-        self.setProperty("hovered", False)
-        self._update_appearance()
+        if self._is_hovered:
+            self._is_hovered = False
+            self._apply_current_state()
         super().leaveEvent(a0)
 
     def _setup_animations(self):
@@ -321,12 +319,8 @@ class ScreenshotItem(QWidget):
 
     def _update_appearance(self):
         """Update visual appearance based on state."""
-        # Force style refresh to apply property-based selectors
-        style = self.style()
-        if style:
-            style.polish(self)
-            style.polish(self.filename_label)
-        self.update()
+        # This method is now replaced by _apply_current_state()
+        self._apply_current_state()
 
 
 class PresetItem(QWidget):
@@ -571,6 +565,7 @@ class GalleryWindow(QWidget):
 
         # Style management
         self._style_manager = None
+        self._screenshot_item_style_manager = None
 
         # Components
         self.thumbnail_loader = None
@@ -653,6 +648,11 @@ class GalleryWindow(QWidget):
                     self._current_theme = new_theme
                     if self._style_manager:
                         self._style_manager.refresh_theme(new_theme)
+                        # Recreate screenshot item style manager with new theme
+                        self._screenshot_item_style_manager = ScreenshotItemStyleManager(self._style_manager)
+                        # Update all existing screenshot items
+                        for item in self.screenshot_items.values():
+                            item.set_style_manager(self._screenshot_item_style_manager)
                     self._apply_theme()
                     logger.info(f"Gallery theme updated to {self._current_theme}")
 
@@ -674,6 +674,7 @@ class GalleryWindow(QWidget):
 
             # Initialize style manager
             self._style_manager = DynamicStyleManager("gallery", self._current_theme)
+            self._screenshot_item_style_manager = ScreenshotItemStyleManager(self._style_manager)
 
             # Apply theme with loaded settings
             self._apply_theme()
@@ -891,6 +892,10 @@ class GalleryWindow(QWidget):
                         screenshot.timestamp
                     )
                     item.clicked.connect(self._on_screenshot_clicked)
+
+                    # Set the style manager for the item
+                    if self._screenshot_item_style_manager:
+                        item.set_style_manager(self._screenshot_item_style_manager)
 
                     self.screenshots_layout.addWidget(item, row, col)
                     self.screenshot_items[screenshot.id] = item

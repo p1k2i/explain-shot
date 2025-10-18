@@ -1,0 +1,36 @@
+/* Screenshot Item Hover Styles - Dark Theme */
+/* Styles applied programmatically when hovering */
+
+/* Hovered Screenshot Item */
+#ScreenshotItem {
+    background-color: #404040;
+    border: 2px solid #007ACC;
+    border-radius: 8px;
+    padding: 4px;
+}
+
+/* Hovered Thumbnail Label */
+QLabel#thumbnail_label {
+    border: 2px solid #007ACC;
+    background-color: #353535;
+    border-radius: 6px;
+}
+
+/* Hovered Filename Label */
+QLabel#filename_label {
+    color: #FFFFFF;
+    font-size: 11px;
+    font-weight: bold;
+    background-color: rgba(0, 122, 204, 0.8);
+    border: 1px solid #007ACC;
+    border-radius: 4px;
+    padding: 2px 4px;
+}
+
+/* Hovered Timestamp Label */
+QLabel#timestamp_label {
+    color: #FFFFFF;
+    font-size: 10px;
+    background-color: transparent;
+    border: none;
+}

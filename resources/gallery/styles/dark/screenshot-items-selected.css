@@ -1,0 +1,37 @@
+/* Screenshot Item Selected Styles - Dark Theme */
+/* Styles applied programmatically when selected */
+
+/* Selected Screenshot Item */
+#ScreenshotItem {
+    background-color: #1E3A5F;
+    border: 3px solid #00A0FF;
+    border-radius: 8px;
+    padding: 3px;
+}
+
+/* Selected Thumbnail Label */
+QLabel#thumbnail_label {
+    border: 2px solid #00A0FF;
+    background-color: #2A4A6F;
+    border-radius: 6px;
+}
+
+/* Selected Filename Label */
+QLabel#filename_label {
+    color: #FFFFFF;
+    font-size: 11px;
+    font-weight: bold;
+    background-color: rgba(0, 160, 255, 0.9);
+    border: 1px solid #00A0FF;
+    border-radius: 4px;
+    padding: 2px 4px;
+}
+
+/* Selected Timestamp Label */
+QLabel#timestamp_label {
+    color: #00A0FF;
+    font-size: 10px;
+    font-weight: bold;
+    background-color: transparent;
+    border: none;
+}

@@ -1,5 +1,5 @@
 /* Selection State Styles - Dark Theme */
-/* Styles for selected elements */
+/* Styles for general selection states (non-screenshot items) */
 
 /* Selection Indicator */
 QLabel#selection_indicator {
@@ -13,17 +13,4 @@ QLabel#selection_indicator[selected="true"] {
     color: #00A0FF;
     font-weight: bold;
     font-style: normal;
-}
-
-/* Selected Screenshot Item */
-#ScreenshotItem[selected="true"] {
-    background-color: #1E3A5F;
-    border: 5px solid #00A0FF;
-}
-
-/* Selected Filename Label */
-QLabel#filename_label[selected="true"] {
-    background-color: rgba(0,160,255,0.8);
-    font-size: 11px;
-    font-weight: bold;
 }
