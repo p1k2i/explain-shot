@@ -6,6 +6,8 @@ and explaining them using AI integration. Built with Python 3.12 following
 the MVC pattern with minimal coupling.
 """
 
+from pathlib import Path
+
 __version__ = "0.1.0"
 __author__ = "ExplainShot Team"
 __description__ = "AI-powered screenshot explanation tool"
@@ -16,10 +18,39 @@ APP_VERSION = __version__
 APP_AUTHOR = __author__
 APP_DESCRIPTION = __description__
 
+# Utility functions
+def get_app_data_dir() -> str:
+    """
+    Get the application data directory for storing configuration and data files.
+
+    On Windows, this uses %APPDATA%\\ExplainShot
+    On other platforms, this uses the user's home directory .config/ExplainShot
+
+    Returns:
+        Path to the application data directory as a string
+    """
+    import os
+    from pathlib import Path
+
+    if os.name == 'nt':  # Windows
+        appdata = os.getenv('APPDATA')
+        if appdata:
+            return str(Path(appdata) / APP_NAME)
+        else:
+            # Fallback to home directory if APPDATA is not set
+            return str(Path.home() / f".{APP_NAME.lower()}")
+    else:
+        # For other platforms (Linux, macOS), use XDG standard
+        xdg_config = os.getenv('XDG_CONFIG_HOME')
+        if xdg_config:
+            return str(Path(xdg_config) / APP_NAME)
+        else:
+            return str(Path.home() / ".config" / APP_NAME)
+
 # Configuration constants
 DEFAULT_SCREENSHOT_DIR = "screenshots"
 DEFAULT_LOG_LEVEL = "INFO"
-DEFAULT_DATABASE_NAME = "app_data.db"
+DEFAULT_DATABASE_NAME = str(Path(get_app_data_dir()) / "app_data.db")
 
 # Event types used throughout the application
 class EventTypes:

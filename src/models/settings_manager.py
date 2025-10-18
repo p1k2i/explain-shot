@@ -6,16 +6,16 @@ and persistence using SQLite database storage.
 """
 
 import logging
-from pathlib import Path
 from typing import Any, Dict, Optional, List, Callable
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 import asyncio
 from datetime import datetime
+from pathlib import Path
 
 # Import for event emission
 from ..controllers.event_bus import get_event_bus
-from .. import EventTypes
+from .. import EventTypes, get_app_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class UIConfig:
 @dataclass
 class ScreenshotConfig:
     """Screenshot configuration."""
-    save_directory: str = field(default_factory=lambda: str(Path.home()))
+    save_directory: str = field(default_factory=lambda: str(Path(get_app_data_dir()) / "screenshots"))
     filename_format: str = "screenshot_%Y%m%d_%H%M%S"
     image_format: str = "PNG"
     quality: int = 95
