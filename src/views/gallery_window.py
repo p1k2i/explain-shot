@@ -13,9 +13,8 @@ from typing import Optional, List, TYPE_CHECKING, cast
 from dataclasses import dataclass
 
 from PyQt6.QtCore import (
-    Qt, QObject, pyqtSignal, QSize, QBuffer, QEvent
+    Qt, QObject, pyqtSignal, QSize, QBuffer
 )
-from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QScrollArea, QTextBrowser,
     QLineEdit, QPushButton, QLabel, QFrame, QGridLayout
@@ -78,7 +77,6 @@ class GalleryState:
 
 
 class ThumbnailLoader(QObject):
-    """Background thumbnail loader to prevent UI blocking."""
 
     thumbnail_loaded = pyqtSignal(int, bytes, str)  # screenshot_id, image_bytes, format
     loading_failed = pyqtSignal(int, str)  # screenshot_id, error_message
@@ -388,6 +386,97 @@ class PresetItem(QWidget):
         return prompt[:max_length - 3] + "..."
 
 
+class CustomTitleBar(QFrame):
+    """Custom title bar with native drag handling."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(40)
+        self.setObjectName("TitleBar")
+        self._drag_active = False
+        self._drag_start_pos = None
+
+        # Create layout and widgets
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 0, 10, 0)
+
+        # Title
+        self.title_label = QLabel("ExplainShot Gallery")
+        self.title_label.setObjectName("column_header")
+        layout.addWidget(self.title_label)
+
+        layout.addStretch()
+
+        # Window controls
+        self.minimize_button = QPushButton("−")
+        self.minimize_button.setFixedSize(30, 30)
+        self.minimize_button.setObjectName("title_bar_minimize")
+        self.minimize_button.clicked.connect(self._on_minimize)
+
+        self.close_button = QPushButton("×")
+        self.close_button.setFixedSize(30, 30)
+        self.close_button.setObjectName("title_bar_close")
+        self.close_button.clicked.connect(self._on_close)
+
+        layout.addWidget(self.minimize_button)
+        layout.addWidget(self.close_button)
+
+    def _on_minimize(self):
+        """Handle minimize button click."""
+        parent_widget = self.parent()
+        if parent_widget and hasattr(parent_widget, 'showMinimized'):
+            cast(QWidget, parent_widget).showMinimized()
+
+    def _on_close(self):
+        """Handle close button click."""
+        parent_widget = self.parent()
+        if parent_widget and hasattr(parent_widget, 'close'):
+            cast(QWidget, parent_widget).close()
+
+    def mousePressEvent(self, a0):
+        """Handle mouse press for dragging."""
+        if a0 and hasattr(a0, 'button') and a0.button() == Qt.MouseButton.LeftButton:
+            # Check if click is not on buttons
+            widget_under_mouse = self.childAt(a0.position().toPoint())
+            if not (widget_under_mouse and isinstance(widget_under_mouse, QPushButton)):
+                # Start dragging
+                self._drag_active = True
+                window = self.window()
+                if window and hasattr(window, 'frameGeometry'):
+                    self._drag_start_pos = a0.globalPosition().toPoint() - window.frameGeometry().topLeft()
+                a0.accept()
+            else:
+                # Let button handle the event
+                super().mousePressEvent(a0)
+        else:
+            super().mousePressEvent(a0)
+
+    def mouseMoveEvent(self, a0):
+        """Handle mouse move for dragging."""
+        if self._drag_active and self._drag_start_pos is not None:
+            if a0 and hasattr(a0, 'buttons') and a0.buttons() == Qt.MouseButton.LeftButton:
+                window = self.window()
+                if window and hasattr(window, 'move'):
+                    new_pos = a0.globalPosition().toPoint() - self._drag_start_pos
+                    window.move(new_pos)
+                a0.accept()
+            else:
+                # Button released during move, stop dragging
+                self._drag_active = False
+                self._drag_start_pos = None
+        else:
+            super().mouseMoveEvent(a0)
+
+    def mouseReleaseEvent(self, a0):
+        """Handle mouse release to stop dragging."""
+        if a0 and hasattr(a0, 'button') and a0.button() == Qt.MouseButton.LeftButton and self._drag_active:
+            self._drag_active = False
+            self._drag_start_pos = None
+            a0.accept()
+        else:
+            super().mouseReleaseEvent(a0)
+
+
 class ChatWidget(QWidget):
     """Chat interface widget for AI interactions."""
 
@@ -573,57 +662,10 @@ class GalleryWindow(QWidget):
         self.preset_items: dict[int, PresetItem] = {}  # preset_id -> PresetItem
         self.selection_indicator = None  # Will be created in _setup_ui
 
-        # Install event filter for window dragging
-        self.installEventFilter(self)
-
         # Initialize UI
         self._setup_ui()
 
         logger.info("GalleryWindow created")
-
-    def eventFilter(self, a0: 'QObject | None', a1: 'QEvent | None') -> bool:
-        """Handle window dragging through event filter."""
-        # Defensive: if there's no event, defer to base
-        if a1 is None:
-            return super().eventFilter(a0, a1)
-
-        # Mouse press: potentially start dragging only when pressing in the title bar
-        if a1.type() == QEvent.Type.MouseButtonPress:
-            mouse_event = cast(QMouseEvent, a1)
-            if mouse_event.button() == Qt.MouseButton.LeftButton:
-                pos = self.mapFromGlobal(mouse_event.globalPosition().toPoint())
-                # Only allow starting a drag from the top zone (title bar height)
-                if pos.y() < 40:
-                    # If the title bar exists, ensure the press was within it and not on a button
-                    if self.title_bar and self.title_bar.geometry().contains(pos):
-                        title_bar_pos = self.title_bar.mapFrom(self, pos)
-                        widget_in_title_bar = self.title_bar.childAt(title_bar_pos)
-                        if widget_in_title_bar and isinstance(widget_in_title_bar, QPushButton):
-                            # Clicked an interactive control -> don't start dragging
-                            return False
-
-                    # Start dragging and mark that drag originated from title
-                    self._drag_active = True
-                    self.drag_pos = mouse_event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-                    return True
-
-        # Mouse move: move window only while a drag started from title bar is active
-        if a1.type() == QEvent.Type.MouseMove:
-            if getattr(self, '_drag_active', False) and hasattr(self, 'drag_pos'):
-                mouse_event = cast(QMouseEvent, a1)
-                if mouse_event.buttons() == Qt.MouseButton.LeftButton:
-                    self.move(mouse_event.globalPosition().toPoint() - self.drag_pos)
-                    return True
-
-        # Mouse release: stop any active drag so subsequent presses won't reuse previous state
-        if a1.type() == QEvent.Type.MouseButtonRelease:
-            if getattr(self, '_drag_active', False):
-                self._drag_active = False
-                if hasattr(self, 'drag_pos'):
-                    del self.drag_pos
-                return True
-
-        return super().eventFilter(a0, a1)
 
     async def _subscribe_to_events(self) -> None:
         """Subscribe to EventBus events."""
@@ -792,33 +834,7 @@ class GalleryWindow(QWidget):
 
     def _create_title_bar(self):
         """Create custom title bar with controls."""
-        self.title_bar = QFrame()
-        self.title_bar.setFixedHeight(40)
-        self.title_bar.setObjectName("TitleBar")
-
-        layout = QHBoxLayout(self.title_bar)
-        layout.setContentsMargins(10, 0, 10, 0)
-
-        # Title
-        title_label = QLabel("ExplainShot Gallery")
-        title_label.setObjectName("column_header")
-        layout.addWidget(title_label)
-
-        layout.addStretch()
-
-        # Window controls
-        self.minimize_button = QPushButton("−")
-        self.minimize_button.setFixedSize(30, 30)
-        self.minimize_button.setObjectName("title_bar_minimize")
-        self.minimize_button.clicked.connect(self.showMinimized)
-
-        self.close_button = QPushButton("×")
-        self.close_button.setFixedSize(30, 30)
-        self.close_button.setObjectName("title_bar_close")
-        self.close_button.clicked.connect(self.close)
-
-        layout.addWidget(self.minimize_button)
-        layout.addWidget(self.close_button)
+        self.title_bar = CustomTitleBar(self)
 
     def _create_screenshots_column(self):
         """Create the screenshots column."""
