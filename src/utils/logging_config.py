@@ -13,7 +13,6 @@ from typing import Optional, Dict, Any
 import json
 import traceback
 from datetime import datetime
-import re
 
 
 class PrivacyFilter(logging.Filter):
