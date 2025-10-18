@@ -23,7 +23,7 @@ from PyQt6.QtGui import (
     QPixmap, QFont, QColor, QPainter
 )
 
-from src.utils.style_loader import load_stylesheets
+from src.utils.style_loader import load_stylesheets, load_stylesheet
 
 try:
     from PIL import Image, ImageQt
@@ -503,49 +503,15 @@ class ChatWidget(QWidget):
 
     def _generate_chat_html(self) -> str:
         """Generate HTML for chat messages."""
-        html = """
+        # Load CSS from file
+        css_content = load_stylesheet("gallery", "dark", "chat")
+        if css_content is None:
+            logger.warning("Failed to load chat CSS")
+            css_content = "body { background-color: #2E2E2E; color: #FFFFFF; }"
+
+        html = f"""
         <style>
-            body {
-                background-color: #2E2E2E;
-                color: #FFFFFF;
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                margin: 0;
-                padding: 10px;
-                line-height: 1.4;
-            }
-            .message {
-                margin: 12px 0;
-                padding: 12px 16px;
-                border-radius: 16px;
-                max-width: 80%;
-                word-wrap: break-word;
-                position: relative;
-            }
-            .user {
-                background-color: #007ACC;
-                margin-left: auto;
-                margin-right: 0;
-                text-align: left;
-            }
-            .ai {
-                background-color: #404040;
-                margin-left: 0;
-                margin-right: auto;
-                text-align: left;
-            }
-            .system {
-                background-color: #555555;
-                text-align: center;
-                font-style: italic;
-                margin: 12px auto;
-                max-width: 70%;
-            }
-            .timestamp {
-                font-size: 9px;
-                color: #AAA;
-                margin-top: 6px;
-                opacity: 0.7;
-            }
+            {css_content}
         </style>
         <body>
         """
