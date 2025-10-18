@@ -24,7 +24,6 @@ QGroupBox {
 }
 
 QGroupBox::title {
-    subcontrol-origin: margin;
     left: 10px;
     padding: 0 10px 0 10px;
     background-color: #2E2E2E;
@@ -64,7 +63,6 @@ QLineEdit, QComboBox, QSpinBox {
     border-radius: 4px;
     padding: 6px;
     color: #FFFFFF;
-    selection-background-color: #4A9EFF;
 }
 
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
@@ -81,7 +79,6 @@ QComboBox::drop-down {
 }
 
 QComboBox::down-arrow {
-    image: none;
     border-left: 5px solid transparent;
     border-right: 5px solid transparent;
     border-top: 5px solid #CCCCCC;
@@ -113,7 +110,6 @@ QPushButton:disabled {
 
 QCheckBox {
     color: #FFFFFF;
-    spacing: 8px;
 }
 
 QCheckBox::indicator {
@@ -127,12 +123,6 @@ QCheckBox::indicator {
 QCheckBox::indicator:checked {
     background-color: #4A9EFF;
     border-color: #4A9EFF;
-}
-
-QCheckBox::indicator:checked::after {
-    content: "✓";
-    color: #FFFFFF;
-    font-weight: bold;
 }
 
 QSlider::groove:horizontal {
