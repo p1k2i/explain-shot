@@ -520,9 +520,6 @@ class ChatWidget(QWidget):
         self.status_label.setObjectName("status_label")
         layout.addWidget(self.status_label)
 
-        # Remove hardcoded theme application since we'll use CSS classes
-        self._add_welcome_message()
-
     def _send_message(self):
         """Handle sending a message."""
         text = self.chat_input.text().strip()
@@ -569,17 +566,7 @@ class ChatWidget(QWidget):
     def clear_chat(self):
         """Clear chat history."""
         self.chat_messages.clear()
-        self._add_welcome_message()
         self._update_chat_display()
-
-    def _add_welcome_message(self):
-        """Add welcome message to chat."""
-        welcome = ChatMessage(
-            sender="system",
-            content="Welcome to the AI Chat! Select a screenshot and use presets to get started.",
-            timestamp=datetime.now()
-        )
-        self.chat_messages.append(welcome)
 
     def _update_chat_display(self):
         """Update the chat history display."""
