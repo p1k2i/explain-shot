@@ -498,8 +498,15 @@ async def main() -> int:
 
     # Setup logging
     log_level = "DEBUG" if args.debug else args.log_level
+    log_dir = args.log_dir
+    if log_dir is None:
+        # Use APPDATA directory for logs by default
+        from src import get_app_data_dir
+        from pathlib import Path
+        log_dir = Path(get_app_data_dir()) / "logs"
+
     setup_logging(
-        log_dir=args.log_dir,
+        log_dir=log_dir,
         log_level=log_level,
         enable_console=not args.minimized,
         enable_json=True

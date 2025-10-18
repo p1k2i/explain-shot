@@ -122,7 +122,7 @@ class ApplicationLogger:
 
         Args:
             app_name: Application name for log file naming
-            log_dir: Directory for log files (default: ./logs)
+            log_dir: Directory for log files (default: APPDATA/ExplainShot/logs)
             log_level: Minimum log level to capture
             max_file_size: Maximum size of each log file in bytes
             backup_count: Number of backup log files to keep
@@ -131,7 +131,18 @@ class ApplicationLogger:
             enable_privacy_filter: Whether to apply privacy filtering
         """
         self.app_name = app_name
-        self.log_dir = log_dir or Path("logs")
+
+        # Set default log directory to APPDATA if not provided
+        if log_dir is None:
+            try:
+                from .. import get_app_data_dir
+                self.log_dir = Path(get_app_data_dir()) / "logs"
+            except ImportError:
+                # Fallback if import fails
+                self.log_dir = Path("logs")
+        else:
+            self.log_dir = log_dir
+
         self.log_level = getattr(logging, log_level.upper())
         self.max_file_size = max_file_size
         self.backup_count = backup_count
@@ -140,7 +151,7 @@ class ApplicationLogger:
         self.enable_privacy_filter = enable_privacy_filter
 
         # Create log directory
-        self.log_dir.mkdir(exist_ok=True)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
 
         # Track configured loggers
         self._configured_loggers: Dict[str, logging.Logger] = {}
