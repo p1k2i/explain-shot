@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
 
 from ..utils.style_loader import load_stylesheet
 from ..controllers.event_bus import EventBus
-from ..utils.icon_manager import get_icon_manager  # Importing get_icon_manager
 
 logger = logging.getLogger(__name__)
 
