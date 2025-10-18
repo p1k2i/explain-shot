@@ -239,13 +239,13 @@ class ScreenshotItem(QWidget):
         self.thumbnail_label.setObjectName("thumbnail_label")
         layout.addWidget(self.thumbnail_label)
 
-        # Filename label (overlay on thumbnail)
+        # Filename label (overlay on thumbnail) - positioned at bottom
         self.filename_label = QLabel(self._truncate_filename(filename))
         self.filename_label.setParent(self.thumbnail_label)
-        self.filename_label.setGeometry(0, 0, 120, 20)  # Top overlay
+        self.filename_label.setGeometry(0, 100, 120, 20)  # Bottom overlay
         self.filename_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.filename_label.setObjectName("filename_label")
-        layout.addWidget(self.filename_label)
+        # Don't add to layout since it's a child of thumbnail_label
 
         # Timestamp label
         self.timestamp_label = QLabel(timestamp.strftime("%H:%M:%S"))
@@ -253,8 +253,7 @@ class ScreenshotItem(QWidget):
         self.timestamp_label.setObjectName("timestamp_label")
         layout.addWidget(self.timestamp_label)
 
-        # Apply initial normal state styling
-        self._apply_current_state()
+        # Initial state styling will be applied when style manager is set
 
     def set_style_manager(self, style_manager: 'ScreenshotItemStyleManager') -> None:
         """Set the style manager for this item."""

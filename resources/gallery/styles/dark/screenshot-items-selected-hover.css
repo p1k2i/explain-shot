@@ -6,7 +6,8 @@
     background-color: #2A4A6F;
     border: 3px solid #33B5FF;
     border-radius: 8px;
-    padding: 3px;
+    padding: 5px;
+    margin: 2px;
 }
 
 /* Selected and Hovered Thumbnail Label */
@@ -14,24 +15,28 @@ QLabel#thumbnail_label {
     border: 2px solid #33B5FF;
     background-color: #3A5A7F;
     border-radius: 6px;
+    padding: 2px;
 }
 
 /* Selected and Hovered Filename Label */
 QLabel#filename_label {
     color: #FFFFFF;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: bold;
-    background-color: rgba(51, 181, 255, 0.95);
-    border: 1px solid #33B5FF;
-    border-radius: 4px;
+    background-color: rgba(51, 181, 255, 0.98);
+    border: none;
+    border-radius: 0px 0px 5px 5px;
     padding: 2px 4px;
+    text-align: center;
 }
 
 /* Selected and Hovered Timestamp Label */
 QLabel#timestamp_label {
     color: #33B5FF;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: bold;
     background-color: transparent;
     border: none;
+    padding: 2px;
+    text-align: center;
 }

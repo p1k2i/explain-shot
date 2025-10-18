@@ -3,34 +3,40 @@
 
 /* Hovered Screenshot Item */
 #ScreenshotItem {
-    background-color: #404040;
+    background-color: #454545;
     border: 2px solid #007ACC;
     border-radius: 8px;
-    padding: 4px;
+    padding: 6px;
+    margin: 2px;
 }
 
 /* Hovered Thumbnail Label */
 QLabel#thumbnail_label {
     border: 2px solid #007ACC;
-    background-color: #353535;
+    background-color: #3A3A3A;
     border-radius: 6px;
+    padding: 2px;
 }
 
 /* Hovered Filename Label */
 QLabel#filename_label {
     color: #FFFFFF;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: bold;
-    background-color: rgba(0, 122, 204, 0.8);
-    border: 1px solid #007ACC;
-    border-radius: 4px;
+    background-color: rgba(0, 122, 204, 0.95);
+    border: none;
+    border-radius: 0px 0px 5px 5px;
     padding: 2px 4px;
+    text-align: center;
 }
 
 /* Hovered Timestamp Label */
 QLabel#timestamp_label {
     color: #FFFFFF;
-    font-size: 10px;
+    font-size: 9px;
+    font-weight: normal;
     background-color: transparent;
     border: none;
+    padding: 2px;
+    text-align: center;
 }
