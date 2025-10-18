@@ -106,6 +106,52 @@ class GalleryWindow(QWidget):
             priority=80
         )
 
+        # Subscribe to screenshot events
+        await self.event_bus.subscribe(
+            EventTypes.SCREENSHOT_CAPTURED,
+            self._handle_screenshot_captured,
+            priority=75
+        )
+
+        await self.event_bus.subscribe(
+            EventTypes.SCREENSHOT_COMPLETED,
+            self._handle_screenshot_completed,
+            priority=75
+        )
+
+        # Subscribe to database events (for preset changes, etc.)
+        await self.event_bus.subscribe(
+            "database.preset_created",
+            self._handle_preset_created,
+            priority=70
+        )
+
+        await self.event_bus.subscribe(
+            "database.preset_updated",
+            self._handle_preset_updated,
+            priority=70
+        )
+
+        await self.event_bus.subscribe(
+            "database.preset_deleted",
+            self._handle_preset_deleted,
+            priority=70
+        )
+
+        # Subscribe to application state changes
+        await self.event_bus.subscribe(
+            EventTypes.APP_STATE_CHANGED,
+            self._handle_app_state_changed,
+            priority=60
+        )
+
+        # Subscribe to error events
+        await self.event_bus.subscribe(
+            EventTypes.ERROR_OCCURRED,
+            self._handle_error_occurred,
+            priority=50
+        )
+
     def _handle_ollama_response(self, event_data) -> None:
         """Handle Ollama response events."""
         try:
@@ -143,13 +189,46 @@ class GalleryWindow(QWidget):
                 key = data['key']
                 value = data['value']
 
+                # UI Theme settings
                 if key == 'ui.theme' and value != self._current_theme:
                     self._current_theme = value
                     asyncio.create_task(self._apply_theme_change())
+
+                # Window opacity settings
                 elif key == 'ui.opacity':
                     opacity = float(value)
                     self.setWindowOpacity(opacity)
                     self._update_translucent_background(opacity)
+
+                # Gallery-specific opacity setting
+                elif key == 'ui.gallery_opacity':
+                    opacity = float(value)
+                    self.setWindowOpacity(opacity)
+                    self._update_translucent_background(opacity)
+
+                # Font size changes
+                elif key == 'ui.font_size':
+                    asyncio.create_task(self._apply_font_size_change(int(value)))
+
+                # Window behavior settings
+                elif key == 'ui.window_always_on_top':
+                    self._apply_always_on_top_change(bool(value))
+
+                # Screenshot display settings
+                elif key == 'screenshot.thumbnail_size':
+                    asyncio.create_task(self._apply_thumbnail_size_change(value))
+
+                elif key in ['screenshot.image_format', 'screenshot.quality']:
+                    asyncio.create_task(self._handle_screenshot_display_change(key, value))
+
+                # Ollama/AI settings that affect chat interface
+                elif key in ['ollama.server_url', 'ollama.default_model', 'ollama.timeout_seconds',
+                           'ollama.max_retries', 'ollama.enable_streaming']:
+                    asyncio.create_task(self._handle_ollama_setting_change(key, value))
+
+                # Cache and optimization settings
+                elif key.startswith('optimization.'):
+                    asyncio.create_task(self._handle_optimization_setting_change(key, value))
 
             # Handle full settings save (if it contains all settings)
             elif 'settings' in data:
@@ -160,14 +239,156 @@ class GalleryWindow(QWidget):
                     self._current_theme = settings['ui.theme']
                     asyncio.create_task(self._apply_theme_change())
 
-                # Check for opacity changes
-                if 'ui.opacity' in settings:
-                    opacity = float(settings['ui.opacity'])
+                # Check for opacity changes (prefer gallery-specific opacity)
+                opacity_key = 'ui.gallery_opacity' if 'ui.gallery_opacity' in settings else 'ui.opacity'
+                if opacity_key in settings:
+                    opacity = float(settings[opacity_key])
                     self.setWindowOpacity(opacity)
                     self._update_translucent_background(opacity)
 
+                # Check for font size changes
+                if 'ui.font_size' in settings:
+                    asyncio.create_task(self._apply_font_size_change(int(settings['ui.font_size'])))
+
+                # Check for window behavior changes
+                if 'ui.window_always_on_top' in settings:
+                    self._apply_always_on_top_change(bool(settings['ui.window_always_on_top']))
+
+                # Check for screenshot-related changes
+                screenshot_keys = ['screenshot.thumbnail_size', 'screenshot.image_format', 'screenshot.quality']
+                for key in screenshot_keys:
+                    if key in settings:
+                        asyncio.create_task(self._handle_screenshot_display_change(key, settings[key]))
+
+                # Check for Ollama setting changes
+                ollama_keys = ['ollama.server_url', 'ollama.default_model', 'ollama.timeout_seconds',
+                              'ollama.max_retries', 'ollama.enable_streaming']
+                for key in ollama_keys:
+                    if key in settings:
+                        asyncio.create_task(self._handle_ollama_setting_change(key, settings[key]))
+
+                # Check for optimization setting changes
+                for key, value in settings.items():
+                    if key.startswith('optimization.'):
+                        asyncio.create_task(self._handle_optimization_setting_change(key, value))
+
         except Exception as e:
             logger.error(f"Error handling settings update: {e}")
+
+    def _handle_screenshot_captured(self, event_data) -> None:
+        """Handle screenshot captured events."""
+        try:
+            # Refresh screenshots gallery when a new screenshot is captured
+            if self.screenshots_gallery and event_data.data:
+                # Try refresh method first, fallback to load_screenshots
+                refresh_method = getattr(self.screenshots_gallery, 'refresh_screenshots', None) or \
+                               getattr(self.screenshots_gallery, 'load_screenshots', None)
+                if refresh_method:
+                    asyncio.create_task(refresh_method())
+                logger.info("Gallery refreshed after screenshot capture")
+
+        except Exception as e:
+            logger.error(f"Error handling screenshot captured: {e}")
+
+    def _handle_screenshot_completed(self, event_data) -> None:
+        """Handle screenshot completed events."""
+        try:
+            # Additional handling for completed screenshots
+            if event_data.data and 'screenshot_id' in event_data.data:
+                screenshot_id = event_data.data['screenshot_id']
+                logger.info(f"Screenshot completed: {screenshot_id}")
+
+                # Optionally auto-select the new screenshot in gallery
+                if self.screenshots_gallery:
+                    select_method = getattr(self.screenshots_gallery, 'select_screenshot', None)
+                    if select_method:
+                        asyncio.create_task(select_method(screenshot_id))
+
+        except Exception as e:
+            logger.error(f"Error handling screenshot completed: {e}")
+
+    def _handle_preset_created(self, event_data) -> None:
+        """Handle preset created events."""
+        try:
+            if self.presets_panel:
+                # Try refresh method first, fallback to load_presets
+                refresh_method = getattr(self.presets_panel, 'refresh_presets', None) or \
+                               getattr(self.presets_panel, 'load_presets', None)
+                if refresh_method:
+                    asyncio.create_task(refresh_method())
+                logger.info("Presets panel refreshed after preset creation")
+
+        except Exception as e:
+            logger.error(f"Error handling preset created: {e}")
+
+    def _handle_preset_updated(self, event_data) -> None:
+        """Handle preset updated events."""
+        try:
+            if self.presets_panel:
+                # Try refresh method first, fallback to load_presets
+                refresh_method = getattr(self.presets_panel, 'refresh_presets', None) or \
+                               getattr(self.presets_panel, 'load_presets', None)
+                if refresh_method:
+                    asyncio.create_task(refresh_method())
+                logger.info("Presets panel refreshed after preset update")
+
+        except Exception as e:
+            logger.error(f"Error handling preset updated: {e}")
+
+    def _handle_preset_deleted(self, event_data) -> None:
+        """Handle preset deleted events."""
+        try:
+            if self.presets_panel:
+                # Try refresh method first, fallback to load_presets
+                refresh_method = getattr(self.presets_panel, 'refresh_presets', None) or \
+                               getattr(self.presets_panel, 'load_presets', None)
+                if refresh_method:
+                    asyncio.create_task(refresh_method())
+                logger.info("Presets panel refreshed after preset deletion")
+
+        except Exception as e:
+            logger.error(f"Error handling preset deleted: {e}")
+
+    def _handle_app_state_changed(self, event_data) -> None:
+        """Handle application state change events."""
+        try:
+            if event_data.data and 'state' in event_data.data:
+                state = event_data.data['state']
+
+                # Update gallery UI based on app state
+                if state == 'busy':
+                    # Show busy indicator in gallery
+                    if self.chat_interface:
+                        self.chat_interface.set_status("Application busy...")
+                elif state == 'ready':
+                    # Clear busy indicator
+                    if self.chat_interface:
+                        self.chat_interface.set_status("Ready")
+                elif state == 'error':
+                    # Show error state
+                    if self.chat_interface:
+                        self.chat_interface.set_status("Application error occurred")
+
+                logger.info(f"Gallery updated for app state: {state}")
+
+        except Exception as e:
+            logger.error(f"Error handling app state change: {e}")
+
+    def _handle_error_occurred(self, event_data) -> None:
+        """Handle error events."""
+        try:
+            if event_data.data:
+                error_info = event_data.data
+                error_message = error_info.get('error', 'Unknown error')
+
+                # Show error in chat interface
+                if self.chat_interface:
+                    self.chat_interface.add_system_message(f"Error: {error_message}")
+
+                logger.warning(f"Gallery received error event: {error_message}")
+
+        except Exception as e:
+            logger.error(f"Error handling error event: {e}")
 
     async def _apply_theme_change(self):
         """Apply theme changes to all components."""
@@ -182,6 +403,128 @@ class GalleryWindow(QWidget):
 
         except Exception as e:
             logger.error(f"Error applying theme change: {e}")
+
+    async def _apply_font_size_change(self, font_size: int):
+        """Apply font size changes to all components."""
+        try:
+            # Re-apply theme with new font size (this will update all styling)
+            await self._apply_theme_change()
+
+            # Emit event for components that might want to handle font size changes
+            await self.event_bus.emit(
+                "gallery.font_size_changed",
+                {
+                    "font_size": font_size,
+                    "gallery_id": id(self)
+                },
+                source="GalleryWindow"
+            )
+
+            logger.info(f"Font size changed to: {font_size}")
+
+        except Exception as e:
+            logger.error(f"Error applying font size change: {e}")
+
+    def _apply_always_on_top_change(self, always_on_top: bool):
+        """Apply window always-on-top setting change."""
+        try:
+            flags = self.windowFlags()
+
+            if always_on_top:
+                flags |= Qt.WindowType.WindowStaysOnTopHint
+            else:
+                flags &= ~Qt.WindowType.WindowStaysOnTopHint
+
+            self.setWindowFlags(flags)
+
+            # Show window again as setWindowFlags hides it
+            if self.isVisible():
+                self.show()
+
+            logger.info(f"Always on top changed to: {always_on_top}")
+
+        except Exception as e:
+            logger.error(f"Error applying always on top change: {e}")
+
+    async def _apply_thumbnail_size_change(self, thumbnail_size):
+        """Apply thumbnail size changes."""
+        try:
+            # Emit event for screenshots gallery to handle
+            await self.event_bus.emit(
+                "gallery.thumbnail_size_changed",
+                {
+                    "thumbnail_size": thumbnail_size,
+                    "gallery_id": id(self)
+                },
+                source="GalleryWindow"
+            )
+
+            # Components should listen for the event emitted above
+
+            logger.info(f"Thumbnail size changed to: {thumbnail_size}")
+
+        except Exception as e:
+            logger.error(f"Error applying thumbnail size change: {e}")
+
+    async def _handle_screenshot_display_change(self, key: str, value):
+        """Handle screenshot display setting changes."""
+        try:
+            # Emit event for screenshots gallery to handle
+            await self.event_bus.emit(
+                "gallery.screenshot_display_changed",
+                {
+                    "setting_key": key,
+                    "setting_value": value,
+                    "gallery_id": id(self)
+                },
+                source="GalleryWindow"
+            )
+
+            # Components should listen for the event emitted above
+            logger.info(f"Screenshot display setting updated: {key} = {value}")
+
+        except Exception as e:
+            logger.error(f"Error handling screenshot display change ({key}): {e}")
+
+    async def _handle_ollama_setting_change(self, key: str, value):
+        """Handle Ollama/AI setting changes that affect chat interface."""
+        try:
+            # Emit event for chat interface to handle
+            await self.event_bus.emit(
+                "gallery.ollama_setting_changed",
+                {
+                    "setting_key": key,
+                    "setting_value": value,
+                    "gallery_id": id(self)
+                },
+                source="GalleryWindow"
+            )
+
+            # Components should listen for the event emitted above
+            logger.info(f"Ollama setting updated: {key} = {value}")
+
+        except Exception as e:
+            logger.error(f"Error handling Ollama setting change ({key}): {e}")
+
+    async def _handle_optimization_setting_change(self, key: str, value):
+        """Handle optimization setting changes."""
+        try:
+            # Emit event for components to handle
+            await self.event_bus.emit(
+                "gallery.optimization_setting_changed",
+                {
+                    "setting_key": key,
+                    "setting_value": value,
+                    "gallery_id": id(self)
+                },
+                source="GalleryWindow"
+            )
+
+            # Components should listen for the event emitted above
+            logger.info(f"Optimization setting updated: {key} = {value}")
+
+        except Exception as e:
+            logger.error(f"Error handling optimization setting change ({key}): {e}")
 
     async def initialize(self) -> bool:
         """Initialize the gallery window."""
