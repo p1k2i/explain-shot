@@ -1,0 +1,27 @@
+/* Hover State Styles - Dark Theme */
+/* Styles for hover interactions */
+
+/* Hover Thumbnail Label */
+QLabel#thumbnail_label:hover {
+    background-color: #404040;
+    border: 1px solid #007ACC;
+}
+
+/* Hover effect for filename when thumbnail is hovered */
+QLabel#thumbnail_label:hover ~ QLabel#filename_label {
+    background-color: rgba(0,160,255,0.8);
+    font-size: 11px;
+    font-weight: bold;
+}
+
+/* Hover Screenshot Item (for programmatic hover) */
+#ScreenshotItem[hovered="true"] {
+    background-color: #404040;
+    border: 2px solid #007ACC;
+}
+
+#ScreenshotItem[hovered="true"] QLabel#filename_label {
+    background-color: rgba(0,160,255,0.6);
+    font-size: 11px;
+    font-weight: bold;
+}

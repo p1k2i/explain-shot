@@ -130,3 +130,101 @@ def combine_css(*css_contents: Union[str, None]) -> str:
     """
     valid_contents = [content for content in css_contents if content is not None]
     return "\n\n".join(valid_contents)
+
+
+def apply_dynamic_css_to_widget(widget, css_content: str) -> None:
+    """
+    Apply CSS to a widget and force a style refresh.
+
+    Args:
+        widget: The Qt widget to apply CSS to
+        css_content: The CSS content to apply
+    """
+    if css_content:
+        current_stylesheet = widget.styleSheet()
+        combined_stylesheet = combine_css(current_stylesheet, css_content)
+        widget.setStyleSheet(combined_stylesheet)
+
+        # Force style refresh
+        style = widget.style()
+        if style:
+            style.polish(widget)
+
+
+def refresh_widget_style(widget) -> None:
+    """
+    Force a widget to refresh its styling by calling polish().
+
+    Args:
+        widget: The Qt widget to refresh
+    """
+    style = widget.style()
+    if style:
+        style.polish(widget)
+
+
+class DynamicStyleManager:
+    """
+    Manages dynamic CSS loading and application for gallery components.
+    """
+
+    def __init__(self, component: str, theme: str):
+        self.component = component
+        self.theme = theme
+        self._base_css = None
+        self._state_css_cache = {}
+
+    def load_base_styles(self) -> str:
+        """Load and cache base styles for the component."""
+        if self._base_css is None:
+            elements = ["base", "screenshot-items", "preset-items", "chat-widget"]
+            self._base_css = load_stylesheets(self.component, self.theme, elements)
+        return self._base_css or ""
+
+    def get_state_css(self, state: str) -> str:
+        """
+        Get CSS for a specific state (e.g., 'selection-states', 'hover-states').
+
+        Args:
+            state: The state name
+
+        Returns:
+            CSS content for the state
+        """
+        if state not in self._state_css_cache:
+            css_content = load_stylesheet(self.component, self.theme, state)
+            self._state_css_cache[state] = css_content or ""
+        return self._state_css_cache[state]
+
+    def apply_base_styles(self, widget) -> None:
+        """Apply base styles to a widget."""
+        base_css = self.load_base_styles()
+        if base_css:
+            widget.setStyleSheet(base_css)
+
+    def apply_state_styles(self, widget, states: List[str]) -> None:
+        """
+        Apply multiple state styles to a widget along with base styles.
+
+        Args:
+            widget: The Qt widget
+            states: List of state names to apply
+        """
+        base_css = self.load_base_styles()
+        state_css_list = [self.get_state_css(state) for state in states]
+
+        combined_css = combine_css(base_css, *state_css_list)
+        widget.setStyleSheet(combined_css)
+        refresh_widget_style(widget)
+
+    def refresh_theme(self, new_theme: str) -> None:
+        """
+        Change theme and clear cache.
+
+        Args:
+            new_theme: New theme name
+        """
+        if new_theme != self.theme:
+            self.theme = new_theme
+            self._base_css = None
+            self._state_css_cache.clear()

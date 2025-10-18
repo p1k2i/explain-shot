@@ -23,7 +23,7 @@ from PyQt6.QtGui import (
     QPixmap, QFont, QColor, QPainter
 )
 
-from src.utils.style_loader import load_stylesheets, load_stylesheet
+from src.utils.style_loader import load_stylesheets, load_stylesheet, DynamicStyleManager
 
 try:
     from PIL import Image, ImageQt
@@ -304,12 +304,14 @@ class ScreenshotItem(QWidget):
     def enterEvent(self, event):
         """Handle mouse enter."""
         self._is_hovered = True
+        self.setProperty("hovered", True)
         self._update_appearance()
         super().enterEvent(event)
 
     def leaveEvent(self, a0):
         """Handle mouse leave."""
         self._is_hovered = False
+        self.setProperty("hovered", False)
         self._update_appearance()
         super().leaveEvent(a0)
 
@@ -319,6 +321,11 @@ class ScreenshotItem(QWidget):
 
     def _update_appearance(self):
         """Update visual appearance based on state."""
+        # Force style refresh to apply property-based selectors
+        style = self.style()
+        if style:
+            style.polish(self)
+            style.polish(self.filename_label)
         self.update()
 
 
@@ -562,6 +569,9 @@ class GalleryWindow(QWidget):
         self._initialized = False
         self._current_theme = "dark"  # Default theme, will be loaded from settings
 
+        # Style management
+        self._style_manager = None
+
         # Components
         self.thumbnail_loader = None
         self.screenshot_items: dict[int, ScreenshotItem] = {}  # screenshot_id -> ScreenshotItem
@@ -638,9 +648,13 @@ class GalleryWindow(QWidget):
                 logger.info(f"Gallery opacity updated to {new_opacity}")
             elif key == 'ui.theme':
                 # Reload theme if it changed
-                self._current_theme = data.get('value', 'dark')
-                self._apply_theme()
-                logger.info(f"Gallery theme updated to {self._current_theme}")
+                new_theme = data.get('value', 'dark')
+                if new_theme != self._current_theme:
+                    self._current_theme = new_theme
+                    if self._style_manager:
+                        self._style_manager.refresh_theme(new_theme)
+                    self._apply_theme()
+                    logger.info(f"Gallery theme updated to {self._current_theme}")
 
         except Exception as e:
             logger.error(f"Error handling settings update: {e}")
@@ -657,6 +671,9 @@ class GalleryWindow(QWidget):
             gallery_opacity = await self.settings_manager.get_setting("ui.gallery_opacity", 0.95)
             self.setWindowOpacity(gallery_opacity)
             self._update_translucent_background(gallery_opacity)
+
+            # Initialize style manager
+            self._style_manager = DynamicStyleManager("gallery", self._current_theme)
 
             # Apply theme with loaded settings
             self._apply_theme()
@@ -1107,12 +1124,21 @@ class GalleryWindow(QWidget):
 
     def _apply_theme(self):
         """Apply theme styling."""
-        theme = self._current_theme
-        stylesheet = load_stylesheets("gallery", theme, ["base"])
-        if stylesheet:
-            self.setStyleSheet(stylesheet)
+        if self._style_manager:
+            # Apply base styles and all interactive states
+            self._style_manager.apply_state_styles(self, [
+                "selection-states",
+                "hover-states"
+            ])
+            logger.info(f"Applied fragmented CSS theme: {self._current_theme}")
         else:
-            logger.error(f"Failed to load stylesheets for gallery/{theme}")
+            # Fallback to old system
+            theme = self._current_theme
+            stylesheet = load_stylesheets("gallery", theme, ["base"])
+            if stylesheet:
+                self.setStyleSheet(stylesheet)
+            else:
+                logger.error(f"Failed to load stylesheets for gallery/{theme}")
 
     def _truncate_filename_for_indicator(self, filename: str, max_length: int = 36) -> str:
         """Truncate filename for the selection indicator."""
