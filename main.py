@@ -67,6 +67,9 @@ class Application:
         # Signal handling
         self.original_handlers = {}
 
+        # Lock file for single instance checking
+        self._lock_file = None
+
     async def initialize(self) -> bool:
         """
         Initialize all application components.
@@ -361,6 +364,16 @@ class Application:
 
             logger.info("Application shutdown complete")
 
+            # Release lock file
+            if self._lock_file:
+                try:
+                    if sys.platform == 'win32':
+                        import msvcrt
+                        msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                    self._lock_file.close()
+                except Exception as e:
+                    logger.debug("Error releasing lock file: %s", e)
+
             # Force exit to ensure the application terminates
             # (needed because the tray's detached thread may keep the process alive)
             sys.exit(0)
@@ -370,30 +383,52 @@ class Application:
 
     def is_single_instance(self) -> bool:
         """
-        Check if this is the only instance of the application.
+        Check if this is the only instance of the application using file locking.
 
         Returns:
             True if this is the only instance
         """
-        # Simple implementation - could be enhanced with file locking
+        import os
+        from pathlib import Path
+
         try:
-            import psutil  # type: ignore
-            import os
+            # Create a lock file in the user's AppData directory
+            appdata = os.getenv('APPDATA')
+            if not appdata:
+                logger.warning("APPDATA environment variable not set")
+                return True
 
-            current_pid = os.getpid()
-            current_name = Path(sys.argv[0]).name
+            app_data = Path(appdata) / 'ExplainShot'
+            app_data.mkdir(parents=True, exist_ok=True)
 
-            for proc in psutil.process_iter(['pid', 'name']):
-                try:
-                    if (proc.info['name'] == current_name and
-                        proc.info['pid'] != current_pid):
+            lock_file = app_data / 'explain-shot.lock'
+
+            # Try to open the lock file exclusively
+            # This will fail if another instance has it locked
+            try:
+                self._lock_file = open(lock_file, 'w')
+                # Try to get an exclusive lock on Windows
+                if sys.platform == 'win32':
+                    import msvcrt
+                    try:
+                        msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                    except (OSError, IOError):
+                        # Lock failed - another instance is running
+                        self._lock_file.close()
                         return False
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
 
-            return True
-        except ImportError:
-            logger.warning("psutil not available for single instance check")
+                # Write current PID to lock file
+                self._lock_file.write(str(os.getpid()))
+                self._lock_file.flush()
+                return True
+
+            except (OSError, IOError) as e:
+                logger.debug("Could not acquire lock: %s", e)
+                return False
+
+        except Exception as e:
+            logger.warning("Error checking single instance: %s", e)
+            # If lock check fails, allow multiple instances
             return True
 
 
