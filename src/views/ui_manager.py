@@ -294,9 +294,26 @@ class UIManager(QObject):
     async def _handle_gallery_preset_executed(self, preset_id: int, context: str) -> None:
         """Handle gallery preset execution events."""
         try:
+            # Parse the context string to extract screenshot ID
+            screenshot_id = None
+            try:
+                # The context is a string representation of a dict like:
+                # "{'selected_screenshot': 123, 'preset_id': 456, 'timestamp': '...'}"
+                # We need to extract the selected_screenshot value
+                import ast
+                context_dict = ast.literal_eval(context)
+                screenshot_id = context_dict.get('selected_screenshot')
+            except (ValueError, SyntaxError, KeyError) as e:
+                logger.warning(f"Failed to parse preset execution context: {e}, context: {context}")
+                # Fallback: try to extract screenshot_id from context if it's just a number
+                try:
+                    screenshot_id = int(context)
+                except (ValueError, TypeError):
+                    logger.error(f"Could not extract screenshot ID from context: {context}")
+
             await self.event_bus.emit(
                 EventTypes.GALLERY_PRESET_EXECUTED,
-                {"preset_id": preset_id, "context": context},
+                {"preset_id": preset_id, "screenshot_context": screenshot_id},
                 source="UIManager"
             )
         except Exception as e:
