@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.utils.style_loader import (
-    load_stylesheets, DynamicStyleManager,
+    DynamicStyleManager,
     ScreenshotItemStyleManager, PresetItemStyleManager
 )
 from src.utils.icon_manager import get_icon_manager
@@ -218,22 +218,17 @@ class GalleryWindow(QWidget):
         """Initialize style managers."""
         try:
             # Load base stylesheets
-            stylesheets = load_stylesheets("gallery", self._current_theme, ["base", "components"])
+            self._style_manager = DynamicStyleManager("gallery", self._current_theme)
 
-            if stylesheets:
-                self._style_manager = DynamicStyleManager("gallery", self._current_theme)
+            self._screenshot_item_style_manager = ScreenshotItemStyleManager(
+                self._style_manager
+            )
 
-                self._screenshot_item_style_manager = ScreenshotItemStyleManager(
-                    self._style_manager
-                )
+            self._preset_item_style_manager = PresetItemStyleManager(
+                self._style_manager
+            )
 
-                self._preset_item_style_manager = PresetItemStyleManager(
-                    self._style_manager
-                )
-
-                logger.info("Style managers initialized")
-            else:
-                logger.warning("Failed to load stylesheets")
+            logger.info("Style managers initialized")
 
         except Exception as e:
             logger.error(f"Failed to initialize style managers: {e}")
