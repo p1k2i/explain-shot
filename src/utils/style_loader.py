@@ -234,6 +234,23 @@ class DynamicStyleManager:
             widget.setStyleSheet(css_content)
             refresh_widget_style(widget)
 
+    def apply_preset_item_state(self, widget, state: str) -> None:
+        """
+        Apply a specific state CSS to a preset item widget.
+
+        Args:
+            widget: The preset item widget
+            state: The state to apply ('normal', 'hover')
+        """
+        if state == 'normal':
+            css_content = self.get_state_css('preset-items')
+        else:
+            css_content = self.get_state_css(f'preset-items-{state}')
+
+        if css_content:
+            widget.setStyleSheet(css_content)
+            refresh_widget_style(widget)
+
     def refresh_theme(self, new_theme: str) -> None:
         """
         Change theme and clear cache.
@@ -274,3 +291,28 @@ class ScreenshotItemStyleManager:
             state = 'normal'
 
         self.style_manager.apply_screenshot_item_state(widget, state)
+
+
+class PresetItemStyleManager:
+    """
+    Specialized style manager for preset items with state management.
+    Unlike screenshot items, presets don't have selection states since they use action buttons.
+    """
+
+    def __init__(self, style_manager: DynamicStyleManager):
+        self.style_manager = style_manager
+
+    def apply_state(self, widget, is_hovered: bool) -> None:
+        """
+        Apply the appropriate state CSS based on hover state.
+
+        Args:
+            widget: The preset item widget
+            is_hovered: Whether the item is hovered
+        """
+        if is_hovered:
+            state = 'hover'
+        else:
+            state = 'normal'
+
+        self.style_manager.apply_preset_item_state(widget, state)

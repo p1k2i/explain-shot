@@ -1,0 +1,46 @@
+/* Preset Item Hover Styles - Dark Theme */
+/* Styles applied programmatically when hovering */
+
+/* Hovered Preset Item */
+#PresetItem {
+    background-color: #454545;
+    border: 2px solid #007ACC;
+    border-radius: 8px;
+    margin: 2px;
+}
+
+/* Hovered Preset Labels */
+QLabel#preset_name {
+    font-weight: bold;
+    color: #FFFFFF;
+}
+
+QLabel#preset_usage {
+    color: #BBBBBB;
+    font-size: 10px;
+}
+
+QLabel#preset_preview {
+    color: #EEEEEE;
+    font-size: 10px;
+}
+
+/* Hovered Preset Buttons */
+#PresetItem QPushButton {
+    background-color: #0099FF;
+    color: white;
+    border: 1px solid #007ACC;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: bold;
+    padding: 2px 4px;
+}
+
+#PresetItem QPushButton:hover {
+    background-color: #00CCFF;
+    border-color: #0099FF;
+}
+
+#PresetItem QPushButton:pressed {
+    background-color: #0066CC;
+}

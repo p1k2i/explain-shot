@@ -23,7 +23,7 @@ from PyQt6.QtGui import (
     QPixmap, QFont, QColor, QPainter
 )
 
-from src.utils.style_loader import load_stylesheets, load_stylesheet, DynamicStyleManager, ScreenshotItemStyleManager
+from src.utils.style_loader import load_stylesheets, load_stylesheet, DynamicStyleManager, ScreenshotItemStyleManager, PresetItemStyleManager
 
 try:
     from PIL import Image, ImageQt
@@ -330,9 +330,15 @@ class PresetItem(QWidget):
     def __init__(self, preset: PresetData, parent=None):
         super().__init__(parent)
         self.preset = preset
+        self._is_hovered = False
+        self._style_manager = None  # Will be set by parent
 
         self.setFixedHeight(80)
         self.setObjectName("PresetItem")
+
+        # Enable mouse tracking for hover events
+        self.setMouseTracking(True)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
         # Main layout
         layout = QVBoxLayout(self)
@@ -347,9 +353,9 @@ class PresetItem(QWidget):
         top_layout.addWidget(self.name_label)
 
         if preset.usage_count > 0:
-            usage_label = QLabel(f"({preset.usage_count})")
-            usage_label.setObjectName("preset_usage")
-            top_layout.addWidget(usage_label)
+            self.usage_label = QLabel(f"({preset.usage_count})")
+            self.usage_label.setObjectName("preset_usage")
+            top_layout.addWidget(self.usage_label)
 
         top_layout.addStretch()
         layout.addLayout(top_layout)
@@ -379,11 +385,37 @@ class PresetItem(QWidget):
 
         layout.addLayout(button_layout)
 
+        # Initial state styling will be applied when style manager is set
+
+    def set_style_manager(self, style_manager: 'PresetItemStyleManager') -> None:
+        """Set the style manager for this item."""
+        self._style_manager = style_manager
+        self._apply_current_state()
+
+    def _apply_current_state(self) -> None:
+        """Apply the current state CSS to the item."""
+        if self._style_manager:
+            self._style_manager.apply_state(self, self._is_hovered)
+
     def _truncate_prompt(self, prompt: str, max_length: int = 80) -> str:
         """Truncate prompt for preview."""
         if len(prompt) <= max_length:
             return prompt
         return prompt[:max_length - 3] + "..."
+
+    def enterEvent(self, event):
+        """Handle mouse enter."""
+        if not self._is_hovered:
+            self._is_hovered = True
+            self._apply_current_state()
+        super().enterEvent(event)
+
+    def leaveEvent(self, a0):
+        """Handle mouse leave."""
+        if self._is_hovered:
+            self._is_hovered = False
+            self._apply_current_state()
+        super().leaveEvent(a0)
 
 
 class CustomTitleBar(QFrame):
@@ -642,6 +674,7 @@ class GalleryWindow(QWidget):
         # Style management
         self._style_manager = None
         self._screenshot_item_style_manager = None
+        self._preset_item_style_manager = None
 
         # Components
         self.thumbnail_loader = None
@@ -724,11 +757,15 @@ class GalleryWindow(QWidget):
                     self._current_theme = new_theme
                     if self._style_manager:
                         self._style_manager.refresh_theme(new_theme)
-                        # Recreate screenshot item style manager with new theme
+                        # Recreate style managers with new theme
                         self._screenshot_item_style_manager = ScreenshotItemStyleManager(self._style_manager)
+                        self._preset_item_style_manager = PresetItemStyleManager(self._style_manager)
                         # Update all existing screenshot items
                         for item in self.screenshot_items.values():
                             item.set_style_manager(self._screenshot_item_style_manager)
+                        # Update all existing preset items
+                        for item in self.preset_items.values():
+                            item.set_style_manager(self._preset_item_style_manager)
                     self._apply_theme()
                     logger.info(f"Gallery theme updated to {self._current_theme}")
 
@@ -751,6 +788,7 @@ class GalleryWindow(QWidget):
             # Initialize style manager
             self._style_manager = DynamicStyleManager("gallery", self._current_theme)
             self._screenshot_item_style_manager = ScreenshotItemStyleManager(self._style_manager)
+            self._preset_item_style_manager = PresetItemStyleManager(self._style_manager)
 
             # Apply theme with loaded settings
             self._apply_theme()
@@ -993,6 +1031,10 @@ class GalleryWindow(QWidget):
                     item = PresetItem(preset_data)
                     item.run_clicked.connect(self._on_preset_run)
                     item.paste_clicked.connect(self._on_preset_paste)
+
+                    # Set style manager if available
+                    if self._preset_item_style_manager:
+                        item.set_style_manager(self._preset_item_style_manager)
 
                     self.presets_layout.insertWidget(
                         self.presets_layout.count() - 1,  # Before stretch
