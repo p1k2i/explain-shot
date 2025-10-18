@@ -1,0 +1,46 @@
+/* Screenshot Item Styles - Dark Theme */
+/* Base styles for screenshot items - normal state */
+
+/* Base Screenshot Item - Normal State */
+#ScreenshotItem {
+    background-color: #3A3A3A;
+    border: 2px solid #555555;
+    border-radius: 8px;
+    padding: 6px;
+    margin: 2px;
+}
+
+/* Container for the entire item content */
+#ScreenshotItem QWidget {
+    background-color: transparent;
+}
+
+/* Thumbnail Label - Normal State */
+QLabel#thumbnail_label {
+    border: 1px solid #666666;
+    background-color: #2E2E2E;
+    border-radius: 6px;
+    padding: 2px;
+}
+
+/* Filename Label - Normal State */
+QLabel#filename_label {
+    color: #FFFFFF;
+    font-size: 9px;
+    font-weight: bold;
+    background-color: rgba(30, 30, 30, 0.95);
+    border: none;
+    border-radius: 0px 0px 5px 5px;
+    padding: 2px 4px;
+    text-align: center;
+}
+
+/* Timestamp Label - Normal State */
+QLabel#timestamp_label {
+    color: #BBBBBB;
+    font-size: 9px;
+    background-color: transparent;
+    border: none;
+    padding: 2px;
+    text-align: center;
+}

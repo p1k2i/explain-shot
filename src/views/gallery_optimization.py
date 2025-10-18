@@ -11,7 +11,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, QSize
 from PyQt6.QtGui import QPixmap
 
 if TYPE_CHECKING:
-    from ..views.gallery_window import GalleryWindow
+    from ..views.gallery.gallery_window import GalleryWindow
     from ..models.thumbnail_manager import ThumbnailManager
     from ..models.screenshot_models import ScreenshotMetadata
 

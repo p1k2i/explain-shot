@@ -1,0 +1,59 @@
+/* Selection Indicators */
+
+/* Selection Indicator Label */
+QLabel#selection_indicator {
+    color: #999999;
+    font-size: 11px;
+    font-style: italic;
+    background-color: transparent;
+    border: none;
+    padding: 2px 4px;
+}
+
+QLabel#selection_indicator[selected="true"] {
+    color: #FFFFFF;
+    font-style: normal;
+    font-weight: bold;
+}
+
+/* Status Labels */
+QLabel#status_label {
+    color: #BBBBBB;
+    font-size: 10px;
+    background-color: transparent;
+    border: none;
+    padding: 2px 4px;
+}
+
+/* Input Field Styles */
+QLineEdit {
+    background-color: #404040;
+    color: #FFFFFF;
+    border: 1px solid #666666;
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 12px;
+}
+
+QLineEdit:focus {
+    border-color: #007ACC;
+    background-color: #454545;
+}
+
+/* Send Button */
+QPushButton#send_button {
+    background-color: #007ACC;
+    color: white;
+    border: 1px solid #005A99;
+    border-radius: 4px;
+    font-weight: bold;
+    padding: 6px 12px;
+}
+
+QPushButton#send_button:hover {
+    background-color: #0099FF;
+}
+
+QPushButton#send_button:pressed {
+    background-color: #0066CC;
+}

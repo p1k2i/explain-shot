@@ -1,0 +1,13 @@
+/* Hover State Styles - Dark Theme */
+/* Styles for general hover interactions (non-screenshot items) */
+
+/* General hover styles for other UI elements */
+QSplitter::handle:hover {
+    background-color: #007ACC;
+}
+
+/* Preset item hover */
+#PresetItem:hover {
+    background-color: #404040;
+    border-color: #007ACC;
+}

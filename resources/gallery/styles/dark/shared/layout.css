@@ -1,0 +1,40 @@
+/* Shared Layout Styles - Gallery Components */
+
+/* Scroll Areas */
+QScrollArea {
+    border: none;
+    background-color: transparent;
+}
+
+QScrollArea > QWidget > QWidget {
+    background-color: transparent;
+}
+
+/* Grid Layouts */
+QGridLayout {
+    spacing: 8px;
+    margin: 4px;
+}
+
+/* Splitter */
+QSplitter {
+    background-color: #2E2E2E;
+}
+
+QSplitter::handle {
+    background-color: #555555;
+    width: 3px;
+    margin: 2px;
+}
+
+QSplitter::handle:hover {
+    background-color: #777777;
+}
+
+/* Column containers */
+QWidget[class="column-container"] {
+    background-color: #2E2E2E;
+    border: 1px solid #555555;
+    border-radius: 6px;
+    margin: 2px;
+}

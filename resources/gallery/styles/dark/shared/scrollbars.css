@@ -1,0 +1,71 @@
+/* Shared Scrollbar Styles */
+
+/* Vertical Scrollbars */
+QScrollBar:vertical {
+    background-color: #2E2E2E;
+    width: 12px;
+    border-radius: 6px;
+    border: 1px solid #555555;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #555555;
+    border-radius: 5px;
+    min-height: 20px;
+    margin: 1px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #777777;
+}
+
+QScrollBar::handle:vertical:pressed {
+    background-color: #999999;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+    height: 0px;
+}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+/* Horizontal Scrollbars */
+QScrollBar:horizontal {
+    background-color: #2E2E2E;
+    height: 12px;
+    border-radius: 6px;
+    border: 1px solid #555555;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #555555;
+    border-radius: 5px;
+    min-width: 20px;
+    margin: 1px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #777777;
+}
+
+QScrollBar::handle:horizontal:pressed {
+    background-color: #999999;
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    border: none;
+    background: none;
+    width: 0px;
+}
+
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: none;
+}

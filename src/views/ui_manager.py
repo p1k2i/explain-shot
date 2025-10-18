@@ -17,7 +17,7 @@ from ..models.screenshot_manager import ScreenshotManager
 from ..models.database_manager import DatabaseManager
 from .overlay_manager import OverlayManager
 from .settings_window import SettingsWindow
-from .gallery_window import GalleryWindow
+from .gallery.gallery_window import GalleryWindow
 from src import EventTypes
 
 logger = logging.getLogger(__name__)
