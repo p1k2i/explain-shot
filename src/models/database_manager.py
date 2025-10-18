@@ -13,6 +13,8 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 import os
 
+from src import DEFAULT_DATABASE_NAME
+
 from .screenshot_models import ScreenshotMetadata
 
 if TYPE_CHECKING:
@@ -40,7 +42,7 @@ class DatabaseManager:
             db_path: Path to SQLite database file
             logger: Optional logger instance
         """
-        self.db_path = db_path or "app_data.db"
+        self.db_path = db_path or DEFAULT_DATABASE_NAME
         self.logger = logger or logging.getLogger(__name__)
         self._connection_lock = asyncio.Lock()
         self._initialized = False

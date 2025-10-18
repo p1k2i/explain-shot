@@ -10,6 +10,8 @@ import logging
 import sys
 from pathlib import Path
 
+from src import DEFAULT_DATABASE_NAME
+
 # Setup basic logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -24,7 +26,7 @@ async def run_migration():
         from src.models.database_schema_migration import DatabaseSchemaMigration
 
         # Initialize database manager
-        db_path = "app_data.db"
+        db_path = DEFAULT_DATABASE_NAME
         db_manager = DatabaseManager(db_path, logger)
         migration_manager = DatabaseSchemaMigration(db_manager, logger)
 
