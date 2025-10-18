@@ -136,6 +136,14 @@ class Application:
                 self.qt_app = existing_app  # type: ignore
                 logger.info("Using existing QApplication instance")
 
+            # Set application icon
+            from src.utils.icon_manager import get_icon_manager
+            icon_manager = get_icon_manager()
+            app_icon = icon_manager.get_app_icon()
+            if app_icon and self.qt_app:
+                self.qt_app.setWindowIcon(app_icon)
+                logger.info("Application icon set")
+
             # Initialize UIManager
             self.ui_manager = UIManager(
                 event_bus=self.event_bus,

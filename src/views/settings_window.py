@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QKeySequence
 
 from src.utils.style_loader import load_stylesheets
+from src.utils.icon_manager import get_icon_manager
 
 from ..controllers.event_bus import EventBus
 from ..models.settings_manager import SettingsManager, ApplicationSettings
@@ -193,6 +194,13 @@ class SettingsWindow(QDialog):
     def setup_ui(self):
         """Setup the main UI layout and components."""
         self.setWindowTitle("ExplainShot Settings")
+
+        # Set window icon
+        icon_manager = get_icon_manager()
+        app_icon = icon_manager.get_app_icon()
+        if app_icon:
+            self.setWindowIcon(app_icon)
+
         self.setModal(True)
         self.resize(600, 550)
         self.setMinimumSize(550, 550)
@@ -792,7 +800,7 @@ class SettingsWindow(QDialog):
             # Show progress
             if self.progress_bar:
                 self.progress_bar.setVisible(True)
-                self.progress_bar.setRange(0, 0)  # Indeterminate progress
+                self.progress_bar.setRange(0, 0) # Indeterminate progress
 
             # Load current settings
             self.current_settings = await self.settings_manager.load_settings()

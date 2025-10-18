@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from ..models.database_manager import DatabaseManager
     from ..models.settings_manager import SettingsManager
 
+from ..utils.icon_manager import get_icon_manager
 from .. import EventTypes
 
 logger = logging.getLogger(__name__)
@@ -243,6 +244,7 @@ class ScreenshotItem(QWidget):
         self.filename_label.setGeometry(0, 0, 120, 20)  # Top overlay
         self.filename_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.filename_label.setObjectName("filename_label")
+        layout.addWidget(self.filename_label)
 
         # Timestamp label
         self.timestamp_label = QLabel(timestamp.strftime("%H:%M:%S"))
@@ -716,6 +718,13 @@ class GalleryWindow(QWidget):
     def _setup_ui(self):
         """Setup the user interface."""
         self.setWindowTitle("ExplainShot Gallery")
+
+        # Set window icon
+        icon_manager = get_icon_manager()
+        app_icon = icon_manager.get_app_icon()
+        if app_icon:
+            self.setWindowIcon(app_icon)
+
         self.setGeometry(100, 100, 1200, 800)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         # WA_TranslucentBackground is set dynamically in initialize() based on opacity

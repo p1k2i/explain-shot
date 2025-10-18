@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 
 from ..utils.style_loader import load_stylesheet
 from ..controllers.event_bus import EventBus
+from ..utils.icon_manager import get_icon_manager  # Importing get_icon_manager
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,13 @@ class OverlayWindow(QWidget):
                 Qt.WindowType.Tool |
                 Qt.WindowType.X11BypassWindowManagerHint
             )
+
+            # Set window icon
+            from ..utils.icon_manager import get_icon_manager
+            icon_manager = get_icon_manager()
+            app_icon = icon_manager.get_app_icon()
+            if app_icon:
+                self.setWindowIcon(app_icon)
 
             # Window properties
             width = self.config.get("overlay.width", 280)

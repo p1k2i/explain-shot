@@ -353,6 +353,38 @@ class IconManager:
 
         return info
 
+    def get_app_icon_path(self) -> Optional[Path]:
+        """
+        Get the path to the application icon file.
+
+        Returns:
+            Path to app.ico or None if not found
+        """
+        icon_path = self.resource_dir / "app.ico"
+        if icon_path.exists():
+            return icon_path
+
+        return None
+
+    def get_app_icon(self) -> Optional[Any]:
+        """
+        Get the application icon as a QIcon.
+
+        Returns:
+            QIcon instance or None if icon not found
+        """
+        try:
+            from PyQt6.QtGui import QIcon
+            icon_path = self.get_app_icon_path()
+            if icon_path:
+                return QIcon(str(icon_path))
+        except ImportError:
+            logger.warning("PyQt6 not available for QIcon creation")
+        except Exception as e:
+            logger.error(f"Failed to create app icon: {e}")
+
+        return None
+
 
 # Global icon manager instance
 _icon_manager: Optional[IconManager] = None
