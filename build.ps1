@@ -144,9 +144,8 @@ Write-Host "dist\ExplainShot\ExplainShot.exe" -ForegroundColor Green
 Write-Host ""
 
 Write-Host "Next steps:" -ForegroundColor Cyan
-Write-Host "  1. Test the executable: dist\ExplainShot.exe" -ForegroundColor Gray
+Write-Host "  1. Test the executable: dist\ExplainShot\ExplainShot.exe" -ForegroundColor Gray
 Write-Host "  2. For distribution, zip the dist folder" -ForegroundColor Gray
-Write-Host "  3. See BUILD_INSTRUCTIONS.md for more details" -ForegroundColor Gray
 Write-Host ""
 
 Write-Host "Build successful!" -ForegroundColor Green
