@@ -68,6 +68,7 @@ class GalleryWindow(QWidget):
         # State management
         self.gallery_state = GalleryState()
         self._initialized = False
+        self._content_loaded = False  # Track if content has been loaded
         self._current_theme = "dark"  # Default theme, will be loaded from settings
 
         # Style management
@@ -682,8 +683,10 @@ class GalleryWindow(QWidget):
                     logger.error("Failed to initialize gallery")
                     return
 
-            # Load content
-            await self._load_content()
+            # Load content only if not already loaded
+            if not self._content_loaded:
+                await self._load_content()
+                self._content_loaded = True
 
             # Pre-select screenshot if specified
             if pre_selected_screenshot_id and self.screenshots_gallery:

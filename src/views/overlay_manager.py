@@ -332,7 +332,7 @@ class OverlayManager(QObject):
                     screenshot_data = []
                     for screenshot in screenshots:
                         screenshot_data.append({
-                            "id": screenshot.id,
+                            "id": screenshot.unique_id,  # Use hash-based unique ID instead of integer ID
                             "filename": screenshot.filename,
                             "timestamp": screenshot.timestamp.isoformat(),
                             "file_size": screenshot.file_size,

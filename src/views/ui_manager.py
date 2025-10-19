@@ -580,12 +580,12 @@ class UIManager(QObject):
             logger.error(f"Error hiding settings window: {e}")
             return False
 
-    async def show_gallery_window(self, pre_selected_screenshot_id: Optional[int] = None, **kwargs) -> bool:
+    async def show_gallery_window(self, pre_selected_screenshot_id: Optional[str] = None, **kwargs) -> bool:
         """
         Show the gallery window.
 
         Args:
-            pre_selected_screenshot_id: Optional screenshot ID to pre-select
+            pre_selected_screenshot_id: Optional screenshot ID (hash string) to pre-select
             **kwargs: Arguments to pass to gallery window
 
         Returns:
@@ -644,9 +644,8 @@ class UIManager(QObject):
                     return False
 
             # Show the gallery with optional pre-selection
-            # Convert int screenshot ID to string if needed
-            pre_selected_str = str(pre_selected_screenshot_id) if pre_selected_screenshot_id is not None else None
-            await self.gallery_window.show_gallery(pre_selected_str)
+            # pre_selected_screenshot_id is already a string hash
+            await self.gallery_window.show_gallery(pre_selected_screenshot_id)
 
             # Emit gallery window shown event
             await self.event_bus.emit(
