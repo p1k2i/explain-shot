@@ -160,9 +160,17 @@ class GalleryWindow(QWidget):
         try:
             if self.chat_interface and event_data.data and 'response' in event_data.data:
                 response = event_data.data['response']
-                self.chat_interface.add_ai_message(response)
-                self.chat_interface.set_status("Response received")
-                logger.info("AI response added to chat")
+                screenshot_hash = event_data.data.get('screenshot_hash')
+
+                # Only add the response if it matches the currently selected screenshot
+                if screenshot_hash and self.gallery_state.selected_screenshot_id == screenshot_hash:
+                    self.chat_interface.add_ai_message(response)
+                    self.chat_interface.set_status("Response received")
+                    logger.info("AI response added to chat for screenshot: %s", screenshot_hash[:8])
+                else:
+                    logger.debug("Ignoring AI response for different screenshot: %s (current: %s)",
+                               screenshot_hash[:8] if screenshot_hash else 'None',
+                               self.gallery_state.selected_screenshot_id[:8] if self.gallery_state.selected_screenshot_id else 'None')
 
         except Exception as e:
             logger.error(f"Error handling Ollama response: {e}")
@@ -171,10 +179,14 @@ class GalleryWindow(QWidget):
         """Handle streaming update events."""
         try:
             if self.chat_interface and event_data.data and 'content' in event_data.data:
-                # For streaming, we might want to update the last AI message
-                # This is a simplified implementation
-                content = event_data.data['content']
-                self.chat_interface.set_status(f"Streaming: {content[:50]}...")
+                # Note: Streaming updates don't include screenshot_hash, so we can't filter by screenshot
+                # This is a limitation of the current streaming implementation
+                # For now, we'll show streaming updates only if a screenshot is selected
+                if self.gallery_state.selected_screenshot_id:
+                    content = event_data.data['content']
+                    self.chat_interface.set_status(f"Streaming: {content[:50]}...")
+                else:
+                    logger.debug("Ignoring streaming update - no screenshot selected")
 
         except Exception as e:
             logger.error(f"Error handling streaming update: {e}")
