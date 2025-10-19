@@ -75,24 +75,11 @@ To ensure your database has the performance optimization schema:
 To use individual optimization components:
 
 1. Initialize the components you need:
-   # Cache Manager
-   cache_manager = CacheManager(db_manager, settings_manager, event_bus)
-   await cache_manager.initialize()
-
    # Storage Manager
    storage_manager = StorageManager(screenshot_manager, db_manager, settings_manager, event_bus)
    await storage_manager.initialize()
 
 2. Use in your application logic:
-   # Check for cached AI response
-   cached_response = await cache_manager.get_cached_response(prompt, model_name)
-   if cached_response:
-       return cached_response
-
-   # Generate new response and cache it
-   response = await ollama_client.generate_response(prompt)
-   await cache_manager.store_response(prompt, response, model_name)
-
    # Monitor storage usage
    if await storage_manager.check_storage_limit():
        await storage_manager.execute_pruning()
@@ -101,10 +88,6 @@ To use individual optimization components:
 # CONFIGURATION EXAMPLE
 """
 Performance optimization settings can be configured through SettingsManager:
-
-# Cache configuration
-await settings_manager.set_setting("optimization.cache_max_entries", 1000)
-await settings_manager.set_setting("optimization.cache_ttl_hours", 48)
 
 # Storage configuration
 await settings_manager.set_setting("optimization.max_storage_gb", 20.0)
@@ -126,7 +109,6 @@ The optimization components emit events for monitoring and integration:
 await event_bus.subscribe("optimization.components.initialized", on_optimization_ready)
 await event_bus.subscribe("performance.threshold_exceeded", on_performance_issue)
 await event_bus.subscribe("storage.cleanup_needed", on_storage_cleanup)
-await event_bus.subscribe("cache.cleanup_needed", on_cache_cleanup)
 
 async def on_optimization_ready(event_data):
     components = event_data.data.get('components', {})
@@ -169,11 +151,9 @@ Performance monitoring provides insights into application behavior:
 if optimization_manager:
     stats = await optimization_manager.get_performance_stats()
 
-    cache_stats = stats.get('cache', {})
     storage_stats = stats.get('storage', {})
     performance_stats = stats.get('performance', {})
 
-    logger.info(f"Cache hit rate: {cache_stats.get('hit_rate', 0)}%")
     logger.info(f"Storage usage: {storage_stats.get('total_size_mb', 0)} MB")
     logger.info(f"Memory usage: {performance_stats.get('avg', 0)} MB")
 """

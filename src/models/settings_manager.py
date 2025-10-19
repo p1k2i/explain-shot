@@ -94,12 +94,6 @@ class AutoStartConfig:
 @dataclass
 class OptimizationConfig:
     """Performance optimization configuration."""
-    # Cache settings
-    cache_enabled: bool = True
-    cache_max_entries: int = 500
-    cache_ttl_hours: int = 24
-    cache_memory_limit_mb: int = 256
-
     # Storage management
     storage_management_enabled: bool = True
     max_storage_gb: float = 10.0
@@ -214,9 +208,6 @@ class SettingsManager:
             'ollama.max_retries': lambda x: 0 <= x <= 10,
             'auto_start.delay_seconds': lambda x: 0 <= x <= 60,
             # Optimization validation rules
-            'optimization.cache_max_entries': lambda x: 10 <= x <= 10000,
-            'optimization.cache_ttl_hours': lambda x: 1 <= x <= 168,  # 1 hour to 1 week
-            'optimization.cache_memory_limit_mb': lambda x: 32 <= x <= 2048,
             'optimization.max_storage_gb': lambda x: 1.0 <= x <= 100.0,
             'optimization.max_file_count': lambda x: 100 <= x <= 50000,
             'optimization.cleanup_interval_hours': lambda x: 1 <= x <= 168,

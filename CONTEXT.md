@@ -66,7 +66,6 @@ Manages data persistence, configuration, and business rules:
 - **`SettingsManager`**: Application configuration management with validation and persistence
 - **`ScreenshotManager`**: Screenshot capture, file storage, and metadata management
 - **`OllamaClient`**: Integration with local Ollama AI server for model inference
-- **`CacheManager`**: SQLite-backed response caching for AI responses
 - **`ThumbnailManager`**: Image thumbnail generation and optimization
 - **`StorageManager`**: Disk space management and file lifecycle
 
@@ -464,7 +463,6 @@ src/
 │   ├── settings_manager.py
 │   ├── screenshot_manager.py
 │   ├── ollama_client.py
-│   ├── cache_manager.py
 │   ├── thumbnail_manager.py
 │   └── storage_manager.py
 │
@@ -498,7 +496,6 @@ src/
 
 #### **Reusable Components**
 
-- **CacheManager**: AI response caching system usable by any AI client
 - **StorageManager**: Generic file and disk management
 - **OverlayManager**: Generic transparent window overlay
 - **IconManager**: Centralized icon management and generation
@@ -741,7 +738,6 @@ async def get_screenshots(self, limit: int = 10) -> List[ScreenshotMetadata]:
 
 **Key Components:**
 - `OllamaClient`: AI server integration
-- `CacheManager`: Response caching
 - `SettingsManager`: Model configuration
 
 **Features:**
@@ -749,7 +745,6 @@ async def get_screenshots(self, limit: int = 10) -> List[ScreenshotMetadata]:
 - **Prompt Templates**: Pre-built prompts with parameters
 - **Streaming Responses**: Real-time AI output display
 - **Error Recovery**: Automatic retry with exponential backoff
-- **Offline Mode**: Cache-based fallback when server down
 
 ### 7.3 Screenshot Gallery
 
@@ -835,16 +830,8 @@ async def get_screenshots(self, limit: int = 10) -> List[ScreenshotMetadata]:
 - **Screenshot**: Format, quality, directory
 - **Ollama**: Model selection, server URL, timeouts
 - **AutoStart**: Startup behavior
-- **Optimization**: Cache and storage settings
 
 ### 7.7 Performance Optimization
-
-**Caching System:**
-- SQLite-backed response cache
-- Prompt-based deduplication via hashing
-- TTL-based expiration
-- Memory limit enforcement
-- Session cache for frequently accessed items
 
 **Storage Management:**
 - Automatic cleanup of old files
@@ -917,7 +904,6 @@ ExplainShot ←→ Ollama Server (HTTP REST API)
 
 **Error Handling:**
 - Connection timeouts with configurable retry
-- Automatic fallback to cached responses
 - Offline mode for unavailable server
 - User notification of service status
 
@@ -935,7 +921,6 @@ ExplainShot ←→ Ollama Server (HTTP REST API)
 - `chat_history`: Conversation history with AI
 - `presets`: Preset prompts
 - `settings`: Application configuration
-- `cache`: AI response cache
 
 #### **Operating System Integration**
 
@@ -956,7 +941,6 @@ ExplainShot ←→ Ollama Server (HTTP REST API)
 **Ollama AI Server:**
 - **Role**: Local AI inference engine
 - **Criticality**: Optional (degraded mode without it)
-- **Fallback**: Cache-based responses
 - **Configuration**: Server URL, model selection, timeouts
 
 **No Cloud Integration:**
@@ -987,12 +971,6 @@ ExplainShot ←→ Ollama Server (HTTP REST API)
 - Thumbnails generated on-demand
 - UI windows created when shown
 - Event handlers only for registered events
-
-**Caching Strategy:**
-- In-memory cache for frequently accessed data
-- SQLite cache for AI responses
-- Session cache for current operation
-- TTL-based expiration to prevent memory bloat
 
 **Resource Management:**
 - Weak references in event subscriptions prevent memory leaks

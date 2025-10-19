@@ -111,19 +111,19 @@ class RequestManager:
     - Cancellation support
     """
 
-    def __init__(self, ollama_client, cache_manager, event_bus, settings_manager=None):
+    def __init__(self, ollama_client, event_bus, cache_manager=None, settings_manager=None):
         """
         Initialize the request manager.
 
         Args:
             ollama_client: OllamaClient instance for actual requests
-            cache_manager: CacheManager for response caching
             event_bus: EventBus for communication
+            cache_manager: Optional CacheManager for response caching
             settings_manager: Optional settings manager
         """
         self.ollama_client = ollama_client
-        self.cache_manager = cache_manager
         self.event_bus = event_bus
+        self.cache_manager = cache_manager
         self.settings_manager = settings_manager
 
         # Configuration
@@ -160,7 +160,6 @@ class RequestManager:
             'failed_requests': 0,
             'cancelled_requests': 0,
             'timeout_requests': 0,
-            'cache_hits': 0,
             'total_processing_time': 0.0,
             'last_reset': datetime.now()
         }
@@ -254,53 +253,6 @@ class RequestManager:
             # Use default timeout if not specified
             if timeout is None:
                 timeout = self._config.default_timeout
-
-            # Check cache first
-            if self.cache_manager:
-                cached_response = await self.cache_manager.get_cached_response(
-                    screenshot_id, prompt, model_name
-                )
-                if cached_response:
-                    # Create completed future with cached response
-                    future = asyncio.Future()
-                    response_data = {
-                        'content': cached_response.response_content,
-                        'model': cached_response.model_name,
-                        'processing_time': cached_response.processing_time,
-                        'cached': True
-                    }
-                    future.set_result(response_data)
-
-                    request_id = str(uuid.uuid4())
-                    request = OllamaRequest(
-                        id=request_id,
-                        screenshot_id=screenshot_id,
-                        prompt=prompt,
-                        image_path=image_path,
-                        model_name=model_name,
-                        priority=priority,
-                        stream_callback=stream_callback,
-                        timeout=timeout
-                    )
-
-                    handle = RequestHandle(
-                        request_id=request_id,
-                        future=future,
-                        request=request,
-                        status=RequestStatus.COMPLETED
-                    )
-
-                    self._stats['cache_hits'] += 1
-
-                    # Emit cache hit event
-                    if self.event_bus:
-                        await self.event_bus.emit("request.cache_hit", {
-                            'request_id': request_id,
-                            'screenshot_id': screenshot_id,
-                            'timestamp': datetime.now().isoformat()
-                        })
-
-                    return handle
 
             # Check for request deduplication
             if self._config.enable_request_deduplication:
@@ -517,14 +469,6 @@ class RequestManager:
                         processing_time = time.time() - start_time
                         response['processing_time'] = processing_time
 
-                        # Store in cache if successful
-                        if self.cache_manager and not response.get('cached', False):
-                            await self.cache_manager.store_response(
-                                request.screenshot_id,
-                                request.prompt,
-                                response
-                            )
-
                         # Complete the request
                         handle.future.set_result(response)
                         handle.status = RequestStatus.COMPLETED
@@ -733,9 +677,7 @@ class RequestManager:
             'failed_requests': self._stats['failed_requests'],
             'cancelled_requests': self._stats['cancelled_requests'],
             'timeout_requests': self._stats['timeout_requests'],
-            'cache_hits': self._stats['cache_hits'],
             'success_rate': round((completed / total * 100) if total > 0 else 0, 1),
-            'cache_hit_rate': round((self._stats['cache_hits'] / total * 100) if total > 0 else 0, 1),
             'average_processing_time': round(
                 (self._stats['total_processing_time'] / completed) if completed > 0 else 0, 2
             ),

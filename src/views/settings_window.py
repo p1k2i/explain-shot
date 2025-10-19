@@ -155,10 +155,6 @@ class SettingsWindow(QDialog):
         self.progress_bar: Optional[QProgressBar] = None
 
         # Optimization settings widgets
-        self.opt_cache_enabled: Optional[QCheckBox] = None
-        self.opt_cache_max_entries: Optional[QSpinBox] = None
-        self.opt_cache_ttl_hours: Optional[QSpinBox] = None
-        self.opt_cache_memory_limit: Optional[QSpinBox] = None
         self.opt_storage_enabled: Optional[QCheckBox] = None
         self.opt_max_storage_gb: Optional[QSpinBox] = None
         self.opt_max_file_count: Optional[QSpinBox] = None
@@ -472,41 +468,6 @@ class SettingsWindow(QDialog):
 
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
-
-        # Cache Settings Group
-        cache_group = QGroupBox("AI Response Cache")
-        cache_layout = QFormLayout(cache_group)
-
-        # Cache enabled
-        self.opt_cache_enabled = QCheckBox("Enable AI response caching")
-        self.opt_cache_enabled.setToolTip("Cache AI responses to improve performance and reduce API calls")
-        cache_layout.addRow(self.opt_cache_enabled)
-
-        # Max cache entries
-        self.opt_cache_max_entries = QSpinBox()
-        self.opt_cache_max_entries.setRange(10, 10000)
-        self.opt_cache_max_entries.setValue(500)
-        self.opt_cache_max_entries.setSuffix(" entries")
-        self.opt_cache_max_entries.setToolTip("Maximum number of AI responses to cache")
-        cache_layout.addRow("Max Cached Responses:", self.opt_cache_max_entries)
-
-        # Cache TTL
-        self.opt_cache_ttl_hours = QSpinBox()
-        self.opt_cache_ttl_hours.setRange(1, 168)
-        self.opt_cache_ttl_hours.setValue(24)
-        self.opt_cache_ttl_hours.setSuffix(" hours")
-        self.opt_cache_ttl_hours.setToolTip("How long to keep cached responses (1-168 hours)")
-        cache_layout.addRow("Cache Duration:", self.opt_cache_ttl_hours)
-
-        # Cache memory limit
-        self.opt_cache_memory_limit = QSpinBox()
-        self.opt_cache_memory_limit.setRange(32, 2048)
-        self.opt_cache_memory_limit.setValue(256)
-        self.opt_cache_memory_limit.setSuffix(" MB")
-        self.opt_cache_memory_limit.setToolTip("Maximum memory usage for response cache")
-        cache_layout.addRow("Memory Limit:", self.opt_cache_memory_limit)
-
-        scroll_layout.addWidget(cache_group)
 
         # Storage Management Group
         storage_group = QGroupBox("Storage Management")
@@ -939,16 +900,6 @@ class SettingsWindow(QDialog):
             if hasattr(self.current_settings, 'optimization'):
                 opt = self.current_settings.optimization
 
-                # Cache settings
-                if self.opt_cache_enabled:
-                    self.opt_cache_enabled.setChecked(opt.cache_enabled)
-                if self.opt_cache_max_entries:
-                    self.opt_cache_max_entries.setValue(opt.cache_max_entries)
-                if self.opt_cache_ttl_hours:
-                    self.opt_cache_ttl_hours.setValue(opt.cache_ttl_hours)
-                if self.opt_cache_memory_limit:
-                    self.opt_cache_memory_limit.setValue(opt.cache_memory_limit_mb)
-
                 # Storage settings
                 if self.opt_storage_enabled:
                     self.opt_storage_enabled.setChecked(opt.storage_management_enabled)
@@ -1019,12 +970,6 @@ class SettingsWindow(QDialog):
                     "debug_mode": self.debug_mode_checkbox.isChecked() if self.debug_mode_checkbox else False,
                 },
                 "optimization": {
-                    # Cache settings
-                    "cache_enabled": self.opt_cache_enabled.isChecked() if self.opt_cache_enabled else True,
-                    "cache_max_entries": self.opt_cache_max_entries.value() if self.opt_cache_max_entries else 500,
-                    "cache_ttl_hours": self.opt_cache_ttl_hours.value() if self.opt_cache_ttl_hours else 24,
-                    "cache_memory_limit_mb": self.opt_cache_memory_limit.value() if self.opt_cache_memory_limit else 256,
-
                     # Storage settings
                     "storage_management_enabled": self.opt_storage_enabled.isChecked() if self.opt_storage_enabled else True,
                     "max_storage_gb": float(self.opt_max_storage_gb.value()) if self.opt_max_storage_gb else 10.0,

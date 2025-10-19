@@ -15,7 +15,6 @@ from ..models.database_extensions import DatabaseExtensions
 from ..models.database_schema_migration import DatabaseSchemaMigration
 from .thumbnail_manager import ThumbnailManager
 from .storage_manager import StorageManager
-from .cache_manager import CacheManager
 from .request_manager import RequestManager
 from ..models.performance_monitor import PerformanceMonitor
 from ..models.settings_manager import SettingsManager
@@ -67,7 +66,6 @@ class OptimizedComponentManager:
         self.migration_manager: Optional[DatabaseSchemaMigration] = None
         self.thumbnail_manager: Optional[ThumbnailManager] = None
         self.storage_manager: Optional[StorageManager] = None
-        self.cache_manager: Optional[CacheManager] = None
         self.request_manager: Optional[RequestManager] = None
         self.performance_monitor: Optional[PerformanceMonitor] = None
 
@@ -129,19 +127,10 @@ class OptimizedComponentManager:
                 )
                 await self.storage_manager.initialize()
 
-            # Initialize cache manager
-            self.cache_manager = CacheManager(
-                database_manager=self.db_manager,
-                settings_manager=self.settings_manager,
-                event_bus=self.event_bus
-            )
-            await self.cache_manager.initialize()
-
             # Initialize request manager if ollama client is provided
             if ollama_client:
                 self.request_manager = RequestManager(
                     ollama_client=ollama_client,
-                    cache_manager=self.cache_manager,
                     event_bus=self.event_bus
                 )
                 await self.request_manager.initialize()
@@ -155,7 +144,6 @@ class OptimizedComponentManager:
             self.performance_monitor.register_components(
                 thumbnail_manager=self.thumbnail_manager,
                 storage_manager=self.storage_manager,
-                cache_manager=self.cache_manager,
                 request_manager=self.request_manager
             )
 
@@ -271,7 +259,6 @@ class OptimizedComponentManager:
             'migration_manager': self.migration_manager is not None,
             'thumbnail_manager': self.thumbnail_manager is not None,
             'storage_manager': self.storage_manager is not None,
-            'cache_manager': self.cache_manager is not None and self.cache_manager._initialized,
             'request_manager': self.request_manager is not None and self.request_manager._initialized,
             'performance_monitor': self.performance_monitor is not None and self.performance_monitor._collection_task is not None and not self.performance_monitor._collection_task.done()
         }
@@ -285,10 +272,6 @@ class OptimizedComponentManager:
     def get_storage_manager(self) -> Optional[StorageManager]:
         """Get the optimized storage manager."""
         return self.storage_manager
-
-    def get_cache_manager(self) -> Optional[CacheManager]:
-        """Get the optimized cache manager."""
-        return self.cache_manager
 
     def get_request_manager(self) -> Optional[RequestManager]:
         """Get the optimized request manager."""
@@ -314,11 +297,6 @@ class OptimizedComponentManager:
         }
 
         try:
-            # Cleanup expired cache entries
-            if self.cache_manager:
-                await self.cache_manager.optimize_cache_database()
-                cleanup_stats['expired_cache_entries'] = 1  # Placeholder, actual count not returned
-
             # Cleanup old screenshots if storage manager is available
             if self.storage_manager:
                 # Execute pruning to clean up old files
@@ -343,10 +321,6 @@ class OptimizedComponentManager:
         stats = {}
 
         try:
-            # Get cache statistics
-            if self.cache_manager:
-                stats['cache'] = self.cache_manager.get_cache_statistics()
-
             # Get storage statistics
             if self.storage_manager:
                 stats['storage'] = await self.storage_manager.get_storage_statistics()
@@ -439,10 +413,6 @@ class OptimizedComponentManager:
             # Shutdown storage manager
             if self.storage_manager:
                 await self.storage_manager.shutdown()
-
-            # Final cache cleanup
-            if self.cache_manager:
-                await self.cache_manager.optimize_cache_database()
 
             self._initialized = False
             self.logger.info("Optimization components shutdown complete")

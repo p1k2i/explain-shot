@@ -32,7 +32,6 @@ class MetricType(Enum):
     CPU = "cpu"
     DISK = "disk"
     RESPONSE_TIME = "response_time"
-    CACHE_HIT_RATIO = "cache_hit_ratio"
     QUEUE_DEPTH = "queue_depth"
     ERROR_RATE = "error_rate"
 
@@ -66,7 +65,6 @@ class PerformanceSnapshot:
     cpu_usage_percent: float
     disk_usage_percent: float
     response_times: Dict[str, float]
-    cache_hit_ratios: Dict[str, float]
     queue_depths: Dict[str, int]
     error_rates: Dict[str, float]
     overall_level: PerformanceLevel
@@ -125,7 +123,6 @@ class PerformanceMonitor:
 
         # Component references (set during integration)
         self._thumbnail_manager = None
-        self._cache_manager = None
         self._request_manager = None
         self._storage_manager = None
 
@@ -166,13 +163,6 @@ class PerformanceMonitor:
                 good_max=500.0,
                 fair_max=1000.0,
                 poor_max=2000.0
-            ),
-            MetricType.CACHE_HIT_RATIO: PerformanceThreshold(
-                metric_type=MetricType.CACHE_HIT_RATIO,
-                excellent_max=90.0,  # %
-                good_max=75.0,
-                fair_max=60.0,
-                poor_max=40.0
             ),
             MetricType.QUEUE_DEPTH: PerformanceThreshold(
                 metric_type=MetricType.QUEUE_DEPTH,
@@ -236,11 +226,10 @@ class PerformanceMonitor:
         except Exception as e:
             logger.warning(f"Failed to load performance settings: {e}")
 
-    def register_components(self, thumbnail_manager=None, cache_manager=None,
+    def register_components(self, thumbnail_manager=None,
                           request_manager=None, storage_manager=None) -> None:
         """Register optimization components for monitoring."""
         self._thumbnail_manager = thumbnail_manager
-        self._cache_manager = cache_manager
         self._request_manager = request_manager
         self._storage_manager = storage_manager
 
@@ -339,26 +328,10 @@ class PerformanceMonitor:
             # Thumbnail manager metrics
             if self._thumbnail_manager:
                 try:
-                    stats = self._thumbnail_manager.get_cache_statistics()
-                    hit_ratio = stats.get('hit_ratio', 0)
-                    await self._record_metric(MetricType.CACHE_HIT_RATIO, hit_ratio, timestamp, {
-                        'component': 'thumbnail_cache',
-                        'memory_mb': stats.get('memory_usage_mb', 0)
-                    })
+                    # Thumbnail caching metrics can be added here if needed
+                    pass
                 except Exception as e:
                     logger.warning(f"Failed to collect thumbnail metrics: {e}")
-
-            # Cache manager metrics
-            if self._cache_manager:
-                try:
-                    stats = self._cache_manager.get_cache_statistics()
-                    hit_ratio = stats.get('hit_ratio', 0)
-                    await self._record_metric(MetricType.CACHE_HIT_RATIO, hit_ratio, timestamp, {
-                        'component': 'response_cache',
-                        'memory_mb': stats.get('memory_usage_mb', 0)
-                    })
-                except Exception as e:
-                    logger.warning(f"Failed to collect cache metrics: {e}")
 
             # Request manager metrics
             if self._request_manager:
@@ -471,7 +444,6 @@ class PerformanceMonitor:
 
             # Collect component-specific metrics
             response_times = {}
-            cache_hit_ratios = {}
             queue_depths = {}
             error_rates = {}
 
@@ -485,22 +457,14 @@ class PerformanceMonitor:
                 queue_status = await self._request_manager.get_queue_status()
                 queue_depths['requests'] = queue_status.total_queued
 
-            if self._cache_manager:
-                stats = self._cache_manager.get_cache_statistics()
-                cache_hit_ratios['responses'] = stats.get('hit_ratio', 0)
-
-            if self._thumbnail_manager:
-                stats = self._thumbnail_manager.get_cache_statistics()
-                cache_hit_ratios['thumbnails'] = stats.get('hit_ratio', 0)
-
             # Determine overall performance level
             overall_level = self._calculate_overall_performance_level(
-                latest_memory, latest_cpu, response_times, cache_hit_ratios, error_rates
+                latest_memory, latest_cpu, response_times, error_rates
             )
 
             # Generate recommendations
             recommendations = self._generate_recommendations(
-                latest_memory, latest_cpu, response_times, cache_hit_ratios, queue_depths, error_rates
+                latest_memory, latest_cpu, response_times, queue_depths, error_rates
             )
 
             return PerformanceSnapshot(
@@ -510,7 +474,6 @@ class PerformanceMonitor:
                 cpu_usage_percent=latest_cpu or 0,
                 disk_usage_percent=latest_disk or 0,
                 response_times=response_times,
-                cache_hit_ratios=cache_hit_ratios,
                 queue_depths=queue_depths,
                 error_rates=error_rates,
                 overall_level=overall_level,
@@ -532,8 +495,7 @@ class PerformanceMonitor:
             return None
 
     def _calculate_overall_performance_level(self, memory: Optional[float], cpu: Optional[float],
-                                           response_times: Dict, cache_hit_ratios: Dict,
-                                           error_rates: Dict) -> PerformanceLevel:
+                                           response_times: Dict, error_rates: Dict) -> PerformanceLevel:
         """Calculate overall performance level based on metrics."""
         try:
             scores = []
@@ -556,14 +518,6 @@ class PerformanceMonitor:
                 rt_threshold = self._thresholds[MetricType.RESPONSE_TIME]
                 rt_score = self._calculate_metric_score(avg_response_time, rt_threshold)
                 scores.append(rt_score)
-
-            # Cache hit ratio score (average of all cache ratios)
-            if cache_hit_ratios:
-                avg_cache_ratio = sum(cache_hit_ratios.values()) / len(cache_hit_ratios)
-                cache_threshold = self._thresholds[MetricType.CACHE_HIT_RATIO]
-                # For cache hit ratio, higher is better, so invert the logic
-                cache_score = self._calculate_metric_score(100 - avg_cache_ratio, cache_threshold, invert=True)
-                scores.append(cache_score)
 
             # Error rate score (average of all error rates)
             if error_rates:
@@ -626,8 +580,7 @@ class PerformanceMonitor:
             return 3  # Fair default
 
     def _generate_recommendations(self, memory: Optional[float], cpu: Optional[float],
-                                response_times: Dict, cache_hit_ratios: Dict,
-                                queue_depths: Dict, error_rates: Dict) -> List[str]:
+                                response_times: Dict, queue_depths: Dict, error_rates: Dict) -> List[str]:
         """Generate performance recommendations."""
         recommendations = []
 
@@ -643,12 +596,7 @@ class PerformanceMonitor:
             # Response time recommendations
             avg_response_time = sum(response_times.values()) / len(response_times) if response_times else 0
             if avg_response_time > self._config.response_time_threshold_ms:
-                recommendations.append(f"Slow response times ({avg_response_time:.1f}ms). Consider enabling response caching or reducing image quality.")
-
-            # Cache recommendations
-            for component, ratio in cache_hit_ratios.items():
-                if ratio < 60:  # Below 60% hit ratio
-                    recommendations.append(f"Low cache hit ratio for {component} ({ratio:.1f}%). Consider increasing cache size or adjusting retention.")
+                recommendations.append(f"Slow response times ({avg_response_time:.1f}ms). Consider reducing image quality or optimizing request processing.")
 
             # Queue depth recommendations
             for component, depth in queue_depths.items():
@@ -678,9 +626,6 @@ class PerformanceMonitor:
                 logger.warning(f"Memory pressure detected: {snapshot.memory_usage_mb:.1f}MB")
 
                 # Trigger cache cleanup
-                if self._cache_manager:
-                    asyncio.create_task(self._cache_manager.optimize_cache_database())
-
                 if self._thumbnail_manager:
                     # Could trigger cache reduction
                     pass
@@ -723,7 +668,6 @@ class PerformanceMonitor:
             'cpu_usage_percent': snapshot.cpu_usage_percent,
             'disk_usage_percent': snapshot.disk_usage_percent,
             'response_times': snapshot.response_times,
-            'cache_hit_ratios': snapshot.cache_hit_ratios,
             'queue_depths': snapshot.queue_depths,
             'error_rates': snapshot.error_rates,
             'overall_level': snapshot.overall_level.value,

@@ -47,7 +47,6 @@ class OptimizationSettingsWidget(QWidget):
         self.optimization_config: Optional['OptimizationConfig'] = None
 
         # UI components
-        self.cache_widgets = {}
         self.storage_widgets = {}
         self.thumbnail_widgets = {}
         self.request_widgets = {}
@@ -65,7 +64,6 @@ class OptimizationSettingsWidget(QWidget):
         layout.addWidget(self.tab_widget)
 
         # Add optimization tabs
-        self.setup_cache_tab()
         self.setup_storage_tab()
         self.setup_thumbnail_tab()
         self.setup_request_tab()
@@ -73,69 +71,6 @@ class OptimizationSettingsWidget(QWidget):
 
         # Add control buttons
         self.setup_control_buttons(layout)
-
-    def setup_cache_tab(self) -> None:
-        """Setup cache optimization settings tab."""
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-
-        cache_widget = QWidget()
-        layout = QVBoxLayout(cache_widget)
-
-        # Cache settings group
-        cache_group = QGroupBox("Response Cache Settings")
-        cache_layout = QFormLayout(cache_group)
-
-        # Cache enabled
-        self.cache_widgets['enabled'] = QCheckBox("Enable AI response caching")
-        self.cache_widgets['enabled'].setToolTip("Cache AI responses to improve performance")
-        cache_layout.addRow(self.cache_widgets['enabled'])
-
-        # Max entries
-        self.cache_widgets['max_entries'] = QSpinBox()
-        self.cache_widgets['max_entries'].setRange(10, 10000)
-        self.cache_widgets['max_entries'].setSuffix(" entries")
-        self.cache_widgets['max_entries'].setToolTip("Maximum number of cached responses")
-        cache_layout.addRow("Max Cached Responses:", self.cache_widgets['max_entries'])
-
-        # TTL hours
-        self.cache_widgets['ttl_hours'] = QSpinBox()
-        self.cache_widgets['ttl_hours'].setRange(1, 168)
-        self.cache_widgets['ttl_hours'].setSuffix(" hours")
-        self.cache_widgets['ttl_hours'].setToolTip("How long to keep cached responses")
-        cache_layout.addRow("Cache Duration:", self.cache_widgets['ttl_hours'])
-
-        # Memory limit
-        self.cache_widgets['memory_limit'] = QSpinBox()
-        self.cache_widgets['memory_limit'].setRange(32, 2048)
-        self.cache_widgets['memory_limit'].setSuffix(" MB")
-        self.cache_widgets['memory_limit'].setToolTip("Maximum memory for cache")
-        cache_layout.addRow("Memory Limit:", self.cache_widgets['memory_limit'])
-
-        layout.addWidget(cache_group)
-
-        # Cache statistics group
-        stats_group = QGroupBox("Cache Statistics")
-        stats_layout = QFormLayout(stats_group)
-
-        self.cache_hit_rate_label = QLabel("--")
-        self.cache_size_label = QLabel("--")
-        self.cache_memory_label = QLabel("--")
-
-        stats_layout.addRow("Hit Rate:", self.cache_hit_rate_label)
-        stats_layout.addRow("Cached Items:", self.cache_size_label)
-        stats_layout.addRow("Memory Usage:", self.cache_memory_label)
-
-        # Clear cache button
-        clear_cache_btn = QPushButton("Clear Cache")
-        clear_cache_btn.clicked.connect(self.clear_cache)
-        stats_layout.addRow(clear_cache_btn)
-
-        layout.addWidget(stats_group)
-        layout.addStretch()
-
-        scroll_area.setWidget(cache_widget)
-        self.tab_widget.addTab(scroll_area, "Cache")
 
     def setup_storage_tab(self) -> None:
         """Setup storage management settings tab."""
@@ -388,13 +323,6 @@ class OptimizationSettingsWidget(QWidget):
 
     def connect_signals(self) -> None:
         """Connect widget signals to handlers."""
-        # Cache widgets
-        for key, widget in self.cache_widgets.items():
-            if isinstance(widget, QCheckBox):
-                widget.toggled.connect(lambda checked, k=key: self.on_setting_changed(f'cache_{k}', checked))
-            elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-                widget.valueChanged.connect(lambda value, k=key: self.on_setting_changed(f'cache_{k}', value))
-
         # Storage widgets
         for key, widget in self.storage_widgets.items():
             if isinstance(widget, QCheckBox):
@@ -402,7 +330,26 @@ class OptimizationSettingsWidget(QWidget):
             elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
                 widget.valueChanged.connect(lambda value, k=key: self.on_setting_changed(f'storage_{k}', value))
 
-        # Similar for other widget groups...
+        # Thumbnail widgets
+        for key, widget in self.thumbnail_widgets.items():
+            if isinstance(widget, QCheckBox):
+                widget.toggled.connect(lambda checked, k=key: self.on_setting_changed(f'thumbnail_{k}', checked))
+            elif isinstance(widget, (QSpinBox, QDoubleSpinBox, QSlider)):
+                widget.valueChanged.connect(lambda value, k=key: self.on_setting_changed(f'thumbnail_{k}', value))
+
+        # Request widgets
+        for key, widget in self.request_widgets.items():
+            if isinstance(widget, QCheckBox):
+                widget.toggled.connect(lambda checked, k=key: self.on_setting_changed(f'request_{k}', checked))
+            elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                widget.valueChanged.connect(lambda value, k=key: self.on_setting_changed(f'request_{k}', value))
+
+        # Monitoring widgets
+        for key, widget in self.monitoring_widgets.items():
+            if isinstance(widget, QCheckBox):
+                widget.toggled.connect(lambda checked, k=key: self.on_setting_changed(f'monitoring_{k}', checked))
+            elif isinstance(widget, QSpinBox):
+                widget.valueChanged.connect(lambda value, k=key: self.on_setting_changed(f'monitoring_{k}', value))
 
     def on_setting_changed(self, setting_key: str, value: Any) -> None:
         """Handle setting change."""
@@ -424,12 +371,6 @@ class OptimizationSettingsWidget(QWidget):
             return
 
         try:
-            # Update cache widgets
-            self.cache_widgets['enabled'].setChecked(self.optimization_config.cache_enabled)
-            self.cache_widgets['max_entries'].setValue(self.optimization_config.cache_max_entries)
-            self.cache_widgets['ttl_hours'].setValue(self.optimization_config.cache_ttl_hours)
-            self.cache_widgets['memory_limit'].setValue(self.optimization_config.cache_memory_limit_mb)
-
             # Update storage widgets
             self.storage_widgets['enabled'].setChecked(self.optimization_config.storage_management_enabled)
             self.storage_widgets['max_gb'].setValue(self.optimization_config.max_storage_gb)
@@ -460,11 +401,6 @@ class OptimizationSettingsWidget(QWidget):
 
         except Exception as e:
             self.logger.error(f"Error updating UI from config: {e}")
-
-    def clear_cache(self) -> None:
-        """Clear optimization cache."""
-        # This would trigger cache clearing in the optimization manager
-        self.logger.info("Cache clear requested")
 
     def run_storage_cleanup(self) -> None:
         """Run storage cleanup immediately."""
