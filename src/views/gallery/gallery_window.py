@@ -40,7 +40,7 @@ class GalleryWindow(QWidget):
     """Main gallery window with three-column layout using coordinated components."""
 
     # Signals for communication with the EventBus
-    screenshot_selected = pyqtSignal(int)  # screenshot_id
+    screenshot_selected = pyqtSignal(str)  # screenshot_id (now hash-based string)
     preset_executed = pyqtSignal(int, str)  # preset_id, screenshot_context
     chat_message_sent = pyqtSignal(str, dict)  # message, context
     gallery_closed = pyqtSignal()
@@ -670,7 +670,7 @@ class GalleryWindow(QWidget):
             self.presets_panel.preset_run_clicked.connect(self._on_preset_run)
             self.presets_panel.preset_paste_clicked.connect(self._on_preset_paste)
 
-    async def show_gallery(self, pre_selected_screenshot_id: Optional[int] = None):
+    async def show_gallery(self, pre_selected_screenshot_id: Optional[str] = None):
         """Show the gallery window with optional pre-selection."""
         try:
             if not self._initialized:
@@ -712,15 +712,96 @@ class GalleryWindow(QWidget):
         except Exception as e:
             logger.error(f"Error loading gallery content: {e}")
 
-    def _on_screenshot_selected(self, screenshot_id: int):
+    def _on_screenshot_selected(self, screenshot_id: str):
         """Handle screenshot selection."""
+        # Store the selected screenshot ID
         self.gallery_state.selected_screenshot_id = screenshot_id
+
+        # Clear chat UI immediately when switching screenshots
+        if self.chat_interface:
+            self.chat_interface.clear_chat()
+
+        # Get and store screenshot metadata for context, then load chat history
+        asyncio.create_task(self._load_selected_screenshot_data(screenshot_id))
+
         self.screenshot_selected.emit(screenshot_id)
         logger.info(f"Screenshot selected: {screenshot_id}")
+
+    async def _load_selected_screenshot_data(self, screenshot_hash: str):
+        """Load metadata and chat history for the selected screenshot."""
+        try:
+            # Get all screenshots and find the one with matching hash
+            screenshots = await self.screenshot_manager.scan_screenshot_directory()
+            for screenshot in screenshots:
+                if screenshot.hash == screenshot_hash or screenshot.unique_id == screenshot_hash:
+                    self.gallery_state.selected_screenshot_metadata = screenshot
+                    logger.debug(f"Loaded metadata for selected screenshot: {screenshot_hash}")
+
+                    # Load chat history for this screenshot
+                    await self._load_chat_history_for_screenshot(screenshot_hash)
+                    break
+        except Exception as e:
+            logger.error(f"Failed to load screenshot data for {screenshot_hash}: {e}")
+
+    async def _load_chat_history_for_screenshot(self, screenshot_hash: str):
+        """Load and display chat history for the selected screenshot."""
+        try:
+            # Import ChatHistoryManager here to avoid circular imports
+            from src.models.chat_history_manager import ChatHistoryManager
+
+            # Get chat history directory from settings
+            if not self.settings_manager:
+                logger.warning("No settings manager available for chat history loading")
+                return
+
+            settings = await self.settings_manager.load_settings()
+            chat_dir = settings.chat.chat_history_directory
+
+            if not chat_dir:
+                logger.warning("Chat history directory not configured")
+                return
+
+            # Create ChatHistoryManager instance
+            chat_manager = ChatHistoryManager(chat_dir)
+
+            # Load conversation for this screenshot
+            messages = await chat_manager.load_conversation(screenshot_hash)
+
+            if messages and self.chat_interface:
+                # Display each message in the UI
+                for message in messages:
+                    if message.role == "user":
+                        self.chat_interface.add_user_message(message.content)
+                    elif message.role == "assistant":
+                        self.chat_interface.add_ai_message(message.content)
+                    elif message.role == "system":
+                        self.chat_interface.add_system_message(message.content)
+
+                logger.info(f"Loaded {len(messages)} chat messages for screenshot {screenshot_hash[:8]}...")
+
+                # Set status to show conversation loaded
+                if self.chat_interface:
+                    self.chat_interface.set_status(f"Loaded {len(messages)} messages")
+            else:
+                logger.debug(f"No chat history found for screenshot {screenshot_hash[:8]}...")
+                if self.chat_interface:
+                    self.chat_interface.set_status("No previous conversation")
+
+        except Exception as e:
+            logger.error(f"Failed to load chat history for {screenshot_hash}: {e}")
+            if self.chat_interface:
+                self.chat_interface.set_status("Error loading chat history")
+            # Don't show error to user - just log it
 
     def _on_screenshot_deselected(self):
         """Handle screenshot deselection."""
         self.gallery_state.selected_screenshot_id = None
+        self.gallery_state.selected_screenshot_metadata = None
+
+        # Clear chat UI when no screenshot is selected
+        if self.chat_interface:
+            self.chat_interface.clear_chat()
+
         logger.info("Screenshot deselected")
 
     def _on_preset_run(self, preset_id: int):
@@ -753,8 +834,13 @@ class GalleryWindow(QWidget):
                     "timestamp": datetime.now().isoformat()
                 }
 
+                # Add image path if we have screenshot metadata
+                if self.gallery_state.selected_screenshot_metadata:
+                    context["image_path"] = self.gallery_state.selected_screenshot_metadata.full_path
+                    context["screenshot_metadata"] = self.gallery_state.selected_screenshot_metadata
+
                 # Emit preset execution event
-                self.preset_executed.emit(preset_id, str(context))
+                self.preset_executed.emit(preset_id, context)
 
                 logger.info(f"Preset executed: {preset_id}")
 
@@ -776,15 +862,30 @@ class GalleryWindow(QWidget):
 
     def _on_chat_message_sent(self, message: str):
         """Handle chat message sending."""
-        # Add user message to chat
+        # Check if screenshot is selected
+        if not self.gallery_state.selected_screenshot_id:
+            if self.chat_interface:
+                self.chat_interface.add_system_message("Please select a screenshot first")
+            return
+
+        # Add user message to chat UI
         if self.chat_interface:
             self.chat_interface.add_user_message(message)
+            self.chat_interface.set_status("Processing...")
 
-        # Create context
+        # Save user message to chat history immediately
+        asyncio.create_task(self._save_user_message_to_history(message))
+
+        # Create context with screenshot information
         context = {
             "selected_screenshot": self.gallery_state.selected_screenshot_id,
             "timestamp": datetime.now().isoformat()
         }
+
+        # Add image path if we have screenshot metadata
+        if self.gallery_state.selected_screenshot_metadata:
+            context["image_path"] = self.gallery_state.selected_screenshot_metadata.full_path
+            context["screenshot_metadata"] = self.gallery_state.selected_screenshot_metadata
 
         # Emit chat event through EventBus
         asyncio.create_task(
@@ -799,6 +900,51 @@ class GalleryWindow(QWidget):
         )
 
         logger.debug(f"Chat message sent: {message}")
+
+    async def _save_user_message_to_history(self, message: str):
+        """Save user message to chat history immediately."""
+        try:
+            if not self.gallery_state.selected_screenshot_id:
+                return
+
+            from src.models.chat_history_manager import ChatHistoryManager, ChatMessage
+
+            # Get chat history directory from settings
+            if not self.settings_manager:
+                return
+
+            settings = await self.settings_manager.load_settings()
+            chat_dir = settings.chat.chat_history_directory
+
+            if not chat_dir:
+                return
+
+            # Create ChatHistoryManager instance
+            chat_manager = ChatHistoryManager(chat_dir)
+
+            # Load existing conversation to get next message ID
+            existing_messages = await chat_manager.load_conversation(self.gallery_state.selected_screenshot_id)
+            next_id = len(existing_messages) + 1
+
+            # Create user message
+            user_message = ChatMessage(
+                message_id=next_id,
+                role="user",
+                content=message,
+                timestamp=datetime.now()
+            )
+
+            # Save user message
+            await chat_manager.save_message(
+                self.gallery_state.selected_screenshot_id,
+                user_message,
+                self.gallery_state.selected_screenshot_metadata
+            )
+
+            logger.debug(f"Saved user message to chat history: {message[:50]}...")
+
+        except Exception as e:
+            logger.error(f"Failed to save user message to chat history: {e}")
 
     async def _get_preset_by_id(self, preset_id: int) -> Optional[PresetData]:
         """Get preset data by ID."""

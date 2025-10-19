@@ -167,7 +167,7 @@ class ScreenshotManager:
             await self._save_image_atomic(image, full_path)
             save_duration = time.time() - save_start
 
-            # Create metadata
+            # Create metadata (hash will be computed automatically)
             metadata = ScreenshotMetadata(
                 filename=filename,
                 full_path=full_path,
@@ -177,12 +177,7 @@ class ScreenshotManager:
                 format=self._config.format if self._config else "PNG"
             )
 
-            # Register in database
-            try:
-                metadata.id = await self.database_manager.create_screenshot(metadata)
-            except Exception as e:
-                self.logger.warning(f"Failed to register screenshot in database: {e}")
-                # Continue without database registration
+            # Note: No database registration in v3 - files are discovered via filesystem scan
 
             # Update statistics
             self._capture_count += 1
@@ -232,31 +227,23 @@ class ScreenshotManager:
 
     async def get_recent_screenshots(self, limit: int = 3) -> List[ScreenshotMetadata]:
         """
-        Get recent screenshots from the database.
+        Get recent screenshots from filesystem scanning.
 
         Args:
             limit: Maximum number of screenshots to return
 
         Returns:
-            List of ScreenshotMetadata objects
+            List of ScreenshotMetadata objects ordered by timestamp (newest first)
         """
         try:
-            screenshots = await self.database_manager.get_screenshots(limit=limit, offset=0)
+            # Scan directory for all screenshots
+            all_screenshots = await self.scan_screenshot_directory()
 
-            # Validate that files still exist
-            valid_screenshots = []
-            for screenshot in screenshots:
-                if Path(screenshot.full_path).exists():
-                    valid_screenshots.append(screenshot)
-                else:
-                    # Remove from database if file doesn't exist
-                    try:
-                        await self.database_manager.delete_screenshot(screenshot.id)
-                        self.logger.info(f"Removed orphaned screenshot record: {screenshot.filename}")
-                    except Exception as e:
-                        self.logger.warning(f"Failed to remove orphaned record: {e}")
+            # Return the most recent ones up to the limit
+            recent_screenshots = all_screenshots[:limit] if all_screenshots else []
 
-            return valid_screenshots
+            self.logger.debug(f"Found {len(recent_screenshots)} recent screenshots")
+            return recent_screenshots
 
         except Exception as e:
             self.logger.error(f"Failed to get recent screenshots: {e}")
@@ -264,7 +251,7 @@ class ScreenshotManager:
 
     async def cleanup_old_screenshots(self, days: Optional[int] = None) -> int:
         """
-        Clean up old screenshots based on age.
+        Clean up old screenshots based on age using filesystem scanning.
 
         Args:
             days: Number of days to keep, uses config default if None
@@ -279,22 +266,28 @@ class ScreenshotManager:
         try:
             cutoff_date = datetime.now() - timedelta(days=cleanup_days)
 
-            # Get old screenshots from database
-            old_screenshots = await self.database_manager.get_screenshots_before_date(cutoff_date)
+            # Scan filesystem for all screenshots
+            all_screenshots = await self.scan_screenshot_directory()
+
+            # Filter for old screenshots
+            old_screenshots = [
+                screenshot for screenshot in all_screenshots
+                if screenshot.timestamp < cutoff_date
+            ]
 
             cleaned_count = 0
             for screenshot in old_screenshots:
                 try:
-                    # Remove file if it exists
+                    # Remove screenshot file
                     if Path(screenshot.full_path).exists():
                         os.remove(screenshot.full_path)
+                        self.logger.debug(f"Deleted old screenshot: {screenshot.filename}")
 
                     # Remove thumbnail if it exists
                     if screenshot.thumbnail_path and Path(screenshot.thumbnail_path).exists():
                         os.remove(screenshot.thumbnail_path)
+                        self.logger.debug(f"Deleted thumbnail: {screenshot.thumbnail_path}")
 
-                    # Remove from database
-                    await self.database_manager.delete_screenshot(screenshot.id)
                     cleaned_count += 1
 
                 except Exception as e:
@@ -304,7 +297,8 @@ class ScreenshotManager:
                 self.logger.info(f"Cleaned up {cleaned_count} old screenshots")
                 await self.event_bus.emit("screenshot.cleanup_completed", {
                     "cleaned_count": cleaned_count,
-                    "cutoff_date": cutoff_date
+                    "cutoff_date": cutoff_date.isoformat(),
+                    "total_scanned": len(all_screenshots)
                 })
 
             self._last_cleanup = datetime.now()
@@ -401,19 +395,23 @@ class ScreenshotManager:
 
     async def get_storage_statistics(self) -> StorageStats:
         """
-        Get storage statistics for screenshots.
+        Get storage statistics for screenshots using filesystem scanning.
 
         Returns:
             StorageStats with current storage information
         """
         try:
-            # Get database statistics
-            total_count = await self.database_manager.get_screenshot_count()
-            total_size = await self.database_manager.get_total_screenshot_size()
-            oldest = await self.database_manager.get_oldest_screenshot_date()
-            newest = await self.database_manager.get_newest_screenshot_date()
+            # Scan filesystem for all screenshots
+            screenshots = await self.scan_screenshot_directory()
 
-            # Get directory size
+            # Calculate statistics from scan results
+            total_count = len(screenshots)
+            total_size = sum(s.file_size for s in screenshots)
+
+            oldest = min((s.timestamp for s in screenshots), default=None)
+            newest = max((s.timestamp for s in screenshots), default=None)
+
+            # Get total directory size (includes non-screenshot files)
             directory_size = 0
             if Path(self._current_directory).exists():
                 for file_path in Path(self._current_directory).rglob("*"):
@@ -438,6 +436,197 @@ class ScreenshotManager:
                 total_size_bytes=0,
                 directory_size=0
             )
+
+    def compute_screenshot_hash(self, file_path: str) -> str:
+        """
+        Compute SHA-256 hash of a screenshot file.
+
+        Args:
+            file_path: Path to screenshot file
+
+        Returns:
+            SHA-256 hash as hexadecimal string
+
+        Raises:
+            CaptureError: If file doesn't exist or hash computation fails
+        """
+        try:
+            file_path_obj = Path(file_path)
+
+            if not file_path_obj.exists():
+                raise CaptureError(f"Screenshot file not found: {file_path}")
+
+            if not file_path_obj.is_file():
+                raise CaptureError(f"Path is not a file: {file_path}")
+
+            # Use the same hash computation as in ScreenshotMetadata
+            import hashlib
+
+            with open(file_path, 'rb') as f:
+                file_hash = hashlib.sha256()
+                chunk = f.read(8192)
+                while chunk:
+                    file_hash.update(chunk)
+                    chunk = f.read(8192)
+
+                return file_hash.hexdigest()
+
+        except Exception as e:
+            self.logger.error(f"Failed to compute hash for {file_path}: {e}")
+            raise CaptureError(f"Hash computation failed: {e}") from e
+
+    async def scan_screenshot_directory(self) -> List[ScreenshotMetadata]:
+        """
+        Scan the screenshot directory and discover all screenshot files.
+
+        Returns:
+            List of ScreenshotMetadata objects for discovered files
+        """
+        if not self._initialized:
+            raise RuntimeError("ScreenshotManager not initialized")
+
+        try:
+            screenshots = []
+            directory_path = Path(self._current_directory)
+
+            if not directory_path.exists():
+                self.logger.warning(f"Screenshot directory does not exist: {self._current_directory}")
+                return []
+
+            # Define supported image extensions
+            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.gif'}
+
+            # Scan directory for image files
+            for file_path in directory_path.iterdir():
+                try:
+                    if (file_path.is_file() and
+                        file_path.suffix.lower() in image_extensions):
+
+                        # Create metadata from file properties
+                        metadata = await self._derive_metadata_from_file(file_path)
+                        if metadata:
+                            screenshots.append(metadata)
+
+                except Exception as e:
+                    self.logger.warning(f"Failed to process file {file_path}: {e}")
+                    continue
+
+            # Sort by timestamp (newest first)
+            screenshots.sort(key=lambda x: x.timestamp, reverse=True)
+
+            self.logger.info(f"Discovered {len(screenshots)} screenshots in directory")
+
+            # Emit discovery event
+            await self.event_bus.emit("screenshot.directory_scanned", {
+                "directory": self._current_directory,
+                "screenshot_count": len(screenshots),
+                "total_size": sum(s.file_size for s in screenshots)
+            })
+
+            return screenshots
+
+        except Exception as e:
+            self.logger.error(f"Failed to scan screenshot directory: {e}")
+            return []
+
+    async def _derive_metadata_from_file(self, file_path: Path) -> Optional[ScreenshotMetadata]:
+        """
+        Derive screenshot metadata from file properties.
+
+        Args:
+            file_path: Path to screenshot file
+
+        Returns:
+            ScreenshotMetadata object or None if file can't be processed
+        """
+        try:
+            # Get file statistics
+            stat = file_path.stat()
+
+            # Extract timestamp from filename or use modification time
+            timestamp = self._extract_timestamp_from_filename(file_path.name)
+            if timestamp is None:
+                timestamp = datetime.fromtimestamp(stat.st_mtime)
+
+            # Get image resolution and format if possible
+            resolution = (0, 0)
+            image_format = "PNG"
+
+            if PIL_AVAILABLE and Image:
+                try:
+                    with Image.open(file_path) as img:
+                        resolution = img.size
+                        image_format = img.format or "PNG"
+                except Exception as e:
+                    self.logger.debug(f"Could not read image properties for {file_path}: {e}")
+
+            # Create metadata object
+            metadata = ScreenshotMetadata(
+                filename=file_path.name,
+                full_path=str(file_path.absolute()),
+                timestamp=timestamp,
+                file_size=stat.st_size,
+                resolution=resolution,
+                format=image_format
+                # checksum will be computed in __post_init__
+            )
+
+            return metadata
+
+        except Exception as e:
+            self.logger.warning(f"Failed to derive metadata from {file_path}: {e}")
+            return None
+
+    def _extract_timestamp_from_filename(self, filename: str) -> Optional[datetime]:
+        """
+        Extract timestamp from screenshot filename.
+
+        Args:
+            filename: Screenshot filename
+
+        Returns:
+            datetime object or None if extraction fails
+        """
+        try:
+            # Try to match the default filename format: screenshot_YYYYMMDD_HHMMSS_mmm.png
+            import re
+
+            # Pattern for default format
+            pattern = r'screenshot_(\d{8})_(\d{6})_(\d{3})'
+            match = re.search(pattern, filename)
+
+            if match:
+                date_str = match.group(1)  # YYYYMMDD
+                time_str = match.group(2)  # HHMMSS
+                ms_str = match.group(3)    # milliseconds
+
+                # Parse components
+                year = int(date_str[:4])
+                month = int(date_str[4:6])
+                day = int(date_str[6:8])
+                hour = int(time_str[:2])
+                minute = int(time_str[2:4])
+                second = int(time_str[4:6])
+                microsecond = int(ms_str) * 1000  # Convert ms to microseconds
+
+                return datetime(year, month, day, hour, minute, second, microsecond)
+
+            # Try alternative patterns if needed
+            # Pattern for ISO format: screenshot_2024-01-01_12-30-45.png
+            iso_pattern = r'screenshot_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})'
+            match = re.search(iso_pattern, filename)
+
+            if match:
+                date_str = match.group(1)  # YYYY-MM-DD
+                time_str = match.group(2).replace('-', ':')  # HH:MM:SS
+
+                return datetime.fromisoformat(f"{date_str} {time_str}")
+
+            return None
+
+        except Exception as e:
+            self.logger.debug(f"Failed to extract timestamp from filename {filename}: {e}")
+            return None
 
     async def shutdown(self) -> None:
         """Clean shutdown of the ScreenshotManager."""
@@ -697,12 +886,7 @@ class ScreenshotManager:
                 raise SaveError("Temporary file was not created or is empty")
 
             # Atomic rename to final path
-            if os.name == 'nt':  # Windows
-                # On Windows, rename might fail if target exists
-                if os.path.exists(full_path):
-                    os.remove(full_path)
-
-            os.rename(temp_path, full_path)
+            os.replace(temp_path, full_path)
             temp_path = None  # Successfully renamed, don't cleanup
 
         except Exception as e:

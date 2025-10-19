@@ -51,6 +51,7 @@ class Application:
         self.settings_manager: Optional[SettingsManager] = None
         self.database_manager: Optional[DatabaseManager] = None
         self.screenshot_manager: Optional[ScreenshotManager] = None
+        self.chat_history_manager = None
         self.ollama_client: Optional[OllamaClient] = None
         self.tray_manager: Optional[TrayManager] = None
         self.ui_manager: Optional[UIManager] = None
@@ -101,9 +102,15 @@ class Application:
             )
             await self.screenshot_manager.initialize()
 
+            # Initialize ChatHistoryManager
+            from src.models.chat_history_manager import ChatHistoryManager
+            chat_history_dir = settings.chat.chat_history_directory
+            self.chat_history_manager = ChatHistoryManager(chat_history_dir)
+
             # Initialize OllamaClient
             self.ollama_client = OllamaClient(
                 event_bus=self.event_bus,
+                chat_history_manager=self.chat_history_manager,
                 database_manager=self.database_manager,
                 settings_manager=self.settings_manager
             )

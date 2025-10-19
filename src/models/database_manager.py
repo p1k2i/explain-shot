@@ -9,13 +9,10 @@ import asyncio
 import logging
 import json
 import sqlite3
-from datetime import datetime
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 import os
 
 from src import DEFAULT_DATABASE_NAME
-
-from .screenshot_models import ScreenshotMetadata
 
 if TYPE_CHECKING:
     from .preset_models import PresetMetadata
@@ -183,304 +180,8 @@ class DatabaseManager:
 
         return AsyncConnection(self.db_path, self.logger)
 
-    # Screenshot operations
-
-    async def create_screenshot(self, metadata: ScreenshotMetadata) -> int:
-        """
-        Create a new screenshot record.
-
-        Args:
-            metadata: ScreenshotMetadata instance
-
-        Returns:
-            Database ID of created record
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute("""
-                    INSERT INTO screenshots (filename, path, timestamp, file_size, thumbnail_path, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    metadata.filename,
-                    metadata.full_path,
-                    metadata.timestamp.isoformat(),
-                    metadata.file_size,
-                    metadata.thumbnail_path,
-                    json.dumps({
-                        'resolution': metadata.resolution,
-                        'format': metadata.format,
-                        'checksum': metadata.checksum
-                    })
-                ))
-
-                result_id = cursor.lastrowid
-                if result_id is None:
-                    raise DatabaseError("Failed to get inserted record ID")
-                return result_id
-
-        except Exception as e:
-            self.logger.error(f"Failed to create screenshot record: {e}")
-            raise DatabaseError(f"Failed to create screenshot: {e}") from e
-
-    async def get_screenshots(self, limit: int = 10, offset: int = 0) -> List[ScreenshotMetadata]:
-        """
-        Get screenshots ordered by timestamp descending.
-
-        Args:
-            limit: Maximum number of screenshots to return
-            offset: Number of screenshots to skip
-
-        Returns:
-            List of ScreenshotMetadata objects
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute("""
-                    SELECT id, filename, path, timestamp, file_size, thumbnail_path, metadata
-                    FROM screenshots
-                    ORDER BY timestamp DESC
-                    LIMIT ? OFFSET ?
-                """, (limit, offset))
-
-                rows = cursor.fetchall()
-                screenshots = []
-
-                for row in rows:
-                    try:
-                        metadata_json = json.loads(row['metadata'] or '{}')
-
-                        screenshots.append(ScreenshotMetadata(
-                            id=row['id'],
-                            filename=row['filename'],
-                            full_path=row['path'],
-                            timestamp=datetime.fromisoformat(row['timestamp']),
-                            file_size=row['file_size'],
-                            thumbnail_path=row['thumbnail_path'],
-                            resolution=tuple(metadata_json.get('resolution', [0, 0])),
-                            format=metadata_json.get('format', 'PNG'),
-                            checksum=metadata_json.get('checksum')
-                        ))
-                    except (ValueError, KeyError) as e:
-                        self.logger.warning(f"Invalid screenshot record {row['id']}: {e}")
-                        continue
-
-                return screenshots
-
-        except Exception as e:
-            self.logger.error(f"Failed to get screenshots: {e}")
-            return []
-
-    async def get_screenshot_by_id(self, screenshot_id: int) -> Optional[ScreenshotMetadata]:
-        """
-        Get a specific screenshot by ID.
-
-        Args:
-            screenshot_id: ID of the screenshot to retrieve
-
-        Returns:
-            ScreenshotMetadata instance or None if not found
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute("""
-                    SELECT id, filename, path, timestamp, file_size, thumbnail_path, metadata
-                    FROM screenshots
-                    WHERE id = ?
-                """, (screenshot_id,))
-
-                row = cursor.fetchone()
-                if row:
-                    metadata_json = json.loads(row['metadata'] or '{}')
-
-                    return ScreenshotMetadata(
-                        id=row['id'],
-                        filename=row['filename'],
-                        full_path=row['path'],
-                        timestamp=datetime.fromisoformat(row['timestamp']),
-                        file_size=row['file_size'],
-                        thumbnail_path=row['thumbnail_path'],
-                        resolution=tuple(metadata_json.get('resolution', [0, 0])),
-                        format=metadata_json.get('format', 'PNG'),
-                        checksum=metadata_json.get('checksum')
-                    )
-
-                return None
-
-        except Exception as e:
-            self.logger.error(f"Failed to get screenshot by ID {screenshot_id}: {e}")
-            return None
-
-    async def get_screenshots_before_date(self, cutoff_date: datetime) -> List[ScreenshotMetadata]:
-        """
-        Get screenshots older than the specified date.
-
-        Args:
-            cutoff_date: Date cutoff for old screenshots
-
-        Returns:
-            List of old ScreenshotMetadata objects
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute("""
-                    SELECT id, filename, path, timestamp, file_size, thumbnail_path, metadata
-                    FROM screenshots
-                    WHERE timestamp < ?
-                    ORDER BY timestamp ASC
-                """, (cutoff_date.isoformat(),))
-
-                rows = cursor.fetchall()
-                screenshots = []
-
-                for row in rows:
-                    try:
-                        metadata_json = json.loads(row['metadata'] or '{}')
-
-                        screenshots.append(ScreenshotMetadata(
-                            id=row['id'],
-                            filename=row['filename'],
-                            full_path=row['path'],
-                            timestamp=datetime.fromisoformat(row['timestamp']),
-                            file_size=row['file_size'],
-                            thumbnail_path=row['thumbnail_path'],
-                            resolution=tuple(metadata_json.get('resolution', [0, 0])),
-                            format=metadata_json.get('format', 'PNG'),
-                            checksum=metadata_json.get('checksum')
-                        ))
-                    except (ValueError, KeyError) as e:
-                        self.logger.warning(f"Invalid screenshot record {row['id']}: {e}")
-                        continue
-
-                return screenshots
-
-        except Exception as e:
-            self.logger.error(f"Failed to get old screenshots: {e}")
-            return []
-
-    async def delete_screenshot(self, screenshot_id: int) -> bool:
-        """
-        Delete a screenshot record and associated chat history.
-
-        Args:
-            screenshot_id: ID of screenshot to delete
-
-        Returns:
-            True if deleted successfully
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                # Delete chat history first (foreign key constraint)
-                await conn.execute("DELETE FROM chat_history WHERE screenshot_id = ?", (screenshot_id,))
-
-                # Delete screenshot
-                cursor = await conn.execute("DELETE FROM screenshots WHERE id = ?", (screenshot_id,))
-
-                return cursor.rowcount > 0
-
-        except Exception as e:
-            self.logger.error(f"Failed to delete screenshot {screenshot_id}: {e}")
-            return False
-
-    async def get_screenshot_count(self) -> int:
-        """
-        Get total number of screenshots.
-
-        Returns:
-            Total screenshot count
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute("SELECT COUNT(*) FROM screenshots")
-                row = cursor.fetchone()
-                return row[0] if row else 0
-
-        except Exception as e:
-            self.logger.error(f"Failed to get screenshot count: {e}")
-            return 0
-
-    async def get_total_screenshot_size(self) -> int:
-        """
-        Get total file size of all screenshots.
-
-        Returns:
-            Total size in bytes
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute("SELECT SUM(file_size) FROM screenshots")
-                row = cursor.fetchone()
-                return row[0] if row and row[0] else 0
-
-        except Exception as e:
-            self.logger.error(f"Failed to get total screenshot size: {e}")
-            return 0
-
-    async def get_oldest_screenshot_date(self) -> Optional[datetime]:
-        """
-        Get timestamp of oldest screenshot.
-
-        Returns:
-            Oldest screenshot timestamp or None
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute("SELECT MIN(timestamp) FROM screenshots")
-                row = cursor.fetchone()
-
-                if row and row[0]:
-                    return datetime.fromisoformat(row[0])
-                return None
-
-        except Exception as e:
-            self.logger.error(f"Failed to get oldest screenshot date: {e}")
-            return None
-
-    async def get_newest_screenshot_date(self) -> Optional[datetime]:
-        """
-        Get timestamp of newest screenshot.
-
-        Returns:
-            Newest screenshot timestamp or None
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute("SELECT MAX(timestamp) FROM screenshots")
-                row = cursor.fetchone()
-
-                if row and row[0]:
-                    return datetime.fromisoformat(row[0])
-                return None
-
-        except Exception as e:
-            self.logger.error(f"Failed to get newest screenshot date: {e}")
-            return None
+    # Screenshot operations removed in v3 - use ScreenshotManager.scan_screenshot_directory()
+    # Legacy methods maintained for backwards compatibility during transition
 
     # Settings operations
 
@@ -657,12 +358,7 @@ class DatabaseManager:
 
         try:
             async with self._get_connection() as conn:
-                # Remove orphaned chat history
-                await conn.execute("""
-                    DELETE FROM chat_history
-                    WHERE screenshot_id NOT IN (SELECT id FROM screenshots)
-                """)
-
+                # In v3, only presets and settings remain
                 # Vacuum database to reclaim space
                 await conn.execute("VACUUM")
 
@@ -685,14 +381,6 @@ class DatabaseManager:
             stats = {}
 
             async with self._get_connection() as conn:
-                # Screenshot count
-                cursor = await conn.execute("SELECT COUNT(*) FROM screenshots")
-                stats['screenshot_count'] = cursor.fetchone()[0]
-
-                # Chat history count
-                cursor = await conn.execute("SELECT COUNT(*) FROM chat_history")
-                stats['chat_count'] = cursor.fetchone()[0]
-
                 # Presets count
                 cursor = await conn.execute("SELECT COUNT(*) FROM presets")
                 stats['preset_count'] = cursor.fetchone()[0]
@@ -1024,51 +712,7 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Failed to initialize builtin presets: {e}")
 
-    async def store_chat_message(
-        self,
-        screenshot_id: int,
-        prompt: str,
-        response: str,
-        model_name: str = "unknown",
-        processing_time: float = 0.0
-    ) -> bool:
-        """
-        Store chat message in the database.
-
-        Args:
-            screenshot_id: ID of associated screenshot
-            prompt: User prompt text
-            response: AI response text
-            model_name: Name of AI model used
-            processing_time: Time taken to process request
-
-        Returns:
-            True if stored successfully
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                await conn.execute("""
-                    INSERT INTO chat_history (
-                        screenshot_id, prompt, response, model_name, processing_time
-                    ) VALUES (?, ?, ?, ?, ?)
-                """, (
-                    screenshot_id,
-                    prompt,
-                    response,
-                    model_name,
-                    processing_time
-                ))
-
-                await conn.commit()
-                self.logger.debug("Stored chat message for screenshot %d", screenshot_id)
-                return True
-
-        except Exception as e:
-            self.logger.error("Failed to store chat message: %s", e)
-            return False
+    # Chat history methods removed in v3 - use ChatHistoryManager for JSON file storage
 
     async def close(self) -> None:
         """Close database connections and cleanup."""

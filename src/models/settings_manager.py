@@ -61,6 +61,17 @@ class ScreenshotConfig:
 
 
 @dataclass
+class ChatConfig:
+    """Chat history configuration for file-based storage."""
+    chat_history_directory: str = field(default_factory=lambda: str(Path(get_app_data_dir()) / "chat_history"))
+    auto_scan_interval: int = 0  # Seconds between scans (0 = disabled)
+    retention_days: int = 90  # Delete conversations older than N days (0 = never)
+    max_messages_per_screenshot: int = 0  # Max messages per screenshot (0 = unlimited)
+    enable_export: bool = True  # Allow exporting conversations to external files
+    backup_on_cleanup: bool = True  # Create backup before cleaning up old conversations
+
+
+@dataclass
 class OllamaConfig:
     """Ollama AI configuration."""
     server_url: str = "http://localhost:11434"
@@ -133,6 +144,7 @@ class ApplicationSettings:
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     screenshot: ScreenshotConfig = field(default_factory=ScreenshotConfig)
+    chat: ChatConfig = field(default_factory=ChatConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     auto_start: AutoStartConfig = field(default_factory=AutoStartConfig)
     optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
@@ -195,6 +207,9 @@ class SettingsManager:
             'ui.overlay_timeout_seconds': lambda x: 1 <= x <= 300,
             'screenshot.quality': lambda x: 1 <= x <= 100,
             'screenshot.auto_cleanup_days': lambda x: 1 <= x <= 365,
+            'chat.auto_scan_interval': lambda x: 0 <= x <= 3600,  # 0 to 1 hour
+            'chat.retention_days': lambda x: 0 <= x <= 365,  # 0 = never cleanup
+            'chat.max_messages_per_screenshot': lambda x: 0 <= x <= 1000,  # 0 = unlimited
             'ollama.timeout_seconds': lambda x: 5 <= x <= 300,
             'ollama.max_retries': lambda x: 0 <= x <= 10,
             'auto_start.delay_seconds': lambda x: 0 <= x <= 60,
@@ -494,6 +509,8 @@ class SettingsManager:
                 settings.ui = UIConfig()
             elif section == "screenshot":
                 settings.screenshot = ScreenshotConfig()
+            elif section == "chat":
+                settings.chat = ChatConfig()
             elif section == "ollama":
                 settings.ollama = OllamaConfig()
             elif section == "auto_start":

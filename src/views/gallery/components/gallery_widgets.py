@@ -6,7 +6,7 @@ Data structures and utilities shared across gallery modules.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Any
 
 
 @dataclass
@@ -32,7 +32,8 @@ class ChatMessage:
 @dataclass
 class GalleryState:
     """Tracks the current state of the gallery."""
-    selected_screenshot_id: Optional[int] = None
+    selected_screenshot_id: Optional[str] = None  # Now uses hash-based string ID
+    selected_screenshot_metadata: Optional[Any] = None  # ScreenshotMetadata object
     selected_preset_id: Optional[int] = None
     chat_messages: Optional[List[ChatMessage]] = None
     is_loading: bool = False

@@ -43,17 +43,17 @@ logger = logging.getLogger(__name__)
 class ThumbnailLoader(QObject):
     """Asynchronous thumbnail loading with caching."""
 
-    thumbnail_loaded = pyqtSignal(int, bytes, str)  # screenshot_id, image_bytes, format
-    loading_failed = pyqtSignal(int, str)  # screenshot_id, error_message
+    thumbnail_loaded = pyqtSignal(str, bytes, str)  # screenshot_id (now string), image_bytes, format
+    loading_failed = pyqtSignal(str, str)  # screenshot_id (now string), error_message
 
     def __init__(self, screenshot_manager: 'ScreenshotManager'):
         super().__init__()
         self.screenshot_manager = screenshot_manager
-        self._cache: Dict[int, tuple[bytes, str]] = {}
+        self._cache: Dict[str, tuple[bytes, str]] = {}  # Now uses string keys
         self._loading_queue: list = []
         self._is_processing = False
 
-    async def load_thumbnail(self, screenshot_id: int, file_path: str, size: QSize = QSize(*THUMBNAIL_SIZE)):
+    async def load_thumbnail(self, screenshot_id: str, file_path: str, size: QSize = QSize(*THUMBNAIL_SIZE)):
         """Queue thumbnail loading."""
         if screenshot_id in self._cache:
             self.thumbnail_loaded.emit(screenshot_id, self._cache[screenshot_id][0], self._cache[screenshot_id][1])
@@ -79,7 +79,7 @@ class ThumbnailLoader(QObject):
 
         self._is_processing = False
 
-    async def _generate_thumbnail(self, screenshot_id: int, file_path: str, size: QSize):
+    async def _generate_thumbnail(self, screenshot_id: str, file_path: str, size: QSize):
         """Generate thumbnail for a screenshot."""
         if not PIL_AVAILABLE:
             placeholder = self._create_placeholder(size, "No PIL")
@@ -162,9 +162,9 @@ class ThumbnailLoader(QObject):
 class ScreenshotItem(QWidget):
     """Individual screenshot item widget with thumbnail and metadata."""
 
-    clicked = pyqtSignal(int)  # screenshot_id
+    clicked = pyqtSignal(str)  # screenshot_id (now hash-based string)
 
-    def __init__(self, screenshot_id: int, filename: str, timestamp: datetime, parent=None):
+    def __init__(self, screenshot_id: str, filename: str, timestamp: datetime, parent=None):
         super().__init__(parent)
         self.screenshot_id = screenshot_id
         self.filename = filename
@@ -264,16 +264,16 @@ class ScreenshotGallery(QWidget):
     """Screenshots column widget with grid gallery and selection indicator."""
 
     # Signals
-    screenshot_selected = pyqtSignal(int)  # screenshot_id
+    screenshot_selected = pyqtSignal(str)  # screenshot_id (now hash-based string)
     screenshot_deselected = pyqtSignal()
 
     def __init__(self, screenshot_manager: 'ScreenshotManager', parent=None):
         super().__init__(parent)
         self.screenshot_manager = screenshot_manager
         self.thumbnail_loader: Optional[ThumbnailLoader] = None
-        self.screenshot_items: Dict[int, ScreenshotItem] = {}
+        self.screenshot_items: Dict[str, ScreenshotItem] = {}  # Now uses string keys
         self._screenshot_item_style_manager: Optional[ScreenshotItemStyleManager] = None
-        self._selected_screenshot_id: Optional[int] = None
+        self._selected_screenshot_id: Optional[str] = None  # Now string-based
 
         self.setObjectName("ScreenshotGallery")
         self._setup_ui()
@@ -332,9 +332,11 @@ class ScreenshotGallery(QWidget):
             row, col = 0, 0
 
             for screenshot in screenshots:
-                if screenshot.id is not None:
+                # Use hash as unique identifier instead of database ID
+                screenshot_hash = screenshot.hash or screenshot.unique_id
+                if screenshot_hash:
                     item = ScreenshotItem(
-                        screenshot.id,
+                        screenshot_hash,
                         screenshot.filename,
                         screenshot.timestamp
                     )
@@ -344,11 +346,11 @@ class ScreenshotGallery(QWidget):
                         item.set_style_manager(self._screenshot_item_style_manager)
 
                     self.screenshots_layout.addWidget(item, row, col)
-                    self.screenshot_items[screenshot.id] = item
+                    self.screenshot_items[screenshot_hash] = item
 
                     if self.thumbnail_loader:
                         await self.thumbnail_loader.load_thumbnail(
-                            screenshot.id,
+                            screenshot_hash,
                             screenshot.full_path
                         )
 
@@ -368,7 +370,7 @@ class ScreenshotGallery(QWidget):
             item.deleteLater()
         self.screenshot_items.clear()
 
-    async def select_screenshot(self, screenshot_id: int):
+    async def select_screenshot(self, screenshot_id: str):
         """Select a screenshot and update UI state."""
         for item in self.screenshot_items.values():
             item.set_selected(False)
@@ -398,18 +400,18 @@ class ScreenshotGallery(QWidget):
                 if style:
                     style.polish(self.selection_indicator)
 
-    def _on_screenshot_clicked(self, screenshot_id: int):
+    def _on_screenshot_clicked(self, screenshot_id: str):
         """Handle screenshot item clicks."""
         asyncio.create_task(self.select_screenshot(screenshot_id))
 
-    def _on_thumbnail_loaded(self, screenshot_id: int, image_bytes: bytes, format_str: str):
+    def _on_thumbnail_loaded(self, screenshot_id: str, image_bytes: bytes, format_str: str):
         """Handle thumbnail loading completion."""
         if screenshot_id in self.screenshot_items:
             pixmap = QPixmap()
             pixmap.loadFromData(image_bytes, format_str.upper())
             self.screenshot_items[screenshot_id].set_thumbnail(pixmap)
 
-    def _on_thumbnail_failed(self, screenshot_id: int, error_message: str):
+    def _on_thumbnail_failed(self, screenshot_id: str, error_message: str):
         """Handle thumbnail loading failure."""
         logger.warning(f"Thumbnail loading failed for {screenshot_id}: {error_message}")
 
@@ -419,6 +421,6 @@ class ScreenshotGallery(QWidget):
             return filename
         return filename[:max_length - 3] + "..."
 
-    def get_selected_screenshot_id(self) -> Optional[int]:
+    def get_selected_screenshot_id(self) -> Optional[str]:
         """Get the currently selected screenshot ID."""
         return self._selected_screenshot_id

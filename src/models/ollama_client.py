@@ -30,6 +30,7 @@ except ImportError:
 
 from ..controllers.event_bus import EventBus
 from .. import EventTypes
+from .chat_history_manager import ChatHistoryManager, ChatMessage
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,8 @@ class OllamaClient:
     def __init__(
         self,
         event_bus: EventBus,
-        database_manager=None,
+        chat_history_manager: Optional[ChatHistoryManager] = None,
+        database_manager=None,  # Legacy - will be deprecated
         settings_manager=None,
         server_url: str = "http://localhost:11434",
         default_model: str = "gemma2:9b"
@@ -75,13 +77,15 @@ class OllamaClient:
 
         Args:
             event_bus: EventBus for event-driven communication
-            database_manager: DatabaseManager for chat history storage
+            chat_history_manager: ChatHistoryManager for JSON file storage
+            database_manager: DatabaseManager for legacy support (deprecated)
             settings_manager: SettingsManager for configuration
             server_url: Ollama server URL
             default_model: Default model name
         """
         self.event_bus = event_bus
-        self.database_manager = database_manager
+        self.chat_history_manager = chat_history_manager
+        self.database_manager = database_manager  # Legacy support
         self.settings_manager = settings_manager
 
         # Configuration
@@ -99,8 +103,8 @@ class OllamaClient:
         self._retry_count = 0
         self._last_health_check = datetime.now()
 
-        # Conversation context per screenshot
-        self._conversation_history: Dict[int, List[Dict]] = {}
+        # Conversation context per screenshot (loaded from files on demand)
+        self._conversation_history: Dict[str, List[Dict]] = {}
 
         # Connection settings
         self._connection_timeout = 5.0
@@ -306,26 +310,28 @@ class OllamaClient:
 
     async def send_chat_message(
         self,
-        screenshot_id: int,
+        screenshot_hash: str,
         prompt: str,
         image_path: Optional[str] = None,
-        stream_callback: Optional[Callable[[str], None]] = None
+        stream_callback: Optional[Callable[[str], None]] = None,
+        screenshot_metadata=None  # ScreenshotMetadata for context
     ) -> Dict[str, Any]:
         """
         Send chat message with screenshot analysis.
 
         Args:
-            screenshot_id: ID of the screenshot being analyzed
+            screenshot_hash: Hash of the screenshot being analyzed
             prompt: User prompt text
             image_path: Path to screenshot image file
             stream_callback: Optional callback for streaming updates
+            screenshot_metadata: Optional ScreenshotMetadata for context
 
         Returns:
             Dictionary with response data
         """
         try:
             if not self._is_online:
-                return await self._generate_mock_response(screenshot_id, prompt)
+                return await self._generate_mock_response(screenshot_hash, prompt)
 
             # Prepare image data
             image_data = None
@@ -333,7 +339,7 @@ class OllamaClient:
                 image_data = await self._process_image(image_path)
 
             # Build conversation context
-            messages = self._build_conversation_messages(screenshot_id, prompt, image_data)
+            messages = await self._build_conversation_messages(screenshot_hash, prompt, image_data)
 
             # Send request to Ollama
             if self.enable_streaming and stream_callback:
@@ -341,18 +347,18 @@ class OllamaClient:
             else:
                 response = await self._send_standard_request(messages)
 
-            # Store in conversation history
-            self._update_conversation_history(screenshot_id, prompt, response['content'])
-
-            # Store in database
-            if self.database_manager:
-                await self._store_chat_history(screenshot_id, prompt, response)
+            # Store in chat history files using ChatHistoryManager
+            if self.chat_history_manager:
+                await self._store_chat_history_json(screenshot_hash, prompt, response, screenshot_metadata)
+            # Legacy database storage
+            elif self.database_manager and screenshot_hash.isdigit():
+                await self._store_chat_history(int(screenshot_hash), prompt, response)
 
             # Emit success event
             await self.event_bus.emit(
                 EventTypes.OLLAMA_RESPONSE_RECEIVED,
                 {
-                    'screenshot_id': screenshot_id,
+                    'screenshot_hash': screenshot_hash,
                     'prompt': prompt,
                     'response': response['content'],
                     'model': self.current_model,
@@ -373,14 +379,14 @@ class OllamaClient:
                 {
                     'error': 'ollama_chat_failed',
                     'message': str(e),
-                    'screenshot_id': screenshot_id,
+                    'screenshot_hash': screenshot_hash,
                     'prompt': prompt
                 },
                 source="OllamaClient"
             )
 
             # Return mock response as fallback
-            return await self._generate_mock_response(screenshot_id, prompt, error=str(e))
+            return await self._generate_mock_response(screenshot_hash, prompt, error=str(e))
 
     async def _process_image(self, image_path: str) -> Optional[str]:
         """
@@ -426,18 +432,33 @@ class OllamaClient:
             logger.error("Image processing failed for %s: %s", image_path, e)
             raise ImageProcessingError(f"Failed to process image: {e}")
 
-    def _build_conversation_messages(
+    async def _build_conversation_messages(
         self,
-        screenshot_id: int,
+        screenshot_hash: str,
         prompt: str,
         image_data: Optional[str]
     ) -> List[Dict]:
         """Build conversation messages for Ollama request."""
         messages = []
 
-        # Add conversation history if available
-        if screenshot_id in self._conversation_history:
-            messages.extend(self._conversation_history[screenshot_id])
+        # Load conversation history from files
+        try:
+            if self.chat_history_manager:
+                chat_messages = await self.chat_history_manager.load_conversation(screenshot_hash)
+
+                # Convert ChatMessage objects to Ollama format
+                for chat_msg in chat_messages:
+                    messages.append({
+                        "role": chat_msg.role,
+                        "content": chat_msg.content
+                    })
+
+            # Fallback to memory cache if available
+            elif screenshot_hash in self._conversation_history:
+                messages.extend(self._conversation_history[screenshot_hash])
+
+        except Exception as e:
+            logger.warning(f"Failed to load conversation history: {e}")
 
         # Build current message
         message = {
@@ -530,27 +551,67 @@ class OllamaClient:
             logger.error("Standard request failed: %s", e)
             raise ConnectionError(f"Request failed: {e}")
 
-    def _update_conversation_history(self, screenshot_id: int, prompt: str, response: str) -> None:
-        """Update conversation history for context."""
-        if screenshot_id not in self._conversation_history:
-            self._conversation_history[screenshot_id] = []
+    def _update_conversation_history(self, screenshot_hash: str, prompt: str, response: str) -> None:
+        """Update in-memory conversation history for context (legacy support)."""
+        if screenshot_hash not in self._conversation_history:
+            self._conversation_history[screenshot_hash] = []
 
         # Add user message
-        self._conversation_history[screenshot_id].append({
+        self._conversation_history[screenshot_hash].append({
             "role": "user",
             "content": prompt
         })
 
         # Add assistant response
-        self._conversation_history[screenshot_id].append({
+        self._conversation_history[screenshot_hash].append({
             "role": "assistant",
             "content": response
         })
 
         # Limit conversation history to prevent token overflow
         max_messages = 10
-        if len(self._conversation_history[screenshot_id]) > max_messages:
-            self._conversation_history[screenshot_id] = self._conversation_history[screenshot_id][-max_messages:]
+        if len(self._conversation_history[screenshot_hash]) > max_messages:
+            self._conversation_history[screenshot_hash] = self._conversation_history[screenshot_hash][-max_messages:]
+
+    async def _store_chat_history_json(
+        self,
+        screenshot_hash: str,
+        prompt: str,
+        response: Dict[str, Any],
+        screenshot_metadata=None
+    ) -> None:
+        """Store AI response in JSON files using ChatHistoryManager."""
+        try:
+            if not self.chat_history_manager:
+                return
+
+            # Load existing conversation to get next message ID
+            existing_messages = await self.chat_history_manager.load_conversation(screenshot_hash)
+            next_id = len(existing_messages) + 1
+
+            # Note: User message should already be saved by GalleryWindow
+            # Only save the assistant response here
+
+            # Create assistant message
+            assistant_message = ChatMessage(
+                message_id=next_id,
+                role="assistant",
+                content=response['content'],
+                timestamp=datetime.now(),
+                model=response.get('model', self.current_model),
+                processing_time=response.get('processing_time', 0.0),
+                tokens=response.get('tokens', {})
+            )
+
+            # Save assistant message
+            await self.chat_history_manager.save_message(
+                screenshot_hash,
+                assistant_message,
+                screenshot_metadata
+            )
+
+        except Exception as e:
+            logger.error("Failed to store AI response in JSON: %s", e)
 
     async def _store_chat_history(
         self,
@@ -558,7 +619,7 @@ class OllamaClient:
         prompt: str,
         response: Dict[str, Any]
     ) -> None:
-        """Store chat interaction in database."""
+        """Store chat interaction in database (legacy support)."""
         try:
             if not self.database_manager:
                 return
@@ -576,7 +637,7 @@ class OllamaClient:
 
     async def _generate_mock_response(
         self,
-        screenshot_id: int,
+        screenshot_hash: str,
         prompt: str,
         error: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -591,7 +652,7 @@ class OllamaClient:
         else:
             mock_content = (
                 f"This is a simulated AI response to your request: '{prompt}'. "
-                f"I can see you're asking about screenshot #{screenshot_id}, but I'm currently operating in offline mode. "
+                f"I can see you're asking about screenshot with hash {screenshot_hash[:8]}..., but I'm currently operating in offline mode. "
                 f"When connected to the AI service, I would provide detailed analysis of the visual content, "
                 f"identify UI elements, explain functionality, and answer your specific questions about what's shown in the image."
             )
@@ -694,24 +755,22 @@ class OllamaClient:
             data = event_data.data
             message = data.get('message', '')
             context = data.get('context', {})
-            screenshot_id = context.get('selected_screenshot')
 
-            if not screenshot_id:
+            # Get screenshot hash from context
+            screenshot_hash = context.get('selected_screenshot') or context.get('screenshot_hash')
+            image_path = context.get('image_path')
+            screenshot_metadata = context.get('screenshot_metadata')
+
+            if not screenshot_hash:
                 logger.warning("No screenshot selected for chat message")
                 return
 
-            # Get screenshot path from database
-            image_path = None
-            if self.database_manager:
-                screenshot = await self.database_manager.get_screenshot_by_id(screenshot_id)
-                if screenshot:
-                    image_path = screenshot.full_path
-
             # Send chat message
             await self.send_chat_message(
-                screenshot_id=screenshot_id,
+                screenshot_hash=screenshot_hash,
                 prompt=message,
-                image_path=image_path
+                image_path=image_path,
+                screenshot_metadata=screenshot_metadata
             )
 
         except Exception as e:
@@ -728,7 +787,19 @@ class OllamaClient:
                 logger.warning("Invalid preset execution data")
                 return
 
-            screenshot_id = int(screenshot_context)
+            # Handle new dict format
+            if isinstance(screenshot_context, dict):
+                screenshot_hash = screenshot_context.get('selected_screenshot')
+                image_path = screenshot_context.get('image_path')
+                screenshot_metadata = screenshot_context.get('screenshot_metadata')
+            else:
+                # Legacy support: screenshot_context as string (shouldn't happen with new code)
+                logger.warning("Received legacy string context for preset execution")
+                return
+
+            if not screenshot_hash:
+                logger.warning("No valid screenshot context for preset execution")
+                return
 
             # Get preset details from database
             if not self.database_manager:
@@ -740,36 +811,43 @@ class OllamaClient:
                 logger.error("Preset not found: %d", preset_id)
                 return
 
-            # Get screenshot path
-            screenshot = await self.database_manager.get_screenshot_by_id(screenshot_id)
-            image_path = screenshot.full_path if screenshot else None
-
             # Build enhanced prompt with context
-            enhanced_prompt = self._build_preset_prompt(preset.prompt, screenshot_id)
+            enhanced_prompt = self._build_preset_prompt(preset.prompt, screenshot_hash)
 
             # Send chat message
             await self.send_chat_message(
-                screenshot_id=screenshot_id,
+                screenshot_hash=screenshot_hash,
                 prompt=enhanced_prompt,
-                image_path=image_path
+                image_path=image_path,
+                screenshot_metadata=screenshot_metadata
             )
 
         except Exception as e:
             logger.error("Error handling preset execution: %s", e)
 
-    def _build_preset_prompt(self, preset_prompt: str, screenshot_id: int) -> str:
+    def _build_preset_prompt(self, preset_prompt: str, screenshot_hash: str) -> str:
         """Build enhanced prompt for preset execution."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        return f"""System Context: Analyzing screenshot #{screenshot_id} captured at {timestamp}
+        return f"""System Context: Analyzing screenshot with ID {screenshot_hash[:8]}... captured at {timestamp}
 
 User Request: {preset_prompt}
 
 Please provide a detailed analysis based on the image content and user request above."""
 
-    async def get_conversation_history(self, screenshot_id: int) -> List[Dict]:
+    async def get_conversation_history(self, screenshot_hash: str) -> List[Dict]:
         """Get conversation history for a screenshot."""
-        return self._conversation_history.get(screenshot_id, [])
+        try:
+            if self.chat_history_manager:
+                # Load from JSON files
+                chat_messages = await self.chat_history_manager.load_conversation(screenshot_hash)
+                return [{"role": msg.role, "content": msg.content} for msg in chat_messages]
+            else:
+                # Fallback to memory cache
+                return self._conversation_history.get(screenshot_hash, [])
+        except Exception as e:
+            logger.error(f"Failed to get conversation history: {e}")
+            return []
 
     def is_online(self) -> bool:
         """Check if Ollama server is online."""

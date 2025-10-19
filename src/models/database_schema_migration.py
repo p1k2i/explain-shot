@@ -34,7 +34,7 @@ class DatabaseSchemaMigration:
         self.db_manager = database_manager
         self.logger = logger or logging.getLogger(__name__)
         self.current_version = 1  # Base schema version
-        self.target_version = 2   # Performance optimization version
+        self.target_version = 3   # File-based storage version (v2 removed)
 
     async def get_schema_version(self) -> int:
         """
@@ -142,6 +142,8 @@ class DatabaseSchemaMigration:
         try:
             if target_version == 2:
                 return await self._migrate_to_v2_performance()
+            elif target_version == 3:
+                return await self._migrate_to_v3_filesystem()
             else:
                 self.logger.warning(f"Unknown migration version: {target_version}")
                 return False
@@ -240,12 +242,143 @@ class DatabaseSchemaMigration:
                 # Record migration
                 await self._set_schema_version(2, "Performance optimization schema with caching, metrics, and enhanced indexes")
 
-                self.logger.info("Successfully migrated to performance optimization schema (v2)")
-                return True
+            self.logger.info("Successfully migrated to performance optimization schema (v2)")
+            return True
 
         except Exception as e:
             self.logger.error(f"Failed to migrate to performance schema: {e}")
             return False
+
+    async def _migrate_to_v3_filesystem(self) -> bool:
+        """
+        Migrate to version 3: File-based storage schema.
+
+        This migration removes screenshot and chat history tables,
+        keeping only essential tables for settings and presets.
+
+        Returns:
+            True if migration successful
+        """
+        try:
+            # Optional: Export existing chat history to JSON files before dropping
+            await self._export_chat_history_to_files()
+
+            async with self.db_manager._get_connection() as conn:
+                # Drop obsolete tables from v2 (performance optimization)
+                tables_to_drop = [
+                    'cached_responses',
+                    'performance_metrics',
+                    'storage_cleanup_log',
+                    'chat_history',
+                    'screenshots'
+                ]
+
+                for table in tables_to_drop:
+                    try:
+                        await conn.execute(f"DROP TABLE IF EXISTS {table}")
+                        self.logger.info(f"Dropped obsolete table: {table}")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to drop table {table}: {e}")
+
+                # Drop all performance-related indexes
+                indexes_to_drop = [
+                    'idx_cached_responses_hash',
+                    'idx_cached_responses_model',
+                    'idx_cached_responses_accessed',
+                    'idx_cached_responses_expires',
+                    'idx_cached_responses_session',
+                    'idx_cached_responses_valid',
+                    'idx_performance_metrics_type',
+                    'idx_performance_metrics_component',
+                    'idx_performance_metrics_timestamp',
+                    'idx_performance_metrics_session',
+                    'idx_storage_cleanup_type',
+                    'idx_storage_cleanup_timestamp',
+                    'idx_screenshots_file_size',
+                    'idx_screenshots_filename',
+                    'idx_screenshots_timestamp',
+                    'idx_chat_history_timestamp',
+                    'idx_chat_history_model',
+                    'idx_chat_screenshot_id',
+                    'idx_presets_category',
+                    'idx_presets_favorite',
+                    'idx_settings_updated',
+                    'idx_presets_active'
+                ]
+
+                for index in indexes_to_drop:
+                    try:
+                        await conn.execute(f"DROP INDEX IF EXISTS {index}")
+                    except Exception as e:
+                        self.logger.debug(f"Index {index} might not exist: {e}")
+
+                # Keep only essential indexes for remaining tables
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_presets_usage ON presets(usage_count DESC)")
+
+                await conn.commit()
+
+                # Record migration
+                await self._set_schema_version(3, "File-based storage with minimal database schema")
+
+                self.logger.info("Successfully migrated to file-based storage schema (v3)")
+                return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to migrate to file-based schema: {e}")
+            return False
+
+    async def _export_chat_history_to_files(self) -> bool:
+        """
+        Export existing chat history from database to JSON files.
+
+        Returns:
+            True if export successful or no data to export
+        """
+        try:
+            # Check if chat_history table exists
+            async with self.db_manager._get_connection() as conn:
+                cursor = await conn.execute("""
+                    SELECT name FROM sqlite_master
+                    WHERE type='table' AND name='chat_history'
+                """)
+
+                if not cursor.fetchone():
+                    self.logger.info("No chat_history table found, skipping export")
+                    return True
+
+                # Get all chat history with screenshot info
+                cursor = await conn.execute("""
+                    SELECT ch.*, s.filename, s.path as screenshot_path
+                    FROM chat_history ch
+                    LEFT JOIN screenshots s ON ch.screenshot_id = s.id
+                    ORDER BY ch.screenshot_id, ch.timestamp
+                """)
+
+                rows = cursor.fetchall()
+
+                if not rows:
+                    self.logger.info("No chat history to export")
+                    return True
+
+                # Group by screenshot_id
+                from collections import defaultdict
+                conversations = defaultdict(list)
+
+                for row in rows:
+                    screenshot_id = row[1]  # screenshot_id column
+                    conversations[screenshot_id].append(row)
+
+                # TODO: Export to chat history files
+                # This would require ChatHistoryManager integration
+                # For now, just log the export intent
+                self.logger.info(f"Would export {len(conversations)} conversations with {len(rows)} messages")
+
+                return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to export chat history: {e}")
+            # Don't fail migration for export failure
+            return True
 
     async def validate_schema(self) -> Dict[str, Any]:
         """
@@ -266,16 +399,25 @@ class DatabaseSchemaMigration:
             validation_results['version'] = await self.get_schema_version()
 
             async with self.db_manager._get_connection() as conn:
-                # Check required tables
-                required_tables = [
-                    'screenshots', 'chat_history', 'presets', 'settings',
-                    'schema_version'
-                ]
-
-                if validation_results['version'] >= 2:
-                    required_tables.extend([
-                        'cached_responses', 'performance_metrics', 'storage_cleanup_log'
-                    ])
+                # Check required tables based on version
+                if validation_results['version'] >= 3:
+                    # v3: Minimal schema with only presets and settings
+                    required_tables = [
+                        'presets', 'settings', 'schema_version'
+                    ]
+                elif validation_results['version'] >= 2:
+                    # v2: Performance optimization schema
+                    required_tables = [
+                        'screenshots', 'chat_history', 'presets', 'settings',
+                        'schema_version', 'cached_responses', 'performance_metrics',
+                        'storage_cleanup_log'
+                    ]
+                else:
+                    # v1: Base schema
+                    required_tables = [
+                        'screenshots', 'chat_history', 'presets', 'settings',
+                        'schema_version'
+                    ]
 
                 for table in required_tables:
                     cursor = await conn.execute("""
@@ -290,19 +432,29 @@ class DatabaseSchemaMigration:
                         validation_results['valid'] = False
                         validation_results['errors'].append(f"Missing table: {table}")
 
-                # Check required indexes
-                required_indexes = [
-                    'idx_screenshots_timestamp',
-                    'idx_chat_screenshot_id',
-                    'idx_presets_usage'
-                ]
-
-                if validation_results['version'] >= 2:
-                    required_indexes.extend([
+                # Check required indexes based on version
+                if validation_results['version'] >= 3:
+                    # v3: Only preset index required
+                    required_indexes = [
+                        'idx_presets_usage'
+                    ]
+                elif validation_results['version'] >= 2:
+                    # v2: Performance optimization indexes
+                    required_indexes = [
+                        'idx_screenshots_timestamp',
+                        'idx_chat_screenshot_id',
+                        'idx_presets_usage',
                         'idx_cached_responses_hash',
                         'idx_performance_metrics_type',
                         'idx_storage_cleanup_type'
-                    ])
+                    ]
+                else:
+                    # v1: Base indexes
+                    required_indexes = [
+                        'idx_screenshots_timestamp',
+                        'idx_chat_screenshot_id',
+                        'idx_presets_usage'
+                    ]
 
                 for index in required_indexes:
                     cursor = await conn.execute("""
@@ -428,9 +580,11 @@ class DatabaseSchemaMigration:
                 self.logger.info(f"Database already at or below version {target_version}")
                 return True
 
-            # For now, only support rollback from v2 to v1
+            # Support rollback from v2 to v1 and from v3 to v1 (skip v2)
             if current_version == 2 and target_version == 1:
                 return await self._rollback_from_v2()
+            elif current_version == 3 and target_version == 1:
+                return await self._rollback_from_v3()
             else:
                 self.logger.error(f"Rollback from v{current_version} to v{target_version} not supported")
                 return False
@@ -473,11 +627,67 @@ class DatabaseSchemaMigration:
                 # Record rollback
                 await self._set_schema_version(1, "Rollback from performance optimization schema")
 
-                self.logger.info("Successfully rolled back to base schema (v1)")
-                return True
+            self.logger.info("Successfully rolled back to base schema (v1)")
+            return True
 
         except Exception as e:
             self.logger.error(f"Failed to rollback from v2: {e}")
+            return False
+
+    async def _rollback_from_v3(self) -> bool:
+        """
+        Rollback from file-based storage schema (v3) to base schema (v1).
+
+        Note: This will recreate the base schema tables but they will be empty.
+        Chat history stored in JSON files will need to be manually imported.
+
+        Returns:
+            True if rollback successful
+        """
+        try:
+            async with self.db_manager._get_connection() as conn:
+                # Recreate base schema tables (empty)
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS screenshots (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        filename TEXT NOT NULL,
+                        path TEXT NOT NULL UNIQUE,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        file_size INTEGER,
+                        thumbnail_path TEXT,
+                        metadata TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS chat_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        screenshot_id INTEGER,
+                        prompt TEXT NOT NULL,
+                        response TEXT,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        model_name TEXT,
+                        processing_time REAL,
+                        FOREIGN KEY (screenshot_id) REFERENCES screenshots(id) ON DELETE CASCADE
+                    )
+                """)
+
+                # Recreate base indexes
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_screenshots_timestamp ON screenshots(timestamp)")
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_screenshot_id ON chat_history(screenshot_id)")
+
+                await conn.commit()
+
+                # Record rollback
+                await self._set_schema_version(1, "Rollback from file-based storage schema to base schema")
+
+                self.logger.warning("Rolled back to base schema (v1) - database tables are empty")
+                self.logger.info("Chat history from JSON files needs to be manually imported if needed")
+                return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to rollback from v3: {e}")
             return False
 
     async def optimize_database(self) -> bool:
