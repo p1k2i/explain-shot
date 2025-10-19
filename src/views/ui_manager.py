@@ -15,6 +15,7 @@ from ..controllers.event_bus import EventBus
 from ..models.settings_manager import SettingsManager
 from ..models.screenshot_manager import ScreenshotManager
 from ..models.database_manager import DatabaseManager
+from ..models.preset_manager import PresetManager
 from .overlay_manager import OverlayManager
 from .settings_window import SettingsWindow
 from .gallery.gallery_window import GalleryWindow
@@ -40,6 +41,7 @@ class UIManager(QObject):
         settings_manager: SettingsManager,
         screenshot_manager: Optional[ScreenshotManager] = None,
         database_manager: Optional[DatabaseManager] = None,
+        preset_manager: Optional[PresetManager] = None,
         ollama_client=None
     ):
         """
@@ -50,6 +52,7 @@ class UIManager(QObject):
             settings_manager: SettingsManager for configuration
             screenshot_manager: Optional ScreenshotManager for data
             database_manager: Optional DatabaseManager for data persistence
+            preset_manager: Optional PresetManager for preset data
         """
         super().__init__()
 
@@ -57,6 +60,7 @@ class UIManager(QObject):
         self.settings_manager = settings_manager
         self.screenshot_manager = screenshot_manager
         self.database_manager = database_manager
+        self.preset_manager = preset_manager
         self.ollama_client = ollama_client
 
         # UI Components
@@ -291,29 +295,12 @@ class UIManager(QObject):
         except Exception as e:
             logger.error(f"Error handling gallery screenshot selection: {e}")
 
-    async def _handle_gallery_preset_executed(self, preset_id: int, context: str) -> None:
+    async def _handle_gallery_preset_executed(self, preset_id: str, context: dict) -> None:
         """Handle gallery preset execution events."""
         try:
-            # Parse the context string to extract screenshot ID
-            screenshot_id = None
-            try:
-                # The context is a string representation of a dict like:
-                # "{'selected_screenshot': 123, 'preset_id': 456, 'timestamp': '...'}"
-                # We need to extract the selected_screenshot value
-                import ast
-                context_dict = ast.literal_eval(context)
-                screenshot_id = context_dict.get('selected_screenshot')
-            except (ValueError, SyntaxError, KeyError) as e:
-                logger.warning(f"Failed to parse preset execution context: {e}, context: {context}")
-                # Fallback: try to extract screenshot_id from context if it's just a number
-                try:
-                    screenshot_id = int(context)
-                except (ValueError, TypeError):
-                    logger.error(f"Could not extract screenshot ID from context: {context}")
-
             await self.event_bus.emit(
                 EventTypes.GALLERY_PRESET_EXECUTED,
-                {"preset_id": preset_id, "screenshot_context": screenshot_id},
+                {"preset_id": preset_id, "screenshot_context": context},
                 source="UIManager"
             )
         except Exception as e:
@@ -614,12 +601,17 @@ class UIManager(QObject):
                 logger.error("Database manager not available for gallery")
                 return False
 
+            if not self.preset_manager:
+                logger.error("Preset manager not available for gallery")
+                return False
+
             # Create gallery window if not exists or if it was closed
             if not self.gallery_window or not self.gallery_window.isVisible():
                 self.gallery_window = GalleryWindow(
                     event_bus=self.event_bus,
                     screenshot_manager=self.screenshot_manager,
                     database_manager=self.database_manager,
+                    preset_manager=self.preset_manager,
                     settings_manager=self.settings_manager,
                     parent=None  # Independent window
                 )
@@ -652,7 +644,9 @@ class UIManager(QObject):
                     return False
 
             # Show the gallery with optional pre-selection
-            await self.gallery_window.show_gallery(pre_selected_screenshot_id)
+            # Convert int screenshot ID to string if needed
+            pre_selected_str = str(pre_selected_screenshot_id) if pre_selected_screenshot_id is not None else None
+            await self.gallery_window.show_gallery(pre_selected_str)
 
             # Emit gallery window shown event
             await self.event_bus.emit(

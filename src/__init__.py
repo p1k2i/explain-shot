@@ -125,6 +125,11 @@ class EventTypes:
     # AI/Ollama events
     OLLAMA_RESPONSE_RECEIVED = "ollama.response.received"
 
+    # Preset events
+    PRESET_CREATED = "preset.created"
+    PRESET_UPDATED = "preset.updated"
+    PRESET_DELETED = "preset.deleted"
+
 # Application states
 class AppState:
     """Application state enumeration."""

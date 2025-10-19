@@ -1,7 +1,7 @@
 """
 Database Manager for screenshot application.
 
-This module provides database operations for presets and settings
+This module provides database operations for application settings
 with SQLite backend and async operations.
 """
 
@@ -9,13 +9,12 @@ import asyncio
 import logging
 import json
 import sqlite3
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from typing import Optional, Dict, Any
 import os
 
 from src import DEFAULT_DATABASE_NAME
 
-if TYPE_CHECKING:
-    from .preset_models import PresetMetadata
+
 
 
 class DatabaseError(Exception):
@@ -27,7 +26,7 @@ class DatabaseManager:
     """
     Manages SQLite database operations for the application.
 
-    Provides async interface for presets and settings storage.
+    Provides async interface for settings storage and database management.
     """
 
     def __init__(self, db_path: Optional[str] = None, logger=None):
@@ -54,23 +53,6 @@ class DatabaseManager:
 
         try:
             async with self._get_connection() as conn:
-                # Presets table
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS presets (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT NOT NULL UNIQUE,
-                        prompt TEXT NOT NULL,
-                        description TEXT DEFAULT '',
-                        category TEXT DEFAULT 'general',
-                        tags TEXT DEFAULT '[]',
-                        usage_count INTEGER DEFAULT 0,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        is_favorite BOOLEAN DEFAULT 0,
-                        is_builtin BOOLEAN DEFAULT 0
-                    )
-                """)
-
                 # Settings table
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS settings (
@@ -81,16 +63,18 @@ class DatabaseManager:
                     )
                 """)
 
-                # Create indexes for performance
-                await conn.execute("CREATE INDEX IF NOT EXISTS idx_presets_usage ON presets(usage_count DESC)")
+                # Schema version table for database migrations
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS schema_version (
+                        version INTEGER PRIMARY KEY,
+                        applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
 
                 await conn.commit()
 
             self._initialized = True
             self.logger.info(f"Database initialized: {self.db_path}")
-
-            # Initialize builtin presets
-            await self.initialize_builtin_presets()
 
         except Exception as e:
             self.logger.error(f"Failed to initialize database: {e}")
@@ -366,316 +350,7 @@ class DatabaseManager:
             self.logger.error(f"Failed to get database stats: {e}")
             return {}
 
-    # Preset management methods
 
-    async def create_preset(self, preset: 'PresetMetadata') -> int:
-        """
-        Create a new preset in the database.
-
-        Args:
-            preset: PresetMetadata object to store
-
-        Returns:
-            The ID of the created preset
-
-        Raises:
-            DatabaseError: If preset creation fails
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                preset_data = preset.to_dict()
-                cursor = await conn.execute("""
-                    INSERT INTO presets (
-                        name, prompt, description, category, tags,
-                        usage_count, created_at, updated_at, is_favorite, is_builtin
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    preset_data['name'],
-                    preset_data['prompt'],
-                    preset_data['description'],
-                    preset_data['category'],
-                    preset_data['tags'],
-                    preset_data['usage_count'],
-                    preset_data['created_at'],
-                    preset_data['updated_at'],
-                    preset_data['is_favorite'],
-                    preset_data['is_builtin']
-                ))
-
-                preset_id = cursor.lastrowid
-                await conn.commit()
-
-                if preset_id is None:
-                    raise DatabaseError("Failed to get preset ID after creation")
-
-                self.logger.info(f"Created preset: {preset.name} (ID: {preset_id})")
-                return preset_id
-
-        except sqlite3.IntegrityError as e:
-            error_msg = f"Preset name already exists: {preset.name}"
-            self.logger.error(error_msg)
-            raise DatabaseError(error_msg) from e
-        except Exception as e:
-            error_msg = f"Failed to create preset: {e}"
-            self.logger.error(error_msg)
-            raise DatabaseError(error_msg) from e
-
-    async def get_presets(self, category: Optional[str] = None, limit: int = 50, offset: int = 0) -> List['PresetMetadata']:
-        """
-        Retrieve presets from the database.
-
-        Args:
-            category: Optional category filter
-            limit: Maximum number of presets to return
-            offset: Number of presets to skip
-
-        Returns:
-            List of PresetMetadata objects
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                if category:
-                    query = """
-                        SELECT * FROM presets
-                        WHERE category = ?
-                        ORDER BY usage_count DESC, name ASC
-                        LIMIT ? OFFSET ?
-                    """
-                    params = (category, limit, offset)
-                else:
-                    query = """
-                        SELECT * FROM presets
-                        ORDER BY usage_count DESC, name ASC
-                        LIMIT ? OFFSET ?
-                    """
-                    params = (limit, offset)
-
-                cursor = await conn.execute(query, params)
-                rows = cursor.fetchall()
-
-                # Import here to avoid circular import
-                from .preset_models import PresetMetadata
-
-                presets = []
-                for row in rows:
-                    preset_dict = {
-                        'id': row[0],
-                        'name': row[1],
-                        'prompt': row[2],
-                        'description': row[3],
-                        'category': row[4],
-                        'tags': row[5],
-                        'usage_count': row[6],
-                        'created_at': row[7],
-                        'updated_at': row[8],
-                        'is_favorite': bool(row[9]),
-                        'is_builtin': bool(row[10])
-                    }
-                    presets.append(PresetMetadata.from_dict(preset_dict))
-
-                return presets
-
-        except Exception as e:
-            self.logger.error(f"Failed to get presets: {e}")
-            return []
-
-    async def get_preset_by_id(self, preset_id: int) -> Optional['PresetMetadata']:
-        """
-        Get a specific preset by ID.
-
-        Args:
-            preset_id: The preset ID to retrieve
-
-        Returns:
-            PresetMetadata object or None if not found
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute("SELECT * FROM presets WHERE id = ?", (preset_id,))
-                row = cursor.fetchone()
-
-                if not row:
-                    return None
-
-                # Import here to avoid circular import
-                from .preset_models import PresetMetadata
-
-                preset_dict = {
-                    'id': row[0],
-                    'name': row[1],
-                    'prompt': row[2],
-                    'description': row[3],
-                    'category': row[4],
-                    'tags': row[5],
-                    'usage_count': row[6],
-                    'created_at': row[7],
-                    'updated_at': row[8],
-                    'is_favorite': bool(row[9]),
-                    'is_builtin': bool(row[10])
-                }
-                return PresetMetadata.from_dict(preset_dict)
-
-        except Exception as e:
-            self.logger.error(f"Failed to get preset {preset_id}: {e}")
-            return None
-
-    async def update_preset(self, preset: 'PresetMetadata') -> bool:
-        """
-        Update an existing preset.
-
-        Args:
-            preset: PresetMetadata object with updated data
-
-        Returns:
-            True if update successful
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                preset_data = preset.to_dict()
-                await conn.execute("""
-                    UPDATE presets SET
-                        name = ?, prompt = ?, description = ?, category = ?,
-                        tags = ?, usage_count = ?, updated_at = ?,
-                        is_favorite = ?, is_builtin = ?
-                    WHERE id = ?
-                """, (
-                    preset_data['name'],
-                    preset_data['prompt'],
-                    preset_data['description'],
-                    preset_data['category'],
-                    preset_data['tags'],
-                    preset_data['usage_count'],
-                    preset_data['updated_at'],
-                    preset_data['is_favorite'],
-                    preset_data['is_builtin'],
-                    preset.id
-                ))
-
-                await conn.commit()
-                self.logger.info(f"Updated preset: {preset.name}")
-                return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to update preset {preset.id}: {e}")
-            return False
-
-    async def delete_preset(self, preset_id: int) -> bool:
-        """
-        Delete a preset from the database.
-
-        Args:
-            preset_id: The ID of the preset to delete
-
-        Returns:
-            True if deletion successful
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                # Check if preset is builtin (cannot be deleted)
-                cursor = await conn.execute("SELECT is_builtin FROM presets WHERE id = ?", (preset_id,))
-                row = cursor.fetchone()
-
-                if not row:
-                    return False
-
-                if row[0]:  # is_builtin is True
-                    self.logger.warning(f"Cannot delete builtin preset {preset_id}")
-                    return False
-
-                await conn.execute("DELETE FROM presets WHERE id = ?", (preset_id,))
-                await conn.commit()
-
-                self.logger.info(f"Deleted preset: {preset_id}")
-                return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to delete preset {preset_id}: {e}")
-            return False
-
-    async def increment_preset_usage(self, preset_id: int) -> bool:
-        """
-        Increment the usage count for a preset.
-
-        Args:
-            preset_id: The ID of the preset
-
-        Returns:
-            True if increment successful
-        """
-        if not self._initialized:
-            await self.initialize_database()
-
-        try:
-            async with self._get_connection() as conn:
-                await conn.execute("""
-                    UPDATE presets SET
-                        usage_count = usage_count + 1,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (preset_id,))
-
-                await conn.commit()
-                return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to increment preset usage {preset_id}: {e}")
-            return False
-
-    async def initialize_builtin_presets(self) -> None:
-        """Initialize built-in presets if they don't exist."""
-        try:
-            # Import here to avoid circular import
-            from .preset_models import BUILTIN_PRESETS
-
-            async with self._get_connection() as conn:
-                for preset_def in BUILTIN_PRESETS:
-                    # Check if preset already exists
-                    cursor = await conn.execute(
-                        "SELECT id FROM presets WHERE name = ? AND is_builtin = 1",
-                        (preset_def.name,)
-                    )
-
-                    if cursor.fetchone() is None:
-                        # Create the builtin preset
-                        preset_data = preset_def.to_dict()
-                        await conn.execute("""
-                            INSERT INTO presets (
-                                name, prompt, description, category, tags,
-                                usage_count, created_at, updated_at, is_favorite, is_builtin
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            preset_data['name'],
-                            preset_data['prompt'],
-                            preset_data['description'],
-                            preset_data['category'],
-                            preset_data['tags'],
-                            preset_data['usage_count'],
-                            preset_data['created_at'],
-                            preset_data['updated_at'],
-                            preset_data['is_favorite'],
-                            preset_data['is_builtin']
-                        ))
-
-                await conn.commit()
-                self.logger.info("Initialized builtin presets")
-
-        except Exception as e:
-            self.logger.error(f"Failed to initialize builtin presets: {e}")
 
     async def close(self) -> None:
         """Close database connections and cleanup."""

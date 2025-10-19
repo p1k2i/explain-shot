@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from src.controllers.event_bus import EventBus
     from src.models.screenshot_manager import ScreenshotManager
     from src.models.database_manager import DatabaseManager
+    from src.models.preset_manager import PresetManager
     from src.models.settings_manager import SettingsManager
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ class GalleryWindow(QWidget):
 
     # Signals for communication with the EventBus
     screenshot_selected = pyqtSignal(str)  # screenshot_id (now hash-based string)
-    preset_executed = pyqtSignal(int, str)  # preset_id, screenshot_context
+    preset_executed = pyqtSignal(str, dict)  # preset_id, context
     chat_message_sent = pyqtSignal(str, dict)  # message, context
     gallery_closed = pyqtSignal()
 
@@ -50,6 +51,7 @@ class GalleryWindow(QWidget):
         event_bus: 'EventBus',
         screenshot_manager: 'ScreenshotManager',
         database_manager: 'DatabaseManager',
+        preset_manager: 'PresetManager',
         settings_manager: 'SettingsManager',
         parent=None
     ):
@@ -58,6 +60,7 @@ class GalleryWindow(QWidget):
         self.event_bus = event_bus
         self.screenshot_manager = screenshot_manager
         self.database_manager = database_manager
+        self.preset_manager = preset_manager
         self.settings_manager = settings_manager
 
         self.setObjectName("GalleryWindow")
@@ -119,21 +122,21 @@ class GalleryWindow(QWidget):
             priority=75
         )
 
-        # Subscribe to database events (for preset changes, etc.)
+        # Subscribe to preset events
         await self.event_bus.subscribe(
-            "database.preset_created",
+            EventTypes.PRESET_CREATED,
             self._handle_preset_created,
             priority=70
         )
 
         await self.event_bus.subscribe(
-            "database.preset_updated",
+            EventTypes.PRESET_UPDATED,
             self._handle_preset_updated,
             priority=70
         )
 
         await self.event_bus.subscribe(
-            "database.preset_deleted",
+            EventTypes.PRESET_DELETED,
             self._handle_preset_deleted,
             priority=70
         )
@@ -307,43 +310,31 @@ class GalleryWindow(QWidget):
         except Exception as e:
             logger.error(f"Error handling screenshot completed: {e}")
 
-    def _handle_preset_created(self, event_data) -> None:
+    async def _handle_preset_created(self, event_data) -> None:
         """Handle preset created events."""
         try:
             if self.presets_panel:
-                # Try refresh method first, fallback to load_presets
-                refresh_method = getattr(self.presets_panel, 'refresh_presets', None) or \
-                               getattr(self.presets_panel, 'load_presets', None)
-                if refresh_method:
-                    asyncio.create_task(refresh_method())
+                await self.presets_panel.refresh_presets()
                 logger.info("Presets panel refreshed after preset creation")
 
         except Exception as e:
             logger.error(f"Error handling preset created: {e}")
 
-    def _handle_preset_updated(self, event_data) -> None:
+    async def _handle_preset_updated(self, event_data) -> None:
         """Handle preset updated events."""
         try:
             if self.presets_panel:
-                # Try refresh method first, fallback to load_presets
-                refresh_method = getattr(self.presets_panel, 'refresh_presets', None) or \
-                               getattr(self.presets_panel, 'load_presets', None)
-                if refresh_method:
-                    asyncio.create_task(refresh_method())
+                await self.presets_panel.refresh_presets()
                 logger.info("Presets panel refreshed after preset update")
 
         except Exception as e:
             logger.error(f"Error handling preset updated: {e}")
 
-    def _handle_preset_deleted(self, event_data) -> None:
+    async def _handle_preset_deleted(self, event_data) -> None:
         """Handle preset deleted events."""
         try:
             if self.presets_panel:
-                # Try refresh method first, fallback to load_presets
-                refresh_method = getattr(self.presets_panel, 'refresh_presets', None) or \
-                               getattr(self.presets_panel, 'load_presets', None)
-                if refresh_method:
-                    asyncio.create_task(refresh_method())
+                await self.presets_panel.refresh_presets()
                 logger.info("Presets panel refreshed after preset deletion")
 
         except Exception as e:
@@ -641,7 +632,7 @@ class GalleryWindow(QWidget):
         splitter.addWidget(chat_frame)
 
         # Right column - Presets
-        self.presets_panel = PresetsPanel(self.database_manager, self)
+        self.presets_panel = PresetsPanel(self.preset_manager, self)
         presets_frame = QFrame()
         presets_frame.setObjectName("presets_frame")
         presets_layout = QVBoxLayout(presets_frame)
@@ -703,9 +694,9 @@ class GalleryWindow(QWidget):
             if self.screenshots_gallery:
                 await self.screenshots_gallery.load_screenshots()
 
-            # Load presets
+            # Load presets (refresh from disk first to catch manually added files)
             if self.presets_panel:
-                await self.presets_panel.load_presets()
+                await self.presets_panel.refresh_presets()
 
             logger.info("Gallery content loaded")
 
@@ -804,7 +795,7 @@ class GalleryWindow(QWidget):
 
         logger.info("Screenshot deselected")
 
-    def _on_preset_run(self, preset_id: int):
+    def _on_preset_run(self, preset_id: str):
         """Handle preset run button clicks."""
         if self.gallery_state.selected_screenshot_id is None:
             if self.chat_interface:
@@ -814,18 +805,21 @@ class GalleryWindow(QWidget):
         # Run async preset execution
         asyncio.create_task(self._run_preset_async(preset_id))
 
-    def _on_preset_paste(self, preset_id: int):
+    def _on_preset_paste(self, preset_id: str):
         """Handle preset paste button clicks."""
         # Run async preset paste
         asyncio.create_task(self._paste_preset_async(preset_id))
 
-    async def _run_preset_async(self, preset_id: int):
+    async def _run_preset_async(self, preset_id: str):
         """Handle preset run asynchronously."""
         try:
             preset_data = await self._get_preset_by_id(preset_id)
             if preset_data and self.chat_interface:
                 # Add user message showing preset execution
                 self.chat_interface.add_user_message(preset_data.prompt)
+
+                # Save user message to chat history immediately
+                asyncio.create_task(self._save_user_message_to_history(preset_data.prompt))
 
                 # Create context for the preset execution
                 context = {
@@ -849,7 +843,7 @@ class GalleryWindow(QWidget):
             if self.chat_interface:
                 self.chat_interface.add_system_message(f"Error running preset: {e}")
 
-    async def _paste_preset_async(self, preset_id: int):
+    async def _paste_preset_async(self, preset_id: str):
         """Handle preset paste asynchronously."""
         try:
             preset_data = await self._get_preset_by_id(preset_id)
@@ -946,13 +940,13 @@ class GalleryWindow(QWidget):
         except Exception as e:
             logger.error(f"Failed to save user message to chat history: {e}")
 
-    async def _get_preset_by_id(self, preset_id: int) -> Optional[PresetData]:
+    async def _get_preset_by_id(self, preset_id: str) -> Optional[PresetData]:
         """Get preset data by ID."""
         try:
-            preset = await self.database_manager.get_preset_by_id(preset_id)
-            if preset and preset.id is not None:
+            preset = await self.preset_manager.get_preset_by_id(preset_id)
+            if preset:
                 return PresetData(
-                    id=preset.id,
+                    id=preset_id,
                     name=preset.name,
                     prompt=preset.prompt,
                     description=preset.description,

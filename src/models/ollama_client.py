@@ -68,6 +68,7 @@ class OllamaClient:
         event_bus: EventBus,
         chat_history_manager: Optional[ChatHistoryManager] = None,
         database_manager=None,  # Legacy - will be deprecated
+        preset_manager=None,    # New preset manager
         settings_manager=None,
         server_url: str = "http://localhost:11434",
         default_model: str = "gemma2:9b"
@@ -79,6 +80,7 @@ class OllamaClient:
             event_bus: EventBus for event-driven communication
             chat_history_manager: ChatHistoryManager for JSON file storage
             database_manager: DatabaseManager for legacy support (deprecated)
+            preset_manager: PresetManager for preset operations
             settings_manager: SettingsManager for configuration
             server_url: Ollama server URL
             default_model: Default model name
@@ -86,6 +88,7 @@ class OllamaClient:
         self.event_bus = event_bus
         self.chat_history_manager = chat_history_manager
         self.database_manager = database_manager  # Legacy support
+        self.preset_manager = preset_manager      # New preset manager
         self.settings_manager = settings_manager
 
         # Configuration
@@ -778,14 +781,19 @@ class OllamaClient:
                 logger.warning("No valid screenshot context for preset execution")
                 return
 
-            # Get preset details from database
-            if not self.database_manager:
-                logger.error("Database manager not available for preset execution")
+            # Get preset details from preset_manager (new) or database_manager (legacy fallback)
+            preset = None
+            if self.preset_manager:
+                preset = await self.preset_manager.get_preset_by_id(preset_id)
+            elif self.database_manager:
+                # Legacy fallback - will be removed
+                preset = await self.database_manager.get_preset_by_id(preset_id)
+            else:
+                logger.error("No preset manager available for preset execution")
                 return
 
-            preset = await self.database_manager.get_preset_by_id(preset_id)
             if not preset:
-                logger.error("Preset not found: %d", preset_id)
+                logger.error("Preset not found: %s", preset_id)
                 return
 
             # Build enhanced prompt with context

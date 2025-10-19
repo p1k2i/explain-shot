@@ -12,7 +12,7 @@ from typing import Optional, List, Any
 @dataclass
 class PresetData:
     """Represents a prompt preset for gallery display."""
-    id: int
+    id: str  # File-based ID instead of database integer
     name: str
     prompt: str
     description: str = ""
@@ -34,7 +34,7 @@ class GalleryState:
     """Tracks the current state of the gallery."""
     selected_screenshot_id: Optional[str] = None  # Now uses hash-based string ID
     selected_screenshot_metadata: Optional[Any] = None  # ScreenshotMetadata object
-    selected_preset_id: Optional[int] = None
+    selected_preset_id: Optional[str] = None
     chat_messages: Optional[List[ChatMessage]] = None
     is_loading: bool = False
 

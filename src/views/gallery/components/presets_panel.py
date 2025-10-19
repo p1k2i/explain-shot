@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 from src.utils.style_loader import PresetItemStyleManager
 
 if TYPE_CHECKING:
-    from src.models.database_manager import DatabaseManager
+    from src.models.preset_manager import PresetManager
 
 from .gallery_widgets import PresetData, MAX_PROMPT_PREVIEW_LENGTH
 
@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 class PresetItem(QWidget):
     """Individual preset item widget with name, preview, and action buttons."""
 
-    run_clicked = pyqtSignal(int)  # preset_id
-    paste_clicked = pyqtSignal(int)  # preset_id
+    run_clicked = pyqtSignal(str)  # preset_id
+    paste_clicked = pyqtSignal(str)  # preset_id
 
     def __init__(self, preset: PresetData, parent=None):
         super().__init__(parent)
@@ -119,13 +119,13 @@ class PresetsPanel(QWidget):
     """Presets column widget with preset list and management."""
 
     # Signals
-    preset_run_clicked = pyqtSignal(int)  # preset_id
-    preset_paste_clicked = pyqtSignal(int)  # preset_id
+    preset_run_clicked = pyqtSignal(str)  # preset_id
+    preset_paste_clicked = pyqtSignal(str)  # preset_id
 
-    def __init__(self, database_manager: 'DatabaseManager', parent=None):
+    def __init__(self, preset_manager: 'PresetManager', parent=None):
         super().__init__(parent)
-        self.database_manager = database_manager
-        self.preset_items: Dict[int, PresetItem] = {}
+        self.preset_manager = preset_manager
+        self.preset_items: Dict[str, PresetItem] = {}
         self._preset_item_style_manager: Optional[PresetItemStyleManager] = None
 
         self.setObjectName("PresetsPanel")
@@ -163,37 +163,40 @@ class PresetsPanel(QWidget):
             item.set_style_manager(style_manager)
 
     async def load_presets(self, limit: int = 20):
-        """Load presets from the database manager."""
+        """Load presets from the preset manager."""
         try:
-            presets = await self.database_manager.get_presets(limit=limit)
-
             self._clear_preset_items()
 
-            for preset in presets:
-                if preset.id is not None:
-                    preset_data = PresetData(
-                        id=preset.id,
-                        name=preset.name,
-                        prompt=preset.prompt,
-                        description=preset.description,
-                        usage_count=preset.usage_count,
-                        created_at=preset.created_at
-                    )
+            # Since PresetManager stores presets by ID in its cache, we need to access them
+            preset_cache = self.preset_manager._preset_cache
 
-                    item = PresetItem(preset_data)
-                    item.run_clicked.connect(lambda pid: self.preset_run_clicked.emit(pid))
-                    item.paste_clicked.connect(lambda pid: self.preset_paste_clicked.emit(pid))
+            for preset_id, preset in preset_cache.items():
+                if len(self.preset_items) >= limit:
+                    break
 
-                    if self._preset_item_style_manager:
-                        item.set_style_manager(self._preset_item_style_manager)
+                preset_data = PresetData(
+                    id=preset_id,
+                    name=preset.name,
+                    prompt=preset.prompt,
+                    description=preset.description,
+                    usage_count=preset.usage_count,
+                    created_at=preset.created_at
+                )
 
-                    self.presets_layout.insertWidget(
-                        self.presets_layout.count() - 1,
-                        item
-                    )
-                    self.preset_items[preset.id] = item
+                item = PresetItem(preset_data)
+                item.run_clicked.connect(lambda pid: self.preset_run_clicked.emit(pid))
+                item.paste_clicked.connect(lambda pid: self.preset_paste_clicked.emit(pid))
 
-            logger.info(f"Loaded {len(presets)} presets from database")
+                if self._preset_item_style_manager:
+                    item.set_style_manager(self._preset_item_style_manager)
+
+                self.presets_layout.insertWidget(
+                    self.presets_layout.count() - 1,
+                    item
+                )
+                self.preset_items[preset_id] = item
+
+            logger.info(f"Loaded {len(self.preset_items)} presets from preset manager")
 
         except Exception as e:
             logger.error(f"Failed to load presets: {e}")
@@ -204,6 +207,16 @@ class PresetsPanel(QWidget):
             item.deleteLater()
         self.preset_items.clear()
 
-    def get_preset_item(self, preset_id: int) -> Optional[PresetItem]:
-        """Get a preset item by ID."""
-        return self.preset_items.get(preset_id)
+    async def refresh_presets(self) -> None:
+        """Refresh presets from disk and reload the UI."""
+        try:
+            # Refresh presets from disk
+            await self.preset_manager.refresh_presets()
+
+            # Reload presets in UI
+            await self.load_presets()
+
+            logger.info("Presets panel refreshed")
+
+        except Exception as e:
+            logger.error(f"Failed to refresh presets: {e}")

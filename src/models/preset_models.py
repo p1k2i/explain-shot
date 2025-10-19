@@ -23,7 +23,6 @@ class PresetMetadata:
     usage_count: int = 0
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    id: Optional[int] = None  # Database ID after registration
     is_favorite: bool = False
     is_builtin: bool = False  # Built-in presets cannot be deleted
 
@@ -76,7 +75,6 @@ class PresetMetadata:
                 tags = []
 
         return cls(
-            id=data.get('id'),
             name=data.get('name', ''),
             prompt=data.get('prompt', ''),
             description=data.get('description', ''),
@@ -135,7 +133,6 @@ class PresetCategory:
     color: str = "#007ACC"  # Hex color for UI display
     icon: Optional[str] = None  # Icon identifier
     sort_order: int = 0
-    id: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for database storage."""
@@ -151,7 +148,6 @@ class PresetCategory:
     def from_dict(cls, data: Dict[str, Any]) -> 'PresetCategory':
         """Create PresetCategory from dictionary."""
         return cls(
-            id=data.get('id'),
             name=data.get('name', ''),
             description=data.get('description', ''),
             color=data.get('color', '#007ACC'),

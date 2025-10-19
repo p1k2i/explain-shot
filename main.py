@@ -94,6 +94,10 @@ class Application:
             await self.settings_manager.initialize_database()
             settings = await self.settings_manager.load_settings()
 
+            # Initialize PresetManager
+            from src.models.preset_manager import PresetManager
+            self.preset_manager = PresetManager()
+
             # Initialize ScreenshotManager
             self.screenshot_manager = ScreenshotManager(
                 database_manager=self.database_manager,
@@ -112,6 +116,7 @@ class Application:
                 event_bus=self.event_bus,
                 chat_history_manager=self.chat_history_manager,
                 database_manager=self.database_manager,
+                preset_manager=self.preset_manager,
                 settings_manager=self.settings_manager
             )
             await self.ollama_client.initialize()
@@ -157,6 +162,7 @@ class Application:
                 settings_manager=self.settings_manager,
                 screenshot_manager=self.screenshot_manager,
                 database_manager=self.database_manager,
+                preset_manager=self.preset_manager,
                 ollama_client=self.ollama_client
             )
 
@@ -166,6 +172,7 @@ class Application:
                 settings_manager=self.settings_manager,
                 database_manager=self.database_manager,
                 screenshot_manager=self.screenshot_manager,
+                preset_manager=self.preset_manager,
                 tray_manager=self.tray_manager,
                 ui_manager=self.ui_manager,
                 auto_start_manager=self.auto_start_manager

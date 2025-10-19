@@ -20,6 +20,7 @@ from src.controllers.hotkey_handler import HotkeyHandler
 from src.models.settings_manager import SettingsManager
 from src.models.database_manager import DatabaseManager
 from src.models.screenshot_manager import ScreenshotManager
+from src.models.preset_manager import PresetManager
 from src.utils.auto_start import AutoStartManager
 from src import EventTypes, AppState
 
@@ -40,6 +41,7 @@ class MainController:
         settings_manager: SettingsManager,
         database_manager: Optional[DatabaseManager] = None,
         screenshot_manager: Optional[ScreenshotManager] = None,
+        preset_manager: Optional[PresetManager] = None,
         tray_manager: Optional["TrayManager"] = None,
         ui_manager: Optional["UIManager"] = None,
         auto_start_manager: Optional[AutoStartManager] = None
@@ -52,6 +54,7 @@ class MainController:
             settings_manager: SettingsManager for configuration
             database_manager: DatabaseManager for data persistence
             screenshot_manager: ScreenshotManager for screenshot operations
+            preset_manager: PresetManager for preset operations
             tray_manager: Optional TrayManager instance
             ui_manager: Optional UIManager instance for PyQt6 UI components
             auto_start_manager: Optional AutoStartManager instance
@@ -60,6 +63,7 @@ class MainController:
         self.settings_manager = settings_manager
         self.database_manager = database_manager
         self.screenshot_manager = screenshot_manager
+        self.preset_manager = preset_manager
         self.tray_manager = tray_manager
         self.ui_manager = ui_manager
         self.auto_start_manager = auto_start_manager
@@ -97,6 +101,11 @@ class MainController:
             # Initialize screenshot manager if available
             if self.screenshot_manager:
                 await self.screenshot_manager.initialize()
+
+            # Initialize preset manager if available
+            if self.preset_manager:
+                await self.preset_manager.initialize()
+                logger.info("Preset manager initialized")
 
             # Initialize UI manager if available
             if self.ui_manager:
