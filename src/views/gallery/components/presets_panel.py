@@ -170,7 +170,13 @@ class PresetsPanel(QWidget):
             # Since PresetManager stores presets by ID in its cache, we need to access them
             preset_cache = self.preset_manager._preset_cache
 
-            for preset_id, preset in preset_cache.items():
+            # Sort presets: user presets first, then builtin presets
+            sorted_presets = sorted(
+                preset_cache.items(),
+                key=lambda item: (item[1].is_builtin, item[0])  # False (user) before True (builtin), then by ID
+            )
+
+            for preset_id, preset in sorted_presets:
                 if len(self.preset_items) >= limit:
                     break
 
@@ -196,7 +202,7 @@ class PresetsPanel(QWidget):
                 )
                 self.preset_items[preset_id] = item
 
-            logger.info(f"Loaded {len(self.preset_items)} presets from preset manager")
+            logger.info(f"Loaded {len(self.preset_items)} presets from preset manager (user presets first)")
 
         except Exception as e:
             logger.error(f"Failed to load presets: {e}")
