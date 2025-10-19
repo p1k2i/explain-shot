@@ -49,10 +49,6 @@ class ScreenshotMetadata:
         except (OSError, IOError):
             return ""
 
-    def _calculate_checksum(self) -> str:
-        """Calculate SHA256 checksum of the screenshot file. (Deprecated: use _calculate_hash)"""
-        return self._calculate_hash()
-
     @property
     def unique_id(self) -> str:
         """Get unique identifier for this screenshot (hash-based)."""

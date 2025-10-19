@@ -198,8 +198,8 @@ class StorageManager:
             StorageStatus object with current state
         """
         try:
-            # Get screenshot count and total size
-            screenshots = await self.database_manager.get_screenshots(limit=None)
+            # Get screenshot count and total size from filesystem
+            screenshots = await self.screenshot_manager.scan_screenshot_directory()
             total_count = len(screenshots)
             total_size = sum(s.file_size for s in screenshots if s.file_size)
 
@@ -371,8 +371,8 @@ class StorageManager:
     async def _get_pruning_candidates(self, count: int, strategy: PruningStrategy) -> List[PruningCandidate]:
         """Get list of pruning candidates based on strategy."""
         try:
-            # Get all screenshots with metadata
-            screenshots = await self.database_manager.get_screenshots(limit=None)
+            # Get all screenshots from filesystem
+            screenshots = await self.screenshot_manager.scan_screenshot_directory()
 
             if not screenshots:
                 return []
@@ -381,7 +381,7 @@ class StorageManager:
             candidates = []
             for screenshot in screenshots:
                 candidate = PruningCandidate(
-                    screenshot_id=screenshot.id,
+                    screenshot_id=screenshot.hash or screenshot.unique_id,  # Use hash instead of ID
                     filename=screenshot.filename,
                     file_path=screenshot.full_path,
                     timestamp=screenshot.timestamp,
@@ -481,12 +481,7 @@ class StorageManager:
                         deleted_size += file_size
                         logger.debug(f"Deleted file: {candidate.filename}")
 
-                # Delete database metadata if action includes metadata
-                if self._config.prune_action in [PruningAction.DELETE_METADATA, PruningAction.DELETE_BOTH]:
-                    success = await self.database_manager.delete_screenshot(candidate.screenshot_id)
-                    if not success:
-                        errors.append(f"Failed to delete metadata for {candidate.filename}")
-                        continue
+                # Note: No database metadata to delete since screenshots are now file-based only
 
                 deleted_count += 1
                 freed_bytes += deleted_size

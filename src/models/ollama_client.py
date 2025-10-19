@@ -350,9 +350,8 @@ class OllamaClient:
             # Store in chat history files using ChatHistoryManager
             if self.chat_history_manager:
                 await self._store_chat_history_json(screenshot_hash, prompt, response, screenshot_metadata)
-            # Legacy database storage
-            elif self.database_manager and screenshot_hash.isdigit():
-                await self._store_chat_history(int(screenshot_hash), prompt, response)
+            else:
+                logger.warning("No ChatHistoryManager available - chat history not saved")
 
             # Emit success event
             await self.event_bus.emit(
@@ -612,28 +611,6 @@ class OllamaClient:
 
         except Exception as e:
             logger.error("Failed to store AI response in JSON: %s", e)
-
-    async def _store_chat_history(
-        self,
-        screenshot_id: int,
-        prompt: str,
-        response: Dict[str, Any]
-    ) -> None:
-        """Store chat interaction in database (legacy support)."""
-        try:
-            if not self.database_manager:
-                return
-
-            await self.database_manager.store_chat_message(
-                screenshot_id=screenshot_id,
-                prompt=prompt,
-                response=response['content'],
-                model_name=response['model'],
-                processing_time=response['processing_time']
-            )
-
-        except Exception as e:
-            logger.error("Failed to store chat history: %s", e)
 
     async def _generate_mock_response(
         self,

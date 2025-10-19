@@ -1,8 +1,8 @@
 """
 Database Manager for screenshot application.
 
-This module provides database operations for screenshots, chat history,
-presets, and settings with SQLite backend and async operations.
+This module provides database operations for presets and settings
+with SQLite backend and async operations.
 """
 
 import asyncio
@@ -27,8 +27,7 @@ class DatabaseManager:
     """
     Manages SQLite database operations for the application.
 
-    Provides async interface for screenshot metadata, chat history,
-    presets, and settings storage.
+    Provides async interface for presets and settings storage.
     """
 
     def __init__(self, db_path: Optional[str] = None, logger=None):
@@ -55,34 +54,6 @@ class DatabaseManager:
 
         try:
             async with self._get_connection() as conn:
-                # Screenshots table
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS screenshots (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        filename TEXT NOT NULL,
-                        path TEXT NOT NULL UNIQUE,
-                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        file_size INTEGER,
-                        thumbnail_path TEXT,
-                        metadata TEXT,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-
-                # Chat history table
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS chat_history (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        screenshot_id INTEGER,
-                        prompt TEXT NOT NULL,
-                        response TEXT,
-                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        model_name TEXT,
-                        processing_time REAL,
-                        FOREIGN KEY (screenshot_id) REFERENCES screenshots(id) ON DELETE CASCADE
-                    )
-                """)
-
                 # Presets table
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS presets (
@@ -111,8 +82,6 @@ class DatabaseManager:
                 """)
 
                 # Create indexes for performance
-                await conn.execute("CREATE INDEX IF NOT EXISTS idx_screenshots_timestamp ON screenshots(timestamp)")
-                await conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_screenshot_id ON chat_history(screenshot_id)")
                 await conn.execute("CREATE INDEX IF NOT EXISTS idx_presets_usage ON presets(usage_count DESC)")
 
                 await conn.commit()
@@ -179,9 +148,6 @@ class DatabaseManager:
                 return self.conn.rollback()
 
         return AsyncConnection(self.db_path, self.logger)
-
-    # Screenshot operations removed in v3 - use ScreenshotManager.scan_screenshot_directory()
-    # Legacy methods maintained for backwards compatibility during transition
 
     # Settings operations
 
@@ -358,7 +324,6 @@ class DatabaseManager:
 
         try:
             async with self._get_connection() as conn:
-                # In v3, only presets and settings remain
                 # Vacuum database to reclaim space
                 await conn.execute("VACUUM")
 
@@ -711,8 +676,6 @@ class DatabaseManager:
 
         except Exception as e:
             self.logger.error(f"Failed to initialize builtin presets: {e}")
-
-    # Chat history methods removed in v3 - use ChatHistoryManager for JSON file storage
 
     async def close(self) -> None:
         """Close database connections and cleanup."""

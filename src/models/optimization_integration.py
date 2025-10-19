@@ -198,7 +198,7 @@ class OptimizedComponentManager:
             self.logger.info(f"Current database schema version: {current_version}")
 
             # Migrate to latest if needed
-            if current_version < 2:  # Performance optimization schema
+            if current_version < 3:
                 self.logger.info("Migrating database for performance optimization...")
                 success = await self.migration_manager.migrate_to_latest()
 
@@ -299,69 +299,6 @@ class OptimizedComponentManager:
         return self.performance_monitor
 
     # Convenience methods for common operations
-
-    async def get_cached_ai_response(
-        self,
-        screenshot_id: int,
-        prompt: str,
-        model_name: str = "default"
-    ) -> Optional[str]:
-        """
-        Get cached AI response for a prompt.
-
-        Args:
-            screenshot_id: Screenshot ID
-            prompt: User prompt
-            model_name: AI model name
-
-        Returns:
-            Cached response or None if not found
-        """
-        if not self.cache_manager:
-            return None
-
-        try:
-            cached_response = await self.cache_manager.get_cached_response(screenshot_id, prompt, model_name)
-            return cached_response.response_content if cached_response else None
-        except Exception as e:
-            self.logger.error(f"Error getting cached response: {e}")
-            return None
-
-    async def store_ai_response(
-        self,
-        screenshot_id: int,
-        prompt: str,
-        response: str,
-        model_name: str = "default",
-        processing_time: float = 0.0
-    ) -> bool:
-        """
-        Store AI response in cache.
-
-        Args:
-            screenshot_id: Screenshot ID
-            prompt: User prompt
-            response: AI response
-            model_name: AI model name
-            processing_time: Time taken to generate response
-
-        Returns:
-            True if stored successfully
-        """
-        if not self.cache_manager:
-            return False
-
-        try:
-            response_data = {
-                'content': response,
-                'model': model_name,
-                'processing_time': processing_time
-            }
-            await self.cache_manager.store_response(screenshot_id, prompt, response_data)
-            return True
-        except Exception as e:
-            self.logger.error(f"Error storing AI response: {e}")
-            return False
 
     async def cleanup_old_data(self) -> Dict[str, int]:
         """

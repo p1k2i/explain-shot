@@ -1,5 +1,5 @@
 """
-Simple Database Migration Tool.
+Database Migration Tool.
 
 Run database schema migrations for performance optimization.
 Usage: python -m src.models.migrate_db
