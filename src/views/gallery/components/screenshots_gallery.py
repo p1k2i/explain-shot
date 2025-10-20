@@ -41,10 +41,11 @@ logger = logging.getLogger(__name__)
 
 
 class ThumbnailLoader(QObject):
-    """Asynchronous thumbnail loading with caching."""
+    """Asynchronous thumbnail loading with caching and progressive loading."""
 
     thumbnail_loaded = pyqtSignal(str, bytes, str)  # screenshot_id (now string), image_bytes, format
     loading_failed = pyqtSignal(str, str)  # screenshot_id (now string), error_message
+    loading_started = pyqtSignal(str)  # screenshot_id (now string) - emitted when loading begins
 
     def __init__(self, screenshot_manager: 'ScreenshotManager'):
         super().__init__()
@@ -52,56 +53,93 @@ class ThumbnailLoader(QObject):
         self._cache: Dict[str, tuple[bytes, str]] = {}  # Now uses string keys
         self._loading_queue: list = []
         self._is_processing = False
+        self._loading_set: set = set()  # Track what's currently being loaded
+        self._max_concurrent_loads = 3  # Limit concurrent thumbnail generation
 
     async def load_thumbnail(self, screenshot_id: str, file_path: str, size: QSize = QSize(*THUMBNAIL_SIZE)):
-        """Queue thumbnail loading."""
+        """Queue thumbnail loading with immediate placeholder emission."""
+        # Check cache first
         if screenshot_id in self._cache:
             self.thumbnail_loaded.emit(screenshot_id, self._cache[screenshot_id][0], self._cache[screenshot_id][1])
             return
 
+        # Check if already loading
+        if screenshot_id in self._loading_set:
+            return
+
+        # Add to loading set and emit loading started signal
+        self._loading_set.add(screenshot_id)
+        self.loading_started.emit(screenshot_id)
+
+        # Queue for processing
         self._loading_queue.append((screenshot_id, file_path, size))
+
+        # Start processing if not already running
         if not self._is_processing:
-            await self._process_queue()
+            asyncio.create_task(self._process_queue())
 
     async def _process_queue(self):
-        """Process the thumbnail loading queue."""
+        """Process the thumbnail loading queue with concurrency control."""
+        if self._is_processing:
+            return
+
         self._is_processing = True
+        concurrent_tasks = []
 
-        while self._loading_queue:
-            screenshot_id, file_path, size = self._loading_queue.pop(0)
+        try:
+            while self._loading_queue or concurrent_tasks:
+                # Start new tasks up to the limit
+                while len(concurrent_tasks) < self._max_concurrent_loads and self._loading_queue:
+                    screenshot_id, file_path, size = self._loading_queue.pop(0)
+                    task = asyncio.create_task(self._generate_thumbnail(screenshot_id, file_path, size))
+                    concurrent_tasks.append(task)
 
-            try:
-                await self._generate_thumbnail(screenshot_id, file_path, size)
-                await asyncio.sleep(0.01)  # Prevent UI overwhelming
-            except Exception as e:
-                logger.warning(f"Failed to load thumbnail for {file_path}: {e}")
-                self.loading_failed.emit(screenshot_id, str(e))
+                # Wait for at least one task to complete
+                if concurrent_tasks:
+                    done, pending = await asyncio.wait(concurrent_tasks, return_when=asyncio.FIRST_COMPLETED)
+                    concurrent_tasks = list(pending)
 
-        self._is_processing = False
+                    # Process completed tasks
+                    for task in done:
+                        try:
+                            await task
+                        except Exception as e:
+                            logger.warning(f"Thumbnail generation task failed: {e}")
+
+                # Small delay to prevent overwhelming the UI
+                await asyncio.sleep(0.001)
+
+        finally:
+            self._is_processing = False
 
     async def _generate_thumbnail(self, screenshot_id: str, file_path: str, size: QSize):
         """Generate thumbnail for a screenshot."""
-        if not PIL_AVAILABLE:
-            placeholder = self._create_placeholder(size, "No PIL")
-            self.thumbnail_loaded.emit(screenshot_id, self._pixmap_to_bytes(placeholder), "PNG")
-            return
-
         try:
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, self._pil_thumbnail_bytes, file_path, size)
+            if not PIL_AVAILABLE:
+                placeholder = self._create_placeholder(size, "No PIL")
+                self.thumbnail_loaded.emit(screenshot_id, self._pixmap_to_bytes(placeholder), "PNG")
+                return
 
-            if result:
-                image_bytes, format_str = result
-                self._cache[screenshot_id] = (image_bytes, format_str)
-                self.thumbnail_loaded.emit(screenshot_id, image_bytes, format_str)
-            else:
-                raise Exception("Failed to create thumbnail")
+            try:
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(None, self._pil_thumbnail_bytes, file_path, size)
 
-        except Exception as e:
-            placeholder = self._create_placeholder(size, "Error")
-            self.thumbnail_loaded.emit(screenshot_id, self._pixmap_to_bytes(placeholder), "PNG")
-            logger.warning(f"Thumbnail generation failed for {file_path}: {e}")
-            raise
+                if result:
+                    image_bytes, format_str = result
+                    self._cache[screenshot_id] = (image_bytes, format_str)
+                    self.thumbnail_loaded.emit(screenshot_id, image_bytes, format_str)
+                else:
+                    raise Exception("Failed to create thumbnail")
+
+            except Exception as e:
+                placeholder = self._create_placeholder(size, "Error")
+                self.thumbnail_loaded.emit(screenshot_id, self._pixmap_to_bytes(placeholder), "PNG")
+                logger.warning(f"Thumbnail generation failed for {file_path}: {e}")
+                raise
+
+        finally:
+            # Remove from loading set when done (success or failure)
+            self._loading_set.discard(screenshot_id)
 
     def _pil_thumbnail_bytes(self, file_path: str, size: QSize) -> Optional[tuple[bytes, str]]:
         """Generate thumbnail using PIL and return as bytes."""
@@ -171,6 +209,7 @@ class ScreenshotItem(QWidget):
         self.timestamp = timestamp
         self._is_selected = False
         self._is_hovered = False
+        self._is_loading = False
         self._style_manager = None
 
         self.setFixedSize(140, 160)
@@ -203,6 +242,34 @@ class ScreenshotItem(QWidget):
         self.timestamp_label.setObjectName("timestamp_label")
         layout.addWidget(self.timestamp_label)
 
+        # Set initial loading placeholder
+        self._show_loading_placeholder()
+
+    def _show_loading_placeholder(self):
+        """Show a loading placeholder thumbnail."""
+        self._is_loading = True
+        placeholder = self._create_loading_placeholder()
+        self.thumbnail_label.setPixmap(placeholder)
+
+    def _create_loading_placeholder(self) -> QPixmap:
+        """Create a loading placeholder pixmap with animation-ready styling."""
+        pixmap = QPixmap(120, 120)
+        pixmap.fill(QColor(50, 50, 50))  # Dark gray background
+
+        painter = QPainter(pixmap)
+        painter.setPen(QColor(150, 150, 150))
+        painter.setFont(QFont("Arial", 9))
+
+        # Draw loading text
+        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "Loading...")
+
+        # Draw a simple border
+        painter.setPen(QColor(80, 80, 80))
+        painter.drawRect(pixmap.rect().adjusted(1, 1, -2, -2))
+
+        painter.end()
+        return pixmap
+
     def set_style_manager(self, style_manager: 'ScreenshotItemStyleManager') -> None:
         """Set the style manager for this item."""
         self._style_manager = style_manager
@@ -221,7 +288,8 @@ class ScreenshotItem(QWidget):
         return name_without_ext[:max_length - 3] + "..."
 
     def set_thumbnail(self, pixmap: QPixmap):
-        """Set the thumbnail pixmap."""
+        """Set the thumbnail pixmap and mark loading as complete."""
+        self._is_loading = False
         scaled = pixmap.scaled(
             *THUMBNAIL_DISPLAY_SIZE,
             Qt.AspectRatioMode.KeepAspectRatio,
@@ -321,6 +389,7 @@ class ScreenshotGallery(QWidget):
         self.thumbnail_loader = ThumbnailLoader(screenshot_manager)
         self.thumbnail_loader.thumbnail_loaded.connect(self._on_thumbnail_loaded)
         self.thumbnail_loader.loading_failed.connect(self._on_thumbnail_failed)
+        self.thumbnail_loader.loading_started.connect(self._on_thumbnail_loading_started)
 
     async def load_screenshots(self, limit: int = 50):
         """Load screenshots from the screenshot manager."""
@@ -331,7 +400,10 @@ class ScreenshotGallery(QWidget):
 
             row, col = 0, 0
 
-            for screenshot in screenshots:
+            # Sort screenshots by timestamp, newest first
+            screenshots_sorted = sorted(screenshots, key=lambda s: s.timestamp, reverse=True)
+
+            for screenshot in screenshots_sorted:
                 # Use hash as unique identifier instead of database ID
                 screenshot_hash = screenshot.hash or screenshot.unique_id
                 if screenshot_hash:
@@ -348,6 +420,7 @@ class ScreenshotGallery(QWidget):
                     self.screenshots_layout.addWidget(item, row, col)
                     self.screenshot_items[screenshot_hash] = item
 
+                    # Queue thumbnail loading (this will show placeholder immediately)
                     if self.thumbnail_loader:
                         await self.thumbnail_loader.load_thumbnail(
                             screenshot_hash,
@@ -359,10 +432,128 @@ class ScreenshotGallery(QWidget):
                     col = 0
                     row += 1
 
-            logger.info(f"Loaded {len(screenshots)} screenshots")
+            logger.info(f"Loaded {len(screenshots)} screenshots (newest first)")
 
         except Exception as e:
             logger.error(f"Failed to load screenshots: {e}")
+
+    async def refresh_screenshots(self, limit: int = 50, force_scan: bool = False):
+        """Refresh screenshots - optimized for incremental updates."""
+        try:
+            # Get current screenshots
+            if force_scan:
+                # Force a fresh directory scan to catch any new files
+                logger.debug("Forcing fresh directory scan for screenshots")
+                screenshots = await self.screenshot_manager.scan_screenshot_directory()
+                screenshots = screenshots[:limit]  # Limit the results
+            else:
+                screenshots = await self.screenshot_manager.get_recent_screenshots(limit=limit)
+
+            # Build set of current screenshot hashes for comparison
+            current_hashes = {screenshot.hash or screenshot.unique_id for screenshot in screenshots if screenshot.hash or screenshot.unique_id}
+            existing_hashes = set(self.screenshot_items.keys())
+
+            # Find screenshots to add and remove
+            to_add = current_hashes - existing_hashes
+            to_remove = existing_hashes - current_hashes
+
+            # Remove screenshots that are no longer present
+            for hash_to_remove in to_remove:
+                if hash_to_remove in self.screenshot_items:
+                    item = self.screenshot_items[hash_to_remove]
+                    self.screenshots_layout.removeWidget(item)
+                    item.deleteLater()
+                    del self.screenshot_items[hash_to_remove]
+
+            # If we have new screenshots to add, reorganize the entire grid to maintain newest-first order
+            if to_add:
+                # Get all screenshots with their timestamps for sorting
+                all_current_screenshots = []
+                for screenshot in screenshots:
+                    screenshot_hash = screenshot.hash or screenshot.unique_id
+                    if screenshot_hash:
+                        all_current_screenshots.append(screenshot)
+
+                # Sort by timestamp, newest first
+                all_current_screenshots.sort(key=lambda s: s.timestamp, reverse=True)
+
+                # Clear the layout but keep the items
+                for hash_id, item in self.screenshot_items.items():
+                    self.screenshots_layout.removeWidget(item)
+
+                # Create new screenshot items for those that need to be added
+                for screenshot in all_current_screenshots:
+                    screenshot_hash = screenshot.hash or screenshot.unique_id
+                    if screenshot_hash and screenshot_hash in to_add:
+                        item = ScreenshotItem(
+                            screenshot_hash,
+                            screenshot.filename,
+                            screenshot.timestamp
+                        )
+                        item.clicked.connect(self._on_screenshot_clicked)
+
+                        if self._screenshot_item_style_manager:
+                            item.set_style_manager(self._screenshot_item_style_manager)
+
+                        self.screenshot_items[screenshot_hash] = item
+
+                        # Queue thumbnail loading
+                        if self.thumbnail_loader:
+                            await self.thumbnail_loader.load_thumbnail(
+                                screenshot_hash,
+                                screenshot.full_path
+                            )
+
+                # Re-add all items to layout in correct order (newest first)
+                row, col = 0, 0
+                for screenshot in all_current_screenshots:
+                    screenshot_hash = screenshot.hash or screenshot.unique_id
+                    if screenshot_hash and screenshot_hash in self.screenshot_items:
+                        item = self.screenshot_items[screenshot_hash]
+                        self.screenshots_layout.addWidget(item, row, col)
+
+                        col += 1
+                        if col >= GRID_COLS_PER_ROW:
+                            col = 0
+                            row += 1
+
+            logger.info(f"Refreshed screenshots: {len(to_add)} added, {len(to_remove)} removed")
+
+        except Exception as e:
+            logger.error(f"Failed to refresh screenshots: {e}")
+
+    async def force_directory_refresh(self, limit: int = 50):
+        """Force a fresh directory scan and full refresh of screenshots."""
+        try:
+            logger.info("Forcing complete directory refresh")
+            await self.refresh_screenshots(limit=limit, force_scan=True)
+        except Exception as e:
+            logger.error(f"Failed to force directory refresh: {e}")
+
+    def _find_next_grid_position(self) -> tuple[int, int]:
+        """Find the next available grid position."""
+        # Simple strategy: find the maximum row and add to it
+        max_row = 0
+        items_in_last_row = 0
+
+        for i in range(self.screenshots_layout.count()):
+            item = self.screenshots_layout.itemAt(i)
+            if item:
+                # getItemPosition returns (row, col, rowspan, colspan)
+                position = self.screenshots_layout.getItemPosition(i)
+                if position and len(position) >= 2:
+                    row = position[0]
+                    if row is not None and row > max_row:
+                        max_row = row
+                        items_in_last_row = 1
+                    elif row is not None and row == max_row:
+                        items_in_last_row += 1
+
+        # Calculate next position
+        if items_in_last_row < GRID_COLS_PER_ROW:
+            return max_row, items_in_last_row
+        else:
+            return max_row + 1, 0
 
     def _clear_screenshot_items(self):
         """Clear all screenshot items."""
@@ -411,9 +602,15 @@ class ScreenshotGallery(QWidget):
             pixmap.loadFromData(image_bytes, format_str.upper())
             self.screenshot_items[screenshot_id].set_thumbnail(pixmap)
 
+    def _on_thumbnail_loading_started(self, screenshot_id: str):
+        """Handle thumbnail loading start."""
+        # The item already shows a loading placeholder, but we could add additional UI feedback here
+        logger.debug(f"Started loading thumbnail for screenshot: {screenshot_id[:8]}")
+
     def _on_thumbnail_failed(self, screenshot_id: str, error_message: str):
         """Handle thumbnail loading failure."""
         logger.warning(f"Thumbnail loading failed for {screenshot_id}: {error_message}")
+        # The item will keep showing the error placeholder created by ThumbnailLoader
 
     def _truncate_filename_for_indicator(self, filename: str, max_length: int = 36) -> str:
         """Truncate filename for the selection indicator."""

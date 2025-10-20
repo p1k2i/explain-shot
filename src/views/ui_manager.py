@@ -605,8 +605,8 @@ class UIManager(QObject):
                 logger.error("Preset manager not available for gallery")
                 return False
 
-            # Create gallery window if not exists or if it was closed
-            if not self.gallery_window or not self.gallery_window.isVisible():
+            # Create gallery window ONLY if it doesn't exist yet
+            if not self.gallery_window:
                 self.gallery_window = GalleryWindow(
                     event_bus=self.event_bus,
                     screenshot_manager=self.screenshot_manager,
@@ -666,7 +666,7 @@ class UIManager(QObject):
 
     async def hide_gallery_window(self, **kwargs) -> bool:
         """
-        Hide the gallery window.
+        Hide the gallery window (but don't destroy it).
 
         Args:
             **kwargs: Arguments for hiding gallery window
@@ -676,7 +676,7 @@ class UIManager(QObject):
         """
         try:
             if self.gallery_window and self.gallery_window.isVisible():
-                self.gallery_window.close()
+                self.gallery_window.hide()  # Use hide() instead of close()
                 logger.info("Gallery window hidden successfully")
                 return True
 
@@ -735,9 +735,13 @@ class UIManager(QObject):
                 self.settings_window.close()
                 self.settings_window = None
 
-            # Close gallery window
+            # Close gallery window only on shutdown
             if self.gallery_window:
-                self.gallery_window.close()
+                # Use force_close if available, otherwise regular close
+                if hasattr(self.gallery_window, 'force_close'):
+                    self.gallery_window.force_close()
+                else:
+                    self.gallery_window.close()
                 self.gallery_window = None
 
             # Clear event queue

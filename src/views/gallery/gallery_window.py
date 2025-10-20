@@ -71,6 +71,14 @@ class GalleryWindow(QWidget):
         self._content_loaded = False  # Track if content has been loaded
         self._current_theme = "dark"  # Default theme, will be loaded from settings
 
+        # Cache system for performance optimization
+        self._screenshot_cache = {}  # Cache for screenshot metadata
+        self._preset_cache = {}  # Cache for preset data
+        self._thumbnail_cache = {}  # Cache for thumbnail paths/data
+        self._ui_state_cache = {}  # Cache for UI state preservation
+        self._cache_timestamp = None  # Track when cache was last updated
+        self._cache_expiry_seconds = 300  # Cache expires after 5 minutes
+
         # Style management
         self._style_manager: Optional[DynamicStyleManager] = None
         self._screenshot_item_style_manager: Optional[ScreenshotItemStyleManager] = None
@@ -292,11 +300,14 @@ class GalleryWindow(QWidget):
             logger.error(f"Error handling settings update: {e}")
 
     def _handle_screenshot_captured(self, event_data) -> None:
-        """Handle screenshot captured events."""
+        """Handle screenshot captured events with cache invalidation."""
         try:
-            # Refresh screenshots gallery when a new screenshot is captured
-            if self.screenshots_gallery and event_data.data:
-                # Try refresh method first, fallback to load_screenshots
+            # Invalidate screenshot cache since we have new content
+            self.invalidate_cache('screenshots')
+
+            # Only refresh if gallery is visible and content is already loaded
+            if self.isVisible() and self._content_loaded and self.screenshots_gallery and event_data.data:
+                # Use the new refresh method for incremental updates
                 refresh_method = getattr(self.screenshots_gallery, 'refresh_screenshots', None) or \
                                getattr(self.screenshots_gallery, 'load_screenshots', None)
                 if refresh_method:
@@ -307,12 +318,15 @@ class GalleryWindow(QWidget):
             logger.error(f"Error handling screenshot captured: {e}")
 
     def _handle_screenshot_completed(self, event_data) -> None:
-        """Handle screenshot completed events."""
+        """Handle screenshot completed events with cache update."""
         try:
             # Additional handling for completed screenshots
             if event_data.data and 'screenshot_id' in event_data.data:
                 screenshot_id = event_data.data['screenshot_id']
                 logger.info(f"Screenshot completed: {screenshot_id}")
+
+                # Update cache with new screenshot data
+                asyncio.create_task(self._update_cache())
 
                 # Optionally auto-select the new screenshot in gallery
                 if self.screenshots_gallery:
@@ -324,9 +338,13 @@ class GalleryWindow(QWidget):
             logger.error(f"Error handling screenshot completed: {e}")
 
     async def _handle_preset_created(self, event_data) -> None:
-        """Handle preset created events."""
+        """Handle preset created events with cache invalidation."""
         try:
-            if self.presets_panel:
+            # Invalidate preset cache
+            self.invalidate_cache('presets')
+
+            # Only refresh if gallery is visible and content is loaded
+            if self.isVisible() and self._content_loaded and self.presets_panel:
                 await self.presets_panel.refresh_presets()
                 logger.info("Presets panel refreshed after preset creation")
 
@@ -334,9 +352,13 @@ class GalleryWindow(QWidget):
             logger.error(f"Error handling preset created: {e}")
 
     async def _handle_preset_updated(self, event_data) -> None:
-        """Handle preset updated events."""
+        """Handle preset updated events with cache invalidation."""
         try:
-            if self.presets_panel:
+            # Invalidate preset cache
+            self.invalidate_cache('presets')
+
+            # Only refresh if gallery is visible and content is loaded
+            if self.isVisible() and self._content_loaded and self.presets_panel:
                 await self.presets_panel.refresh_presets()
                 logger.info("Presets panel refreshed after preset update")
 
@@ -344,9 +366,13 @@ class GalleryWindow(QWidget):
             logger.error(f"Error handling preset updated: {e}")
 
     async def _handle_preset_deleted(self, event_data) -> None:
-        """Handle preset deleted events."""
+        """Handle preset deleted events with cache invalidation."""
         try:
-            if self.presets_panel:
+            # Invalidate preset cache
+            self.invalidate_cache('presets')
+
+            # Only refresh if gallery is visible and content is loaded
+            if self.isVisible() and self._content_loaded and self.presets_panel:
                 await self.presets_panel.refresh_presets()
                 logger.info("Presets panel refreshed after preset deletion")
 
@@ -613,6 +639,9 @@ class GalleryWindow(QWidget):
         self.setGeometry(100, 100, 1200, 800)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
 
+        # Enable key events for shortcuts
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
         # Main layout
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -683,24 +712,215 @@ class GalleryWindow(QWidget):
                     logger.error("Failed to initialize gallery")
                     return
 
-            # Load content only if not already loaded
-            if not self._content_loaded:
-                await self._load_content()
+            # Only load content if not already loaded or cache is invalid
+            content_was_loaded = self._content_loaded
+            if not self._content_loaded or not self._is_cache_valid():
+                await self._load_content_with_cache()
                 self._content_loaded = True
-
-            # Pre-select screenshot if specified
-            if pre_selected_screenshot_id and self.screenshots_gallery:
-                await self.screenshots_gallery.select_screenshot(pre_selected_screenshot_id)
 
             # Show the window
             self.show()
             self.raise_()
             self.activateWindow()
 
+            # Handle pre-selection logic
+            if pre_selected_screenshot_id:
+                if content_was_loaded and self._is_cache_valid():
+                    # Content was already loaded, try immediate selection
+                    if self.screenshots_gallery:
+                        await self.screenshots_gallery.select_screenshot(pre_selected_screenshot_id)
+
+                # Always do a background refresh with selection to catch any new files
+                # This ensures we don't miss recently created screenshots
+                asyncio.create_task(self._refresh_screenshots_directory_async(pre_selected_screenshot_id))
+            else:
+                # Just do a standard refresh without selection
+                asyncio.create_task(self._refresh_screenshots_directory_async())
+
             logger.info("Gallery window shown")
 
         except Exception as e:
             logger.error(f"Error showing gallery: {e}")
+
+    async def _refresh_screenshots_directory_async(self, pre_selected_screenshot_id: Optional[str] = None):
+        """Asynchronously refresh the screenshots directory to catch any new files."""
+        try:
+            # Small delay to let the UI settle after showing
+            await asyncio.sleep(0.1)
+
+            if self.screenshots_gallery and self.screenshot_manager:
+                # Force a fresh scan of the screenshot directory to catch potential new files
+                logger.debug("Triggering background screenshot directory refresh with force scan")
+
+                # Use force_directory_refresh to ensure we catch any new files
+                # that might have been created while the gallery was hidden
+                if hasattr(self.screenshots_gallery, 'force_directory_refresh'):
+                    await self.screenshots_gallery.force_directory_refresh()
+                else:
+                    # Fallback to regular refresh
+                    await self.screenshots_gallery.refresh_screenshots()
+
+                # Try to select the pre-selected screenshot after refresh
+                # This is crucial for cases where the gallery was hidden and a new screenshot
+                # was captured - the initial selection might fail if the screenshot wasn't loaded yet
+                if pre_selected_screenshot_id and self.screenshots_gallery:
+                    logger.debug(f"Attempting to select screenshot after refresh: {pre_selected_screenshot_id[:8]}")
+                    await self.screenshots_gallery.select_screenshot(pre_selected_screenshot_id)
+
+                # Update cache with fresh data
+                await self._update_cache()
+
+                logger.debug("Background screenshot directory refresh completed")
+
+        except Exception as e:
+            logger.error(f"Error during background screenshot directory refresh: {e}")
+
+    async def _load_content_with_cache(self):
+        """Load gallery content with intelligent caching."""
+        try:
+            # Check if cache is still valid
+            if self._is_cache_valid():
+                logger.info("Using cached gallery content")
+                await self._restore_from_cache()
+            else:
+                logger.info("Cache expired or invalid, reloading content")
+                await self._load_fresh_content()
+                await self._update_cache()
+
+        except Exception as e:
+            logger.error(f"Error loading gallery content with cache: {e}")
+            # Fallback to direct loading if cache fails
+            await self._load_content()
+
+    def _is_cache_valid(self) -> bool:
+        """Check if the current cache is still valid."""
+        if not self._cache_timestamp:
+            return False
+
+        import time
+        current_time = time.time()
+        return (current_time - self._cache_timestamp) < self._cache_expiry_seconds
+
+    async def _restore_from_cache(self):
+        """Restore gallery content from cache."""
+        try:
+            # If content is already loaded and cache is valid, don't reload
+            if self._content_loaded and self._is_cache_valid():
+                logger.info("Content already loaded and cache valid, skipping reload")
+                return
+
+            # Load screenshots only if not already loaded
+            if self.screenshots_gallery and not self.screenshots_gallery.screenshot_items:
+                await self.screenshots_gallery.load_screenshots()
+
+            # Load presets only if not already loaded
+            if self.presets_panel:
+                await self.presets_panel.refresh_presets()
+
+            # Restore UI state
+            if self._ui_state_cache:
+                await self._restore_ui_state(self._ui_state_cache)
+
+            logger.info("Gallery content loaded (cache-aware)")
+
+        except Exception as e:
+            logger.error(f"Error restoring from cache: {e}")
+            # Fallback to fresh load
+            await self._load_fresh_content()
+
+    async def _load_fresh_content(self):
+        """Load fresh content from data sources."""
+        try:
+            # Load screenshots
+            if self.screenshots_gallery:
+                await self.screenshots_gallery.load_screenshots()
+
+            # Load presets
+            if self.presets_panel:
+                await self.presets_panel.refresh_presets()
+
+            logger.info("Fresh gallery content loaded")
+
+        except Exception as e:
+            logger.error(f"Error loading fresh gallery content: {e}")
+
+    async def _update_cache(self):
+        """Update the cache with current data."""
+        try:
+            import time
+
+            # Cache screenshot metadata
+            if self.screenshots_gallery:
+                screenshots = await self.screenshot_manager.get_recent_screenshots(limit=50)
+                self._screenshot_cache = {
+                    'screenshots': [
+                        {
+                            'hash': s.hash or s.unique_id,
+                            'filename': s.filename,
+                            'timestamp': s.timestamp,
+                            'full_path': s.full_path
+                        }
+                        for s in screenshots if s.hash or s.unique_id
+                    ]
+                }
+
+            # Cache preset data
+            if self.presets_panel:
+                # We don't have direct access to preset list, so we'll cache later when events update
+                pass
+
+            # Cache UI state
+            self._ui_state_cache = {
+                'selected_screenshot_id': self.gallery_state.selected_screenshot_id,
+                'window_geometry': self.geometry(),
+                'splitter_sizes': None  # We'll add this if we can access splitter
+            }
+
+            # Update cache timestamp
+            self._cache_timestamp = time.time()
+
+            logger.info("Gallery cache updated")
+
+        except Exception as e:
+            logger.error(f"Error updating cache: {e}")
+
+    async def _restore_ui_state(self, ui_state: dict):
+        """Restore UI state from cache."""
+        try:
+            # Restore selected screenshot
+            if ui_state.get('selected_screenshot_id') and self.screenshots_gallery:
+                await self.screenshots_gallery.select_screenshot(ui_state['selected_screenshot_id'])
+
+            # Restore window geometry
+            if ui_state.get('window_geometry'):
+                self.setGeometry(ui_state['window_geometry'])
+
+            logger.info("UI state restored from cache")
+
+        except Exception as e:
+            logger.error(f"Error restoring UI state: {e}")
+
+    def invalidate_cache(self, cache_type: Optional[str] = None):
+        """Invalidate specific cache or all caches."""
+        if cache_type == 'screenshots':
+            self._screenshot_cache.clear()
+        elif cache_type == 'presets':
+            self._preset_cache.clear()
+        elif cache_type == 'thumbnails':
+            self._thumbnail_cache.clear()
+        elif cache_type == 'ui_state':
+            self._ui_state_cache.clear()
+        else:
+            # Invalidate all caches
+            self._screenshot_cache.clear()
+            self._preset_cache.clear()
+            self._thumbnail_cache.clear()
+            self._ui_state_cache.clear()
+            self._cache_timestamp = None
+            # Reset content loaded flag when invalidating all caches
+            self._content_loaded = False
+
+        logger.info(f"Cache invalidated: {cache_type or 'all'}")
 
     async def _load_content(self):
         """Load all gallery content."""
@@ -994,7 +1214,51 @@ class GalleryWindow(QWidget):
             logger.warning("No style manager available for theme application")
 
     def closeEvent(self, a0):
-        """Handle window close event."""
+        """Handle window close event - hide instead of close to preserve state."""
+        # Cache current UI state before hiding
+        asyncio.create_task(self._update_cache())
+
+        # Hide the window instead of closing it
+        if a0:
+            a0.ignore()  # Ignore the close event
+        self.hide()  # Hide instead of closing
+
+        # Emit gallery closed event
         self.gallery_closed.emit()
-        logger.info("Gallery window closed")
-        super().closeEvent(a0)
+        logger.info("Gallery window hidden (not closed)")
+
+    def keyPressEvent(self, a0):
+        """Handle key press events for shortcuts."""
+        try:
+            if not a0:
+                return
+
+            from PyQt6.QtCore import Qt
+
+            # F5 or Ctrl+R for manual refresh
+            if (a0.key() == Qt.Key.Key_F5 or
+                (a0.modifiers() == Qt.KeyboardModifier.ControlModifier and a0.key() == Qt.Key.Key_R)):
+
+                logger.info("Manual refresh triggered by user")
+                if self.screenshots_gallery:
+                    asyncio.create_task(self.screenshots_gallery.force_directory_refresh())
+
+                a0.accept()
+                return
+
+            # Escape to hide window
+            elif a0.key() == Qt.Key.Key_Escape:
+                self.hide()
+                a0.accept()
+                return
+
+        except Exception as e:
+            logger.error(f"Error handling key press event: {e}")
+
+        # Pass to parent for unhandled keys
+        super().keyPressEvent(a0)
+
+    def force_close(self):
+        """Force close the gallery window (used only during app shutdown)."""
+        logger.info("Force closing gallery window")
+        super().close()
