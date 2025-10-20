@@ -1215,9 +1215,6 @@ class GalleryWindow(QWidget):
 
     def closeEvent(self, a0):
         """Handle window close event - hide instead of close to preserve state."""
-        # Cache current UI state before hiding
-        asyncio.create_task(self._update_cache())
-
         # Hide the window instead of closing it
         if a0:
             a0.ignore()  # Ignore the close event
