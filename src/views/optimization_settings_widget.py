@@ -50,7 +50,6 @@ class OptimizationSettingsWidget(QWidget):
         self.storage_widgets = {}
         self.thumbnail_widgets = {}
         self.request_widgets = {}
-        self.monitoring_widgets = {}
 
         self.setup_ui()
         self.connect_signals()
@@ -67,7 +66,6 @@ class OptimizationSettingsWidget(QWidget):
         self.setup_storage_tab()
         self.setup_thumbnail_tab()
         self.setup_request_tab()
-        self.setup_monitoring_tab()
 
         # Add control buttons
         self.setup_control_buttons(layout)
@@ -236,70 +234,6 @@ class OptimizationSettingsWidget(QWidget):
         scroll_area.setWidget(request_widget)
         self.tab_widget.addTab(scroll_area, "Requests")
 
-    def setup_monitoring_tab(self) -> None:
-        """Setup performance monitoring settings tab."""
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-
-        monitoring_widget = QWidget()
-        layout = QVBoxLayout(monitoring_widget)
-
-        # Monitoring settings group
-        monitor_group = QGroupBox("Performance Monitoring")
-        monitor_layout = QFormLayout(monitor_group)
-
-        # Monitoring enabled
-        self.monitoring_widgets['enabled'] = QCheckBox("Enable performance monitoring")
-        self.monitoring_widgets['enabled'].setToolTip("Monitor system performance and trigger optimizations")
-        monitor_layout.addRow(self.monitoring_widgets['enabled'])
-
-        # Memory threshold
-        self.monitoring_widgets['memory_threshold'] = QSpinBox()
-        self.monitoring_widgets['memory_threshold'].setRange(256, 8192)
-        self.monitoring_widgets['memory_threshold'].setSuffix(" MB")
-        self.monitoring_widgets['memory_threshold'].setToolTip("Memory usage threshold for alerts")
-        monitor_layout.addRow("Memory Threshold:", self.monitoring_widgets['memory_threshold'])
-
-        # Disk usage threshold
-        self.monitoring_widgets['disk_threshold'] = QSpinBox()
-        self.monitoring_widgets['disk_threshold'].setRange(50, 95)
-        self.monitoring_widgets['disk_threshold'].setSuffix("%")
-        self.monitoring_widgets['disk_threshold'].setToolTip("Disk usage threshold for cleanup")
-        monitor_layout.addRow("Disk Threshold:", self.monitoring_widgets['disk_threshold'])
-
-        # CPU threshold
-        self.monitoring_widgets['cpu_threshold'] = QSpinBox()
-        self.monitoring_widgets['cpu_threshold'].setRange(50, 95)
-        self.monitoring_widgets['cpu_threshold'].setSuffix("%")
-        self.monitoring_widgets['cpu_threshold'].setToolTip("CPU usage threshold for throttling")
-        monitor_layout.addRow("CPU Threshold:", self.monitoring_widgets['cpu_threshold'])
-
-        layout.addWidget(monitor_group)
-
-        # Background tasks group
-        tasks_group = QGroupBox("Background Tasks")
-        tasks_layout = QFormLayout(tasks_group)
-
-        self.monitoring_widgets['background_cleanup'] = QCheckBox("Enable background cleanup")
-        self.monitoring_widgets['background_cleanup'].setToolTip("Run cleanup tasks in background")
-        tasks_layout.addRow(self.monitoring_widgets['background_cleanup'])
-
-        self.monitoring_widgets['metrics_collection'] = QCheckBox("Enable metrics collection")
-        self.monitoring_widgets['metrics_collection'].setToolTip("Collect performance metrics for analysis")
-        tasks_layout.addRow(self.monitoring_widgets['metrics_collection'])
-
-        self.monitoring_widgets['metrics_retention'] = QSpinBox()
-        self.monitoring_widgets['metrics_retention'].setRange(1, 90)
-        self.monitoring_widgets['metrics_retention'].setSuffix(" days")
-        self.monitoring_widgets['metrics_retention'].setToolTip("How long to keep performance metrics")
-        tasks_layout.addRow("Metrics Retention:", self.monitoring_widgets['metrics_retention'])
-
-        layout.addWidget(tasks_group)
-        layout.addStretch()
-
-        scroll_area.setWidget(monitoring_widget)
-        self.tab_widget.addTab(scroll_area, "Monitoring")
-
     def setup_control_buttons(self, layout: QVBoxLayout) -> None:
         """Setup control buttons at bottom of widget."""
         button_layout = QHBoxLayout()
@@ -344,13 +278,6 @@ class OptimizationSettingsWidget(QWidget):
             elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
                 widget.valueChanged.connect(lambda value, k=key: self.on_setting_changed(f'request_{k}', value))
 
-        # Monitoring widgets
-        for key, widget in self.monitoring_widgets.items():
-            if isinstance(widget, QCheckBox):
-                widget.toggled.connect(lambda checked, k=key: self.on_setting_changed(f'monitoring_{k}', checked))
-            elif isinstance(widget, QSpinBox):
-                widget.valueChanged.connect(lambda value, k=key: self.on_setting_changed(f'monitoring_{k}', value))
-
     def on_setting_changed(self, setting_key: str, value: Any) -> None:
         """Handle setting change."""
         self.settings_changed.emit(setting_key, value)
@@ -389,15 +316,6 @@ class OptimizationSettingsWidget(QWidget):
             self.request_widgets['max_concurrent'].setValue(self.optimization_config.max_concurrent_requests)
             self.request_widgets['timeout'].setValue(self.optimization_config.request_timeout)
             self.request_widgets['retries'].setValue(self.optimization_config.retry_attempts)
-
-            # Update monitoring widgets
-            self.monitoring_widgets['enabled'].setChecked(self.optimization_config.performance_monitoring_enabled)
-            self.monitoring_widgets['memory_threshold'].setValue(self.optimization_config.memory_threshold_mb)
-            self.monitoring_widgets['disk_threshold'].setValue(self.optimization_config.disk_usage_threshold_percent)
-            self.monitoring_widgets['cpu_threshold'].setValue(self.optimization_config.cpu_threshold_percent)
-            self.monitoring_widgets['background_cleanup'].setChecked(self.optimization_config.background_cleanup_enabled)
-            self.monitoring_widgets['metrics_collection'].setChecked(self.optimization_config.metrics_collection_enabled)
-            self.monitoring_widgets['metrics_retention'].setValue(self.optimization_config.metrics_retention_days)
 
         except Exception as e:
             self.logger.error(f"Error updating UI from config: {e}")

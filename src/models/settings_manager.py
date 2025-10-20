@@ -113,16 +113,8 @@ class OptimizationConfig:
     request_timeout: float = 30.0
     retry_attempts: int = 2
 
-    # Performance monitoring
-    performance_monitoring_enabled: bool = True
-    memory_threshold_mb: int = 1024
-    disk_usage_threshold_percent: int = 90
-    cpu_threshold_percent: int = 80
-
     # Background tasks
     background_cleanup_enabled: bool = True
-    metrics_collection_enabled: bool = True
-    metrics_retention_days: int = 30
 
 
 @dataclass
@@ -217,10 +209,6 @@ class SettingsManager:
             'optimization.max_concurrent_requests': lambda x: 1 <= x <= 10,
             'optimization.request_timeout': lambda x: 5.0 <= x <= 300.0,
             'optimization.retry_attempts': lambda x: 0 <= x <= 5,
-            'optimization.memory_threshold_mb': lambda x: 256 <= x <= 8192,
-            'optimization.disk_usage_threshold_percent': lambda x: 50 <= x <= 95,
-            'optimization.cpu_threshold_percent': lambda x: 50 <= x <= 95,
-            'optimization.metrics_retention_days': lambda x: 1 <= x <= 90,
         }
 
     async def initialize_database(self) -> None:

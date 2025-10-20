@@ -49,6 +49,11 @@ class OptimizedMainController:
                 self.logger.warning("MainController not initialized, cannot add optimizations")
                 return False
 
+            # Check if database manager is available (required for optimization)
+            if not self.main_controller.database_manager:
+                self.logger.warning("DatabaseManager not available, cannot initialize optimizations")
+                return False
+
             # Import here to avoid circular imports
             from ..models.optimization_integration import OptimizedComponentManager
 
@@ -83,13 +88,6 @@ class OptimizedMainController:
     async def _subscribe_optimization_events(self) -> None:
         """Subscribe to optimization-related events."""
         try:
-            # Subscribe to performance monitoring events
-            await self.main_controller.event_bus.subscribe(
-                "performance.threshold_exceeded",
-                self._handle_performance_threshold,
-                priority=80
-            )
-
             # Subscribe to storage events
             await self.main_controller.event_bus.subscribe(
                 "storage.cleanup_needed",
@@ -97,30 +95,8 @@ class OptimizedMainController:
                 priority=80
             )
 
-            # Subscribe to cache events
-            await self.main_controller.event_bus.subscribe(
-                "cache.cleanup_needed",
-                self._handle_cache_cleanup,
-                priority=80
-            )
-
         except Exception as e:
             self.logger.error(f"Error subscribing to optimization events: {e}")
-
-    async def _handle_performance_threshold(self, event_data) -> None:
-        """Handle performance threshold exceeded events."""
-        try:
-            threshold_data = event_data.data or {}
-            metric_type = threshold_data.get('metric_type', 'unknown')
-
-            self.logger.warning(f"Performance threshold exceeded: {metric_type}")
-
-            # Trigger cleanup if memory threshold exceeded
-            if metric_type == 'memory_usage' and self.optimization_manager:
-                await self.optimization_manager.cleanup_old_data()
-
-        except Exception as e:
-            self.logger.error(f"Error handling performance threshold: {e}")
 
     async def _handle_storage_cleanup(self, event_data) -> None:
         """Handle storage cleanup events."""
@@ -133,20 +109,6 @@ class OptimizedMainController:
 
         except Exception as e:
             self.logger.error(f"Error handling storage cleanup: {e}")
-
-    async def _handle_cache_cleanup(self, event_data) -> None:
-        """Handle cache cleanup events."""
-        try:
-            self.logger.info("Cache cleanup requested")
-
-            if self.optimization_manager:
-                cache_manager = self.optimization_manager.get_cache_manager()
-                if cache_manager:
-                    # Use cache manager cleanup methods
-                    self.logger.info("Cache cleanup completed")
-
-        except Exception as e:
-            self.logger.error(f"Error handling cache cleanup: {e}")
 
     async def get_optimization_status(self) -> Dict[str, Any]:
         """
@@ -196,12 +158,6 @@ class OptimizedMainController:
                 storage_manager = self.optimization_manager.get_storage_manager()
                 if storage_manager:
                     # Storage manager will track new files automatically
-                    pass
-
-                # Update performance metrics
-                performance_monitor = self.optimization_manager.get_performance_monitor()
-                if performance_monitor:
-                    # Performance monitor will track capture metrics
                     pass
 
             return result

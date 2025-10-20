@@ -166,9 +166,6 @@ class SettingsWindow(QDialog):
         self.opt_request_pooling: Optional[QCheckBox] = None
         self.opt_max_concurrent: Optional[QSpinBox] = None
         self.opt_request_timeout: Optional[QSpinBox] = None
-        self.opt_monitoring_enabled: Optional[QCheckBox] = None
-        self.opt_memory_threshold: Optional[QSpinBox] = None
-        self.opt_disk_threshold: Optional[QSpinBox] = None
 
         # Setup UI and styling
         self.setup_ui()
@@ -562,33 +559,6 @@ class SettingsWindow(QDialog):
 
         scroll_layout.addWidget(request_group)
 
-        # Performance Monitoring Group
-        monitoring_group = QGroupBox("Performance Monitoring")
-        monitoring_layout = QFormLayout(monitoring_group)
-
-        # Monitoring enabled
-        self.opt_monitoring_enabled = QCheckBox("Enable performance monitoring")
-        self.opt_monitoring_enabled.setToolTip("Monitor system performance and trigger automatic optimizations")
-        monitoring_layout.addRow(self.opt_monitoring_enabled)
-
-        # Memory threshold
-        self.opt_memory_threshold = QSpinBox()
-        self.opt_memory_threshold.setRange(256, 8192)
-        self.opt_memory_threshold.setValue(1024)
-        self.opt_memory_threshold.setSuffix(" MB")
-        self.opt_memory_threshold.setToolTip("Memory usage threshold for performance alerts (256-8192 MB)")
-        monitoring_layout.addRow("Memory Threshold:", self.opt_memory_threshold)
-
-        # Disk threshold
-        self.opt_disk_threshold = QSpinBox()
-        self.opt_disk_threshold.setRange(50, 95)
-        self.opt_disk_threshold.setValue(90)
-        self.opt_disk_threshold.setSuffix("%")
-        self.opt_disk_threshold.setToolTip("Disk usage threshold for cleanup triggers (50-95%)")
-        monitoring_layout.addRow("Disk Threshold:", self.opt_disk_threshold)
-
-        scroll_layout.addWidget(monitoring_group)
-
         # Add stretch to push everything to the top
         scroll_layout.addStretch()
 
@@ -927,14 +897,6 @@ class SettingsWindow(QDialog):
                 if self.opt_request_timeout:
                     self.opt_request_timeout.setValue(int(opt.request_timeout))
 
-                # Monitoring settings
-                if self.opt_monitoring_enabled:
-                    self.opt_monitoring_enabled.setChecked(opt.performance_monitoring_enabled)
-                if self.opt_memory_threshold:
-                    self.opt_memory_threshold.setValue(opt.memory_threshold_mb)
-                if self.opt_disk_threshold:
-                    self.opt_disk_threshold.setValue(opt.disk_usage_threshold_percent)
-
         except Exception as e:
             logger.error(f"Error populating form fields: {e}")
 
@@ -985,11 +947,6 @@ class SettingsWindow(QDialog):
                     "request_pooling_enabled": self.opt_request_pooling.isChecked() if self.opt_request_pooling else True,
                     "max_concurrent_requests": self.opt_max_concurrent.value() if self.opt_max_concurrent else 3,
                     "request_timeout": float(self.opt_request_timeout.value()) if self.opt_request_timeout else 30.0,
-
-                    # Monitoring settings
-                    "performance_monitoring_enabled": self.opt_monitoring_enabled.isChecked() if self.opt_monitoring_enabled else True,
-                    "memory_threshold_mb": self.opt_memory_threshold.value() if self.opt_memory_threshold else 1024,
-                    "disk_usage_threshold_percent": self.opt_disk_threshold.value() if self.opt_disk_threshold else 90,
                 }
             }
 

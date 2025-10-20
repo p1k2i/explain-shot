@@ -840,12 +840,6 @@ async def get_screenshots(self, limit: int = 10) -> List[ScreenshotMetadata]:
 - Configurable retention policies
 - Archive support for long-term storage
 
-**Resource Monitoring:**
-- Performance metrics tracking
-- CPU and memory monitoring
-- Database query optimization
-- Async operations for non-blocking I/O
-
 ### 7.8 Auto-Start Capability
 
 **Functionality:**

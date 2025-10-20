@@ -7,7 +7,7 @@ backwards compatibility and the existing API surface.
 """
 
 import logging
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import Optional, Dict, Any, TYPE_CHECKING, cast
 
 from ..controllers.event_bus import EventBus
 from ..models.database_manager import DatabaseManager
@@ -16,7 +16,6 @@ from ..models.database_schema_migration import DatabaseSchemaMigration
 from .thumbnail_manager import ThumbnailManager
 from .storage_manager import StorageManager
 from .request_manager import RequestManager
-from ..models.performance_monitor import PerformanceMonitor
 from ..models.settings_manager import SettingsManager
 
 if TYPE_CHECKING:
@@ -43,7 +42,7 @@ class OptimizedComponentManager:
     def __init__(
         self,
         event_bus: EventBus,
-        database_manager: DatabaseManager,
+        database_manager: Optional[DatabaseManager],
         settings_manager: SettingsManager,
         logger: Optional[logging.Logger] = None
     ):
@@ -52,14 +51,20 @@ class OptimizedComponentManager:
 
         Args:
             event_bus: EventBus for component communication
-            database_manager: DatabaseManager for persistence
+            database_manager: DatabaseManager for persistence (can be None)
             settings_manager: SettingsManager for configuration
             logger: Optional logger instance
         """
         self.event_bus = event_bus
-        self.db_manager = database_manager
         self.settings_manager = settings_manager
         self.logger = logger or logging.getLogger(__name__)
+
+        # Validate required components
+        if not database_manager:
+            raise ValueError("database_manager is required for optimization components")
+
+        # Cast to non-optional type after validation
+        self.db_manager: DatabaseManager = cast(DatabaseManager, database_manager)
 
         # Core optimization components
         self.db_extensions: Optional[DatabaseExtensions] = None
@@ -67,7 +72,6 @@ class OptimizedComponentManager:
         self.thumbnail_manager: Optional[ThumbnailManager] = None
         self.storage_manager: Optional[StorageManager] = None
         self.request_manager: Optional[RequestManager] = None
-        self.performance_monitor: Optional[PerformanceMonitor] = None
 
         # Component state
         self._initialized = False
@@ -134,21 +138,6 @@ class OptimizedComponentManager:
                     event_bus=self.event_bus
                 )
                 await self.request_manager.initialize()
-
-            # Initialize performance monitor
-            self.performance_monitor = PerformanceMonitor(
-                event_bus=self.event_bus
-            )
-
-            # Register components with performance monitor
-            self.performance_monitor.register_components(
-                thumbnail_manager=self.thumbnail_manager,
-                storage_manager=self.storage_manager,
-                request_manager=self.request_manager
-            )
-
-            # Start performance monitoring
-            await self.performance_monitor.initialize()
 
             self._initialized = True
             self.logger.info("Optimization components initialized successfully")
@@ -228,10 +217,7 @@ class OptimizedComponentManager:
                 'cache_ttl_hours': 24,
                 'max_concurrent_requests': 3,
                 'request_timeout': 30.0,
-                'enable_performance_monitoring': True,
-                'cleanup_interval_hours': 24,
-                'memory_threshold_mb': 1024,
-                'disk_usage_threshold_percent': 90
+                'cleanup_interval_hours': 24
             }
 
             # Load settings with defaults
@@ -259,8 +245,7 @@ class OptimizedComponentManager:
             'migration_manager': self.migration_manager is not None,
             'thumbnail_manager': self.thumbnail_manager is not None,
             'storage_manager': self.storage_manager is not None,
-            'request_manager': self.request_manager is not None and self.request_manager._initialized,
-            'performance_monitor': self.performance_monitor is not None and self.performance_monitor._collection_task is not None and not self.performance_monitor._collection_task.done()
+            'request_manager': self.request_manager is not None and self.request_manager._initialized
         }
 
     # Component access methods
@@ -276,10 +261,6 @@ class OptimizedComponentManager:
     def get_request_manager(self) -> Optional[RequestManager]:
         """Get the optimized request manager."""
         return self.request_manager
-
-    def get_performance_monitor(self) -> Optional[PerformanceMonitor]:
-        """Get the performance monitor."""
-        return self.performance_monitor
 
     # Convenience methods for common operations
 
@@ -324,12 +305,6 @@ class OptimizedComponentManager:
             # Get storage statistics
             if self.storage_manager:
                 stats['storage'] = await self.storage_manager.get_storage_statistics()
-
-            # Get performance metrics
-            if self.performance_monitor and self.db_extensions:
-                stats['performance'] = await self.db_extensions.get_metric_aggregates(
-                    'memory_usage', hours_back=1
-                )
 
             # Get component status
             stats['components'] = self._get_component_status()
@@ -401,10 +376,6 @@ class OptimizedComponentManager:
 
         try:
             self.logger.info("Shutting down optimization components...")
-
-            # Stop performance monitoring
-            if self.performance_monitor:
-                await self.performance_monitor.shutdown()
 
             # Shutdown request manager
             if self.request_manager:
