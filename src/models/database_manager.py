@@ -330,10 +330,6 @@ class DatabaseManager:
             stats = {}
 
             async with self._get_connection() as conn:
-                # Presets count
-                cursor = await conn.execute("SELECT COUNT(*) FROM presets")
-                stats['preset_count'] = cursor.fetchone()[0]
-
                 # Settings count
                 cursor = await conn.execute("SELECT COUNT(*) FROM settings")
                 stats['setting_count'] = cursor.fetchone()[0]

@@ -6,7 +6,7 @@ and persistence using SQLite database storage.
 """
 
 import logging
-from typing import Any, Dict, Optional, List, Callable
+from typing import Any, Dict, Optional, Callable
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 import asyncio
@@ -176,9 +176,6 @@ class SettingsManager:
         # Validation rules
         self._validation_rules = self._setup_validation_rules()
 
-        # Change callbacks
-        self._change_callbacks: List[Callable] = []
-
         # Event bus for settings change notifications
         self._event_bus = get_event_bus()
 
@@ -324,9 +321,6 @@ class SettingsManager:
                 logger.warning("No database manager available for saving settings")
 
             self._settings = settings
-
-            # Notify change callbacks
-            await self._notify_changes()
 
             # Emit settings updated event
             await self._event_bus.emit(
@@ -501,16 +495,6 @@ class SettingsManager:
             await self.save_settings(settings)
             logger.info("Settings section '%s' reset to defaults", section)
 
-    async def export_settings(self) -> Dict[str, Any]:
-        """
-        Export settings as dictionary.
-
-        Returns:
-            Settings dictionary
-        """
-        settings = await self.load_settings()
-        return asdict(settings)
-
     async def import_settings(self, data: Dict[str, Any], validate: bool = True) -> bool:
         """
         Import settings from dictionary.
@@ -559,56 +543,6 @@ class SettingsManager:
         except Exception as e:
             logger.error("Failed to import settings: %s", e)
             return False
-
-    def add_change_callback(self, callback: Callable) -> None:
-        """
-        Add callback for settings changes.
-
-        Args:
-            callback: Function to call when settings change
-        """
-        self._change_callbacks.append(callback)
-
-    def remove_change_callback(self, callback: Callable) -> bool:
-        """
-        Remove settings change callback.
-
-        Args:
-            callback: Callback to remove
-
-        Returns:
-            True if removed
-        """
-        try:
-            self._change_callbacks.remove(callback)
-            return True
-        except ValueError:
-            return False
-
-    async def _notify_changes(self) -> None:
-        """Notify all change callbacks."""
-        for callback in self._change_callbacks:
-            try:
-                if asyncio.iscoroutinefunction(callback):
-                    await callback(self._settings)
-                else:
-                    callback(self._settings)
-            except Exception as e:
-                logger.error("Error in settings change callback: %s", e)
-
-    async def cleanup_old_backups(self, keep_count: int = 5) -> int:
-        """
-        Clean up old settings backups.
-
-        Args:
-            keep_count: Number of backups to keep
-
-        Returns:
-            Number of backups removed
-        """
-        # This would implement backup cleanup logic
-        # For now, just return 0
-        return 0
 
     def __str__(self) -> str:
         """String representation of settings."""

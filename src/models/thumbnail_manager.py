@@ -120,24 +120,7 @@ class ThumbnailManager:
         self._last_stats_emit = datetime.now()
         self._stats_emit_interval = timedelta(seconds=5)
 
-        # Callbacks for UI integration
-        self._thumbnail_ready_callbacks: List = []
-        self._batch_loaded_callbacks: List = []
-        self._stats_updated_callbacks: List = []
-
         logger.info(f"ThumbnailManager initialized - Cache: {cache_size}, Memory: {max_memory_mb}MB")
-
-    def add_thumbnail_ready_callback(self, callback):
-        """Add callback for when individual thumbnails are ready."""
-        self._thumbnail_ready_callbacks.append(callback)
-
-    def add_batch_loaded_callback(self, callback):
-        """Add callback for when batch of thumbnails is loaded."""
-        self._batch_loaded_callbacks.append(callback)
-
-    def add_stats_updated_callback(self, callback):
-        """Add callback for statistics updates."""
-        self._stats_updated_callbacks.append(callback)
 
     async def initialize(self) -> None:
         """Initialize the thumbnail manager."""
@@ -149,7 +132,6 @@ class ThumbnailManager:
             # Subscribe to events
             if self.event_bus:
                 self.event_bus.subscribe("gallery.viewport_changed", self._handle_viewport_changed)
-                self.event_bus.subscribe("gallery.scroll_event", self._handle_scroll_event)
                 self.event_bus.subscribe("settings.changed", self._handle_settings_changed)
 
             logger.info("ThumbnailManager initialized successfully")
@@ -228,14 +210,6 @@ class ThumbnailManager:
                             missing_thumbnails.append(screenshot_id)
                         self._stats.miss_count += 1
 
-            # Emit ready thumbnails immediately
-            if ready_thumbnails:
-                for callback in self._batch_loaded_callbacks:
-                    try:
-                        callback(ready_thumbnails)
-                    except Exception as e:
-                        logger.error(f"Error in batch loaded callback: {e}")
-
             # Queue missing thumbnails for generation
             for screenshot_id in missing_thumbnails:
                 if screenshot_id in screenshot_paths:
@@ -274,12 +248,6 @@ class ThumbnailManager:
                 image_bytes, format_str = result
                 await self._store_thumbnail(screenshot_id, image_bytes, format_str, generation_time)
 
-                # Notify callbacks
-                for callback in self._thumbnail_ready_callbacks:
-                    try:
-                        callback(screenshot_id, image_bytes, format_str)
-                    except Exception as e:
-                        logger.error(f"Error in thumbnail ready callback: {e}")
             else:
                 logger.warning(f"Failed to generate thumbnail for {screenshot_id}")
 
@@ -556,13 +524,6 @@ class ThumbnailManager:
             if now - self._last_stats_emit >= self._stats_emit_interval:
                 stats = self.get_cache_statistics()
 
-                # Notify callbacks
-                for callback in self._stats_updated_callbacks:
-                    try:
-                        callback(stats)
-                    except Exception as e:
-                        logger.error(f"Error in stats callback: {e}")
-
                 self._last_stats_emit = now
 
                 # Emit performance event if available
@@ -593,16 +554,6 @@ class ThumbnailManager:
 
         except Exception as e:
             logger.error(f"Failed to handle viewport change: {e}")
-
-    async def _handle_scroll_event(self, event_data):
-        """Handle scroll events for prefetch optimization."""
-        try:
-            # Could implement scroll direction prediction here
-            # For now, viewport_changed is sufficient
-            pass
-
-        except Exception as e:
-            logger.error(f"Failed to handle scroll event: {e}")
 
     async def _handle_settings_changed(self, event_data):
         """Handle settings changes."""

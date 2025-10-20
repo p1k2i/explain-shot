@@ -1406,7 +1406,6 @@ await settings_manager.save_settings()
 health = await ollama_client.check_health()
 if not health:
     logger.error("Ollama server unavailable")
-    # Use cached responses instead
 ```
 
 ### 11.3 Database Corruption
