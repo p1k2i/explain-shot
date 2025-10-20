@@ -354,7 +354,7 @@ class TrayManager:
 
             elif action == TrayMenuAction.ABOUT:
                 await self._event_bus.emit(
-                    EventTypes.TRAY_MENU_SELECTED,
+                    EventTypes.TRAY_ABOUT_REQUESTED,
                     {'action': 'about'},
                     source="tray"
                 )

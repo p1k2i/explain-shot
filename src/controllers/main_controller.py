@@ -193,6 +193,12 @@ class MainController:
             priority=100
         )
 
+        await self.event_bus.subscribe(
+            EventTypes.TRAY_ABOUT_REQUESTED,
+            self._handle_about_action,
+            priority=90
+        )
+
         # Settings events
         await self.event_bus.subscribe(
             EventTypes.SETTINGS_UPDATED,
@@ -443,6 +449,22 @@ class MainController:
 
         except Exception as e:
             logger.error("Error handling quit request: %s", e)
+
+
+    async def _handle_about_action(self, event_data) -> None:
+        """Handle the About menu action by opening the project URL in browser."""
+        try:
+            import webbrowser
+
+            # Open the GitHub repository URL in the default browser
+            url = "https://github.com/p1k2i/explain-shot"
+            webbrowser.open(url)
+
+            logger.info("Opened About URL in browser: %s", url)
+
+        except Exception as e:
+            logger.error("Error opening About URL: %s", e)
+            await self._emit_error("about_url_open_failed", str(e))
 
     async def _handle_settings_updated(self, event_data) -> None:
         """Handle settings update events."""

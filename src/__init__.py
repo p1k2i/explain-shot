@@ -67,7 +67,7 @@ class EventTypes:
     TRAY_GALLERY_REQUESTED = "tray.gallery_requested"
     TRAY_OVERLAY_TOGGLE = "tray.overlay_toggle"
     TRAY_QUIT_REQUESTED = "tray.quit_requested"
-    TRAY_MENU_SELECTED = "tray.menu_selected"
+    TRAY_ABOUT_REQUESTED = "tray.menu_selected"
     TRAY_NOTIFICATION_CLICKED = "tray.notification_clicked"
     TRAY_ICON_DOUBLE_CLICKED = "tray.icon_double_clicked"
     TRAY_CLEANUP_COMPLETE = "tray.cleanup_complete"
