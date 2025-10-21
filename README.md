@@ -31,6 +31,23 @@ explain-shot/
 
 ## Installation
 
+### Setting Up a Virtual Environment
+
+1. **Create a Virtual Environment**:
+  ```bash
+  python -m venv venv
+  ```
+
+2. **Activate the Virtual Environment**:
+  - On Windows:
+    ```bash
+    venv\Scripts\activate
+    ```
+  - On macOS/Linux:
+    ```bash
+    source venv/bin/activate
+    ```
+
 ### For Production
 Install only the necessary dependencies:
 ```bash
