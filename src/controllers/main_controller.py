@@ -393,7 +393,7 @@ class MainController:
     async def _handle_tray_settings_request(self, event_data) -> None:
         """Handle settings request from tray."""
         try:
-            logger.info("Settings requested from tray")
+            logger.debug("Settings requested from tray")
 
             await self.event_bus.emit(
                 EventTypes.UI_SETTINGS_SHOW,
