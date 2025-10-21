@@ -33,6 +33,7 @@ from ..models.screenshot_models import (
     StorageStats, CaptureRegion, ScreenshotConfig,
     CaptureError, SaveError, DirectoryError
 )
+from src.utils.hash_utils import calculate_screenshot_hash
 from .. import EventTypes
 
 
@@ -439,7 +440,7 @@ class ScreenshotManager:
 
     def compute_screenshot_hash(self, file_path: str) -> str:
         """
-        Compute SHA-256 hash of a screenshot file.
+        Compute SHA-256 hash of a screenshot file content and filename.
 
         Args:
             file_path: Path to screenshot file
@@ -451,25 +452,11 @@ class ScreenshotManager:
             CaptureError: If file doesn't exist or hash computation fails
         """
         try:
-            file_path_obj = Path(file_path)
-
-            if not file_path_obj.exists():
-                raise CaptureError(f"Screenshot file not found: {file_path}")
-
-            if not file_path_obj.is_file():
-                raise CaptureError(f"Path is not a file: {file_path}")
-
-            # Use the same hash computation as in ScreenshotMetadata
-            import hashlib
-
-            with open(file_path, 'rb') as f:
-                file_hash = hashlib.sha256()
-                chunk = f.read(8192)
-                while chunk:
-                    file_hash.update(chunk)
-                    chunk = f.read(8192)
-
-                return file_hash.hexdigest()
+            # Use the utility function for consistent hash calculation
+            hash_result = calculate_screenshot_hash(file_path)
+            if not hash_result:
+                raise CaptureError(f"Hash computation failed for {file_path}")
+            return hash_result
 
         except Exception as e:
             self.logger.error(f"Failed to compute hash for {file_path}: {e}")

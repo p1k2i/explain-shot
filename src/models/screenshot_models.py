@@ -9,7 +9,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, List, Tuple
 from pathlib import Path
-import hashlib
+
+from src.utils.hash_utils import calculate_screenshot_hash
 
 
 @dataclass
@@ -30,24 +31,11 @@ class ScreenshotMetadata:
     def __post_init__(self):
         """Calculate hash if file exists and hash not provided."""
         if self.hash is None and Path(self.full_path).exists():
-            self.hash = self._calculate_hash()
+            self.hash = calculate_screenshot_hash(self.full_path)
 
         # For backwards compatibility, set checksum to hash if not provided
         if self.checksum is None:
             self.checksum = self.hash
-
-    def _calculate_hash(self) -> str:
-        """Calculate SHA-256 hash of the screenshot file."""
-        try:
-            with open(self.full_path, 'rb') as f:
-                file_hash = hashlib.sha256()
-                chunk = f.read(8192)
-                while chunk:
-                    file_hash.update(chunk)
-                    chunk = f.read(8192)
-                return file_hash.hexdigest()
-        except (OSError, IOError):
-            return ""
 
     @property
     def unique_id(self) -> str:
