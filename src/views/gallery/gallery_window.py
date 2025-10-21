@@ -1030,6 +1030,12 @@ class GalleryWindow(QWidget):
             messages = await chat_manager.load_conversation(screenshot_hash)
 
             if messages and self.chat_interface:
+                # Check if this screenshot is still selected before displaying messages
+                # This prevents mixing chat histories when switching screenshots quickly
+                if self.gallery_state.selected_screenshot_id != screenshot_hash:
+                    logger.debug(f"Screenshot {screenshot_hash[:8]}... deselected before chat history could be displayed, skipping")
+                    return
+
                 # Display each message in the UI
                 for message in messages:
                     if message.role == "user":
