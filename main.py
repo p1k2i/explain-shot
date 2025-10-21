@@ -526,6 +526,10 @@ async def main() -> int:
         enable_json=True
     )
 
+    # Suppress httpx INFO logs
+    if log_level == "INFO":
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+
     logger = get_logger(__name__)
     logger.info("Starting %s v%s", APP_NAME, APP_VERSION)
 
