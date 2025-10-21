@@ -411,7 +411,7 @@ class MainController:
     async def _handle_tray_overlay_request(self, event_data) -> None:
         """Handle overlay request from tray."""
         try:
-            logger.info("Overlay requested from tray")
+            logger.debug("Overlay requested from tray")
 
             # Use real UI manager if available, otherwise mock
             if self.ui_manager:
