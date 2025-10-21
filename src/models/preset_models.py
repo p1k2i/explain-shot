@@ -214,14 +214,6 @@ BUILTIN_PRESETS = [
         is_builtin=True
     ),
     PresetMetadata(
-        name="Accessibility Review",
-        prompt="Review this interface for accessibility issues. Check for proper contrast, text readability, navigation clarity, and compliance with accessibility guidelines. Suggest improvements.",
-        description="Accessibility compliance and usability review",
-        category="accessibility",
-        tags=["accessibility", "a11y", "usability", "compliance"],
-        is_builtin=True
-    ),
-    PresetMetadata(
         name="Design Critique",
         prompt="Provide a detailed design critique of this interface. Consider visual hierarchy, color usage, typography, spacing, and overall user experience. Suggest design improvements.",
         description="Comprehensive design review and feedback",
