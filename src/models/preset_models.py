@@ -236,6 +236,14 @@ BUILTIN_PRESETS = [
         category="performance",
         tags=["performance", "optimization", "speed", "efficiency"],
         is_builtin=True
+    ),
+    PresetMetadata(
+        name="Get Text Content",
+        prompt="Extract and summarize all text content visible in this screenshot. Provide a concise summary of the main points and any important details.",
+        description="Text extraction and summarization",
+        category="general",
+        tags=["text", "extraction", "summary"],
+        is_builtin=True
     )
 ]
 
