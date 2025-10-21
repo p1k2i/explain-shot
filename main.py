@@ -79,7 +79,7 @@ class Application:
             True if initialization was successful
         """
         try:
-            logger.info("Initializing %s v%s", self.app_name, self.version)
+            logger.debug("Initializing %s v%s", self.app_name, self.version)
 
             # Initialize EventBus
             self.event_bus = get_event_bus()
