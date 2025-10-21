@@ -516,7 +516,8 @@ class SettingsWindow(QDialog):
         # Thumbnail quality slider
         thumbnail_quality_container = QHBoxLayout()
         self.opt_thumbnail_quality = QSlider(Qt.Orientation.Horizontal)
-        self.opt_thumbnail_quality.setRange(50, 100)
+        # Allow lower quality down to 25% for more aggressive memory savings
+        self.opt_thumbnail_quality.setRange(25, 100)
         self.opt_thumbnail_quality.setValue(85)
         self.opt_thumbnail_quality.setToolTip("Thumbnail image quality (higher = better quality, more memory)")
         self.opt_thumbnail_quality.valueChanged.connect(self.update_thumbnail_quality_label)
@@ -673,6 +674,17 @@ class SettingsWindow(QDialog):
         # Connect quality slider
         if self.quality_slider:
             self.quality_slider.valueChanged.connect(self.update_quality_label)
+            self.quality_slider.valueChanged.connect(self._mark_unsaved_changes)
+
+        # Connect gallery opacity slider
+        if self.gallery_opacity_slider:
+            self.gallery_opacity_slider.valueChanged.connect(self._mark_unsaved_changes)
+
+        # Connect other form controls to change tracking
+        self._connect_form_change_tracking()
+
+        # Connect optimization settings change tracking
+        self._connect_optimization_change_tracking()
 
         # Install event filters for hotkey visual feedback
         if self.capture_hotkey:
@@ -681,6 +693,68 @@ class SettingsWindow(QDialog):
             self.overlay_hotkey.installEventFilter(self)
         if self.settings_hotkey:
             self.settings_hotkey.installEventFilter(self)
+
+    def _connect_optimization_change_tracking(self):
+        """Connect optimization settings widgets to change tracking."""
+        # Storage settings
+        if self.opt_storage_enabled:
+            self.opt_storage_enabled.toggled.connect(self._mark_unsaved_changes)
+        if self.opt_max_storage_gb:
+            self.opt_max_storage_gb.valueChanged.connect(self._mark_unsaved_changes)
+        if self.opt_max_file_count:
+            self.opt_max_file_count.valueChanged.connect(self._mark_unsaved_changes)
+        if self.opt_auto_cleanup:
+            self.opt_auto_cleanup.toggled.connect(self._mark_unsaved_changes)
+
+        # Thumbnail settings
+        if self.opt_thumbnail_enabled:
+            self.opt_thumbnail_enabled.toggled.connect(self._mark_unsaved_changes)
+        if self.opt_thumbnail_cache_size:
+            self.opt_thumbnail_cache_size.valueChanged.connect(self._mark_unsaved_changes)
+        if self.opt_thumbnail_quality:
+            self.opt_thumbnail_quality.valueChanged.connect(self._mark_unsaved_changes)
+
+        # Request settings
+        if self.opt_request_pooling:
+            self.opt_request_pooling.toggled.connect(self._mark_unsaved_changes)
+        if self.opt_max_concurrent:
+            self.opt_max_concurrent.valueChanged.connect(self._mark_unsaved_changes)
+        if self.opt_request_timeout:
+            self.opt_request_timeout.valueChanged.connect(self._mark_unsaved_changes)
+
+    def _connect_form_change_tracking(self):
+        """Connect main form widgets to change tracking."""
+        # AI Model settings
+        if self.model_dropdown:
+            self.model_dropdown.currentTextChanged.connect(self._mark_unsaved_changes)
+        if self.server_url_field:
+            self.server_url_field.textChanged.connect(self._mark_unsaved_changes)
+
+        # Screenshot settings
+        if self.directory_field:
+            self.directory_field.textChanged.connect(self._mark_unsaved_changes)
+        if self.format_dropdown:
+            self.format_dropdown.currentTextChanged.connect(self._mark_unsaved_changes)
+
+        # Hotkey settings
+        if self.capture_hotkey:
+            self.capture_hotkey.keySequenceChanged.connect(self._mark_unsaved_changes)
+        if self.overlay_hotkey:
+            self.overlay_hotkey.keySequenceChanged.connect(self._mark_unsaved_changes)
+        if self.settings_hotkey:
+            self.settings_hotkey.keySequenceChanged.connect(self._mark_unsaved_changes)
+
+        # Advanced settings
+        if self.auto_start_checkbox:
+            self.auto_start_checkbox.toggled.connect(self._mark_unsaved_changes)
+        if self.debug_mode_checkbox:
+            self.debug_mode_checkbox.toggled.connect(self._mark_unsaved_changes)
+        if self.cleanup_days_spinbox:
+            self.cleanup_days_spinbox.valueChanged.connect(self._mark_unsaved_changes)
+
+    def _mark_unsaved_changes(self):
+        """Mark that there are unsaved changes."""
+        self.unsaved_changes = True
 
     def eventFilter(self, a0, a1):
         """Event filter to handle focus events for hotkey fields."""
@@ -1207,6 +1281,78 @@ class SettingsWindow(QDialog):
                     success_count += 1
                 else:
                     failed_updates.append("debug_mode")
+
+            # Update optimization settings
+            optimization_data = form_data.get("optimization", {})
+            if "storage_management_enabled" in optimization_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("optimization.storage_management_enabled", optimization_data["storage_management_enabled"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("optimization.storage_management_enabled")
+
+            if "max_storage_gb" in optimization_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("optimization.max_storage_gb", optimization_data["max_storage_gb"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("optimization.max_storage_gb")
+
+            if "max_file_count" in optimization_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("optimization.max_file_count", optimization_data["max_file_count"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("optimization.max_file_count")
+
+            if "auto_cleanup_enabled" in optimization_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("optimization.auto_cleanup_enabled", optimization_data["auto_cleanup_enabled"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("optimization.auto_cleanup_enabled")
+
+            if "thumbnail_cache_enabled" in optimization_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("optimization.thumbnail_cache_enabled", optimization_data["thumbnail_cache_enabled"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("optimization.thumbnail_cache_enabled")
+
+            if "thumbnail_cache_size" in optimization_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("optimization.thumbnail_cache_size", optimization_data["thumbnail_cache_size"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("optimization.thumbnail_cache_size")
+
+            if "thumbnail_quality" in optimization_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("optimization.thumbnail_quality", optimization_data["thumbnail_quality"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("optimization.thumbnail_quality")
+
+            if "request_pooling_enabled" in optimization_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("optimization.request_pooling_enabled", optimization_data["request_pooling_enabled"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("optimization.request_pooling_enabled")
+
+            if "max_concurrent_requests" in optimization_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("optimization.max_concurrent_requests", optimization_data["max_concurrent_requests"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("optimization.max_concurrent_requests")
+
+            if "request_timeout" in optimization_data:
+                total_updates += 1
+                if await self.settings_manager.update_setting("optimization.request_timeout", optimization_data["request_timeout"]):
+                    success_count += 1
+                else:
+                    failed_updates.append("optimization.request_timeout")
 
             # Save all settings to persist changes
             await self.settings_manager.save_settings()

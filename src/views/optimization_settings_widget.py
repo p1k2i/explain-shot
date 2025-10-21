@@ -163,7 +163,8 @@ class OptimizationSettingsWidget(QWidget):
 
         # Thumbnail quality
         self.thumbnail_widgets['quality'] = QSlider(Qt.Orientation.Horizontal)
-        self.thumbnail_widgets['quality'].setRange(50, 100)
+        # Allow lower quality down to 25% for cases where memory savings are desired
+        self.thumbnail_widgets['quality'].setRange(25, 100)
         self.thumbnail_widgets['quality'].setToolTip("Thumbnail image quality (higher = better quality, more memory)")
 
         quality_layout = QHBoxLayout()

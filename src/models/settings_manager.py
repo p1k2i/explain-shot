@@ -201,7 +201,7 @@ class SettingsManager:
             'optimization.max_file_count': lambda x: 100 <= x <= 50000,
             'optimization.cleanup_interval_hours': lambda x: 1 <= x <= 168,
             'optimization.thumbnail_cache_size': lambda x: 10 <= x <= 1000,
-            'optimization.thumbnail_quality': lambda x: 50 <= x <= 100,
+            'optimization.thumbnail_quality': lambda x: 25 <= x <= 100,
             'optimization.preload_count': lambda x: 1 <= x <= 20,
             'optimization.max_concurrent_requests': lambda x: 1 <= x <= 10,
             'optimization.request_timeout': lambda x: 5.0 <= x <= 300.0,
@@ -488,6 +488,8 @@ class SettingsManager:
                 settings.ollama = OllamaConfig()
             elif section == "auto_start":
                 settings.auto_start = AutoStartConfig()
+            elif section == "optimization":
+                settings.optimization = OptimizationConfig()
             else:
                 logger.warning("Unknown settings section: %s", section)
                 return

@@ -217,3 +217,30 @@ class ChatInterface(QWidget):
     def set_status(self, status: str):
         """Update the status label."""
         self.chat_widget.set_status(status)
+
+    async def update_request_pooling_setting(self, enabled: bool):
+        """Update request pooling enabled setting."""
+        try:
+            # This could be used to optimize AI request handling
+            # For now, just log the change
+            logger.debug(f"Request pooling enabled updated to: {enabled}")
+        except Exception as e:
+            logger.error(f"Error updating request pooling setting: {e}")
+
+    async def update_max_concurrent_setting(self, max_concurrent: int):
+        """Update max concurrent requests setting."""
+        try:
+            # This could be used to limit concurrent AI requests
+            # For now, just log the change
+            logger.debug(f"Max concurrent requests updated to: {max_concurrent}")
+        except Exception as e:
+            logger.error(f"Error updating max concurrent setting: {e}")
+
+    async def update_request_timeout_setting(self, timeout: float):
+        """Update request timeout setting."""
+        try:
+            # This could be used to set AI request timeouts
+            # For now, just log the change
+            logger.debug(f"Request timeout updated to: {timeout} seconds")
+        except Exception as e:
+            logger.error(f"Error updating request timeout setting: {e}")

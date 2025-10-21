@@ -532,7 +532,31 @@ class GalleryWindow(QWidget):
     async def _handle_optimization_setting_change(self, key: str, value):
         """Handle optimization setting changes."""
         try:
-            # Emit event for components to handle
+            logger.debug(f"Handling optimization setting change: {key} = {value}")
+
+            # Handle specific optimization settings
+            if key == "optimization.thumbnail_cache_enabled":
+                await self._handle_thumbnail_cache_enabled_change(bool(value))
+            elif key == "optimization.thumbnail_cache_size":
+                await self._handle_thumbnail_cache_size_change(int(value))
+            elif key == "optimization.thumbnail_quality":
+                await self._handle_thumbnail_quality_change(int(value))
+            elif key == "optimization.storage_management_enabled":
+                await self._handle_storage_management_change(bool(value))
+            elif key == "optimization.max_storage_gb":
+                await self._handle_storage_limit_change(float(value))
+            elif key == "optimization.max_file_count":
+                await self._handle_file_count_limit_change(int(value))
+            elif key == "optimization.auto_cleanup_enabled":
+                await self._handle_auto_cleanup_change(bool(value))
+            elif key == "optimization.request_pooling_enabled":
+                await self._handle_request_pooling_change(bool(value))
+            elif key == "optimization.max_concurrent_requests":
+                await self._handle_max_concurrent_change(int(value))
+            elif key == "optimization.request_timeout":
+                await self._handle_request_timeout_change(float(value))
+
+            # Emit event for other components that might need it
             await self.event_bus.emit(
                 "gallery.optimization_setting_changed",
                 {
@@ -543,7 +567,6 @@ class GalleryWindow(QWidget):
                 source="GalleryWindow"
             )
 
-            # Components should listen for the event emitted above
             logger.debug(f"Optimization setting updated: {key} = {value}")
 
         except Exception as e:
@@ -605,6 +628,26 @@ class GalleryWindow(QWidget):
             # Initialize screenshot gallery thumbnail loader
             if self.screenshots_gallery:
                 self.screenshots_gallery.initialize_thumbnail_loader(self.screenshot_manager)
+
+                # Load and apply optimization settings to thumbnail loader
+                if self.settings_manager:
+                    try:
+                        settings = await self.settings_manager.load_settings()
+                        optimization = settings.optimization
+
+                        # Apply thumbnail settings
+                        if hasattr(self.screenshots_gallery, 'thumbnail_loader') and self.screenshots_gallery.thumbnail_loader:
+                            thumbnail_cache_enabled = optimization.thumbnail_cache_enabled
+                            thumbnail_cache_size = optimization.thumbnail_cache_size
+                            thumbnail_quality = optimization.thumbnail_quality
+
+                            self.screenshots_gallery.thumbnail_loader.set_cache_enabled(thumbnail_cache_enabled)
+                            self.screenshots_gallery.thumbnail_loader.set_cache_size(thumbnail_cache_size)
+                            self.screenshots_gallery.thumbnail_loader.set_quality(thumbnail_quality)
+
+                            logger.debug(f"Applied thumbnail settings: cache={thumbnail_cache_enabled}, size={thumbnail_cache_size}, quality={thumbnail_quality}")
+                    except Exception as e:
+                        logger.warning(f"Failed to load optimization settings: {e}")
 
                 # Set style manager
                 if self._screenshot_item_style_manager:
@@ -1205,6 +1248,99 @@ class GalleryWindow(QWidget):
                 logger.debug("Theme applied to gallery window")
         else:
             logger.warning("No style manager available for theme application")
+
+    # Optimization setting handlers
+    async def _handle_thumbnail_cache_enabled_change(self, enabled: bool):
+        """Handle thumbnail cache enabled setting change."""
+        try:
+            if hasattr(self, 'screenshots_gallery') and self.screenshots_gallery:
+                # Notify screenshots gallery component about cache setting change
+                await self.screenshots_gallery.update_thumbnail_cache_setting(enabled)
+            logger.debug(f"Thumbnail cache enabled changed to: {enabled}")
+        except Exception as e:
+            logger.error(f"Error handling thumbnail cache enabled change: {e}")
+
+    async def _handle_thumbnail_cache_size_change(self, size: int):
+        """Handle thumbnail cache size setting change."""
+        try:
+            if hasattr(self, 'screenshots_gallery') and self.screenshots_gallery:
+                # Notify screenshots gallery component about cache size change
+                await self.screenshots_gallery.update_thumbnail_cache_size(size)
+            logger.debug(f"Thumbnail cache size changed to: {size}")
+        except Exception as e:
+            logger.error(f"Error handling thumbnail cache size change: {e}")
+
+    async def _handle_thumbnail_quality_change(self, quality: int):
+        """Handle thumbnail quality setting change."""
+        try:
+            if hasattr(self, 'screenshots_gallery') and self.screenshots_gallery:
+                # Notify screenshots gallery component about quality change
+                await self.screenshots_gallery.update_thumbnail_quality(quality)
+            logger.debug(f"Thumbnail quality changed to: {quality}")
+        except Exception as e:
+            logger.error(f"Error handling thumbnail quality change: {e}")
+
+    async def _handle_storage_management_change(self, enabled: bool):
+        """Handle storage management enabled setting change."""
+        try:
+            # This could trigger storage manager reconfiguration
+            logger.debug(f"Storage management enabled changed to: {enabled}")
+        except Exception as e:
+            logger.error(f"Error handling storage management change: {e}")
+
+    async def _handle_storage_limit_change(self, limit_gb: float):
+        """Handle storage limit setting change."""
+        try:
+            # This could trigger storage manager reconfiguration
+            logger.debug(f"Storage limit changed to: {limit_gb} GB")
+        except Exception as e:
+            logger.error(f"Error handling storage limit change: {e}")
+
+    async def _handle_file_count_limit_change(self, limit: int):
+        """Handle file count limit setting change."""
+        try:
+            # This could trigger storage manager reconfiguration
+            logger.debug(f"File count limit changed to: {limit}")
+        except Exception as e:
+            logger.error(f"Error handling file count limit change: {e}")
+
+    async def _handle_auto_cleanup_change(self, enabled: bool):
+        """Handle auto cleanup enabled setting change."""
+        try:
+            # This could trigger storage manager reconfiguration
+            logger.debug(f"Auto cleanup enabled changed to: {enabled}")
+        except Exception as e:
+            logger.error(f"Error handling auto cleanup change: {e}")
+
+    async def _handle_request_pooling_change(self, enabled: bool):
+        """Handle request pooling enabled setting change."""
+        try:
+            if hasattr(self, 'chat_interface') and self.chat_interface:
+                # Notify chat interface about request pooling change
+                await self.chat_interface.update_request_pooling_setting(enabled)
+            logger.debug(f"Request pooling enabled changed to: {enabled}")
+        except Exception as e:
+            logger.error(f"Error handling request pooling change: {e}")
+
+    async def _handle_max_concurrent_change(self, max_concurrent: int):
+        """Handle max concurrent requests setting change."""
+        try:
+            if hasattr(self, 'chat_interface') and self.chat_interface:
+                # Notify chat interface about max concurrent change
+                await self.chat_interface.update_max_concurrent_setting(max_concurrent)
+            logger.debug(f"Max concurrent requests changed to: {max_concurrent}")
+        except Exception as e:
+            logger.error(f"Error handling max concurrent change: {e}")
+
+    async def _handle_request_timeout_change(self, timeout: float):
+        """Handle request timeout setting change."""
+        try:
+            if hasattr(self, 'chat_interface') and self.chat_interface:
+                # Notify chat interface about timeout change
+                await self.chat_interface.update_request_timeout_setting(timeout)
+            logger.debug(f"Request timeout changed to: {timeout} seconds")
+        except Exception as e:
+            logger.error(f"Error handling request timeout change: {e}")
 
     def closeEvent(self, a0):
         """Handle window close event - hide instead of close to preserve state."""

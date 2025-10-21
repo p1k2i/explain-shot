@@ -56,10 +56,15 @@ class ThumbnailLoader(QObject):
         self._loading_set: set = set()  # Track what's currently being loaded
         self._max_concurrent_loads = 3  # Limit concurrent thumbnail generation
 
+        # Optimization settings
+        self._cache_enabled = True  # Enable caching by default
+        self._max_cache_size = 100  # Maximum number of cached thumbnails
+        self._thumbnail_quality = 85  # JPEG quality (0-100)
+
     async def load_thumbnail(self, screenshot_id: str, file_path: str, size: QSize = QSize(*THUMBNAIL_SIZE)):
         """Queue thumbnail loading with immediate placeholder emission."""
-        # Check cache first
-        if screenshot_id in self._cache:
+        # Check cache first (only if caching is enabled)
+        if self._cache_enabled and screenshot_id in self._cache:
             self.thumbnail_loaded.emit(screenshot_id, self._cache[screenshot_id][0], self._cache[screenshot_id][1])
             return
 
@@ -126,7 +131,18 @@ class ThumbnailLoader(QObject):
 
                 if result:
                     image_bytes, format_str = result
-                    self._cache[screenshot_id] = (image_bytes, format_str)
+                    # Log thumbnail size
+                    size_kb = len(image_bytes) / 1024
+                    logger.debug(f"Generated thumbnail for {screenshot_id[:8]}: {len(image_bytes)} bytes ({size_kb:.1f} KB), format: {format_str}, quality: {self._thumbnail_quality}")
+
+                    # Cache the result if caching is enabled
+                    if self._cache_enabled:
+                        # Check if cache is full and remove oldest entry if needed
+                        if len(self._cache) >= self._max_cache_size:
+                            # Remove the first (oldest) entry
+                            oldest_key = next(iter(self._cache))
+                            del self._cache[oldest_key]
+                        self._cache[screenshot_id] = (image_bytes, format_str)
                     self.thumbnail_loaded.emit(screenshot_id, image_bytes, format_str)
                 else:
                     raise Exception("Failed to create thumbnail")
@@ -167,9 +183,13 @@ class ThumbnailLoader(QObject):
                     img_resized.save(buffer, format=format_str)
                 else:
                     format_str = 'JPEG'
-                    img_resized.save(buffer, format=format_str, quality=85)
+                    img_resized.save(buffer, format=format_str, quality=self._thumbnail_quality)
 
-                return buffer.getvalue(), format_str
+                image_bytes = buffer.getvalue()
+                size_kb = len(image_bytes) / 1024
+                logger.debug(f"PIL thumbnail created: {len(image_bytes)} bytes ({size_kb:.1f} KB), format: {format_str}, dimensions: {new_width}x{new_height}, quality: {self._thumbnail_quality}")
+
+                return image_bytes, format_str
 
         except Exception:
             logger.warning(f"PIL thumbnail generation failed for {file_path}")
@@ -181,7 +201,10 @@ class ThumbnailLoader(QObject):
         buffer = QBuffer()
         buffer.open(QBuffer.OpenModeFlag.WriteOnly)
         image.save(buffer, "PNG")
-        return buffer.data().data()
+        image_bytes = buffer.data().data()
+        size_kb = len(image_bytes) / 1024
+        logger.debug(f"Placeholder thumbnail created: {len(image_bytes)} bytes ({size_kb:.1f} KB), format: PNG")
+        return image_bytes
 
     def _create_placeholder(self, size: QSize, text: str = "Loading") -> QPixmap:
         """Create a placeholder pixmap."""
@@ -195,6 +218,36 @@ class ThumbnailLoader(QObject):
         painter.end()
 
         return pixmap
+
+    def set_cache_enabled(self, enabled: bool) -> None:
+        """Enable or disable thumbnail caching."""
+        self._cache_enabled = enabled
+        if not enabled:
+            # Clear cache when disabling
+            self._cache.clear()
+        logger.debug(f"Thumbnail cache enabled set to: {enabled}")
+
+    def set_cache_size(self, max_size: int) -> None:
+        """Set maximum cache size (number of thumbnails)."""
+        self._max_cache_size = max_size
+        # Trim cache if it's now over the limit
+        if len(self._cache) > max_size:
+            # Remove oldest entries (simple FIFO approach)
+            items_to_remove = len(self._cache) - max_size
+            keys_to_remove = list(self._cache.keys())[:items_to_remove]
+            for key in keys_to_remove:
+                del self._cache[key]
+        logger.debug(f"Thumbnail cache size set to: {max_size}")
+
+    def set_quality(self, quality: int) -> None:
+        """Set JPEG quality for thumbnails (0-100)."""
+        self._thumbnail_quality = max(0, min(100, quality))
+        logger.debug(f"Thumbnail quality set to: {self._thumbnail_quality}")
+
+    async def clear_cache(self) -> None:
+        """Clear the thumbnail cache."""
+        self._cache.clear()
+        logger.debug("Thumbnail cache cleared")
 
 
 class ScreenshotItem(QWidget):
@@ -530,6 +583,33 @@ class ScreenshotGallery(QWidget):
         except Exception as e:
             logger.error(f"Failed to force directory refresh: {e}")
 
+    async def refresh_thumbnails(self):
+        """Refresh thumbnails for currently loaded screenshots without rescanning files."""
+        try:
+            if not self.thumbnail_loader:
+                return
+
+            logger.debug("Refreshing thumbnails for existing screenshots")
+
+            # Clear the thumbnail cache to force regeneration
+            await self.thumbnail_loader.clear_cache()
+
+            # Get current screenshots from manager to get full paths
+            current_screenshots = await self.screenshot_manager.get_recent_screenshots(limit=200)
+            screenshot_paths = {(s.hash or s.unique_id): s.full_path for s in current_screenshots}
+
+            # Reload thumbnails for all currently displayed screenshot items
+            for screenshot_id, item in self.screenshot_items.items():
+                if screenshot_id in screenshot_paths:
+                    file_path = screenshot_paths[screenshot_id]
+                    # Queue thumbnail loading which will regenerate with new settings
+                    await self.thumbnail_loader.load_thumbnail(screenshot_id, file_path)
+
+            logger.debug(f"Queued thumbnail refresh for {len(self.screenshot_items)} screenshots")
+
+        except Exception as e:
+            logger.error(f"Failed to refresh thumbnails: {e}")
+
     def _find_next_grid_position(self) -> tuple[int, int]:
         """Find the next available grid position."""
         # Simple strategy: find the maximum row and add to it
@@ -621,3 +701,46 @@ class ScreenshotGallery(QWidget):
     def get_selected_screenshot_id(self) -> Optional[str]:
         """Get the currently selected screenshot ID."""
         return self._selected_screenshot_id
+
+    async def update_thumbnail_cache_setting(self, enabled: bool):
+        """Update thumbnail cache enabled setting."""
+        try:
+            # Update thumbnail loader cache setting if applicable
+            if self.thumbnail_loader and hasattr(self.thumbnail_loader, 'set_cache_enabled'):
+                self.thumbnail_loader.set_cache_enabled(enabled)
+
+            logger.debug(f"Thumbnail cache enabled updated to: {enabled}")
+
+            # If caching was disabled, optionally clear current cache
+            if not enabled and self.thumbnail_loader and hasattr(self.thumbnail_loader, 'clear_cache'):
+                await self.thumbnail_loader.clear_cache()
+
+        except Exception as e:
+            logger.error(f"Error updating thumbnail cache setting: {e}")
+
+    async def update_thumbnail_cache_size(self, size: int):
+        """Update thumbnail cache size setting."""
+        try:
+            # Update thumbnail loader cache size if applicable
+            if self.thumbnail_loader and hasattr(self.thumbnail_loader, 'set_cache_size'):
+                self.thumbnail_loader.set_cache_size(size)
+
+            logger.debug(f"Thumbnail cache size updated to: {size}")
+
+        except Exception as e:
+            logger.error(f"Error updating thumbnail cache size: {e}")
+
+    async def update_thumbnail_quality(self, quality: int):
+        """Update thumbnail quality setting."""
+        try:
+            # Update thumbnail loader quality setting if applicable
+            if self.thumbnail_loader and hasattr(self.thumbnail_loader, 'set_quality'):
+                self.thumbnail_loader.set_quality(quality)
+
+            logger.debug(f"Thumbnail quality updated to: {quality}")
+
+            # Regenerate existing thumbnails with new quality
+            await self.refresh_thumbnails()
+
+        except Exception as e:
+            logger.error(f"Error updating thumbnail quality: {e}")
