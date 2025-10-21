@@ -581,7 +581,12 @@ class GalleryWindow(QWidget):
         try:
             # Load settings
             self._current_theme = await self.settings_manager.get_setting("ui.theme", "dark")
-            opacity = await self.settings_manager.get_setting("ui.opacity", 1.0)
+
+            # Load opacity settings - prefer gallery-specific opacity over general opacity
+            opacity = await self.settings_manager.get_setting("ui.gallery_opacity", None)
+            if opacity is None:
+                opacity = await self.settings_manager.get_setting("ui.opacity", 1.0)
+            opacity = float(opacity)
 
             # Apply window settings
             self.setWindowOpacity(opacity)
