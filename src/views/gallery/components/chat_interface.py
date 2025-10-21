@@ -8,6 +8,8 @@ import logging
 from datetime import datetime
 from typing import List
 
+import markdown2
+
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextBrowser,
@@ -38,7 +40,7 @@ class ChatWidget(QWidget):
         # Main layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(2)
 
         # Chat history
         self.chat_history = QTextBrowser()
@@ -146,13 +148,19 @@ class ChatWidget(QWidget):
             timestamp_str = message.timestamp.strftime("%H:%M:%S")
             sender_class = f"message-{message.sender}"
 
+            # Convert markdown to HTML for AI and user messages
+            if message.sender in ["ai", "user"]:
+                content_html = markdown2.markdown(message.content, extras=["fenced-code-blocks", "tables", "break-on-newline"])
+            else:
+                content_html = self._escape_html(message.content)
+
             html += f"""
             <div class="message {sender_class}">
                 <div class="message-header">
                     <span class="sender">{message.sender.upper()}</span>
                     <span class="timestamp">{timestamp_str}</span>
                 </div>
-                <div class="message-content">{self._escape_html(message.content)}</div>
+                <div class="message-content">{content_html}</div>
             </div>
             """
 
@@ -182,7 +190,7 @@ class ChatInterface(QWidget):
     def _setup_ui(self):
         """Setup the UI."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(2)
 
         # Column header
         header = QLabel("AI Chat")
