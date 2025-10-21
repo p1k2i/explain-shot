@@ -496,7 +496,7 @@ class ScreenshotGallery(QWidget):
         except Exception as e:
             logger.error(f"Failed to load screenshots: {e}")
 
-    async def refresh_screenshots(self, limit: int = 50, force_scan: bool = False):
+    async def refresh_screenshots(self, limit: int = 150, force_scan: bool = False):
         """Refresh screenshots - optimized for incremental updates."""
         try:
             # Get current screenshots
@@ -590,7 +590,7 @@ class ScreenshotGallery(QWidget):
         except Exception as e:
             logger.error(f"Failed to refresh screenshots: {e}")
 
-    async def force_directory_refresh(self, limit: int = 50):
+    async def force_directory_refresh(self, limit: int = 150):
         """Force a fresh directory scan and full refresh of screenshots."""
         try:
             logger.debug("Forcing complete directory refresh")
