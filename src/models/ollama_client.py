@@ -168,12 +168,12 @@ class OllamaClient:
 
             self.server_url = ollama_config.server_url
             self.current_model = ollama_config.default_model
-            self.timeout_seconds = ollama_config.timeout_seconds
+            self.timeout_seconds = int(settings.optimization.request_timeout)
             self.max_retries = ollama_config.max_retries
             self.enable_streaming = ollama_config.enable_streaming
 
-            logger.info("Loaded Ollama settings - Model: %s, Server: %s",
-                       self.current_model, self.server_url)
+            logger.info("Loaded Ollama settings - Model: %s, Server: %s, Timeout: %ds",
+                       self.current_model, self.server_url, self.timeout_seconds)
 
         except Exception as e:
             logger.error("Failed to load Ollama settings: %s", e)
@@ -490,28 +490,33 @@ class OllamaClient:
 
             ollama_client = ollama.AsyncClient(host=self.server_url)  # type: ignore
 
-            async for chunk in await ollama_client.chat(
-                model=self.current_model,
-                messages=messages,
-                stream=True
-            ):
-                if chunk.get('message', {}).get('content'):
-                    content = chunk['message']['content']
-                    full_response += content
+            # Add timeout to the streaming request
+            async def _stream_with_timeout():
+                nonlocal full_response
+                async for chunk in await ollama_client.chat(
+                    model=self.current_model,
+                    messages=messages,
+                    stream=True
+                ):
+                    if chunk.get('message', {}).get('content'):
+                        content = chunk['message']['content']
+                        full_response += content
 
-                    # Call stream callback
-                    if stream_callback:
-                        stream_callback(content)
+                        # Call stream callback
+                        if stream_callback:
+                            stream_callback(content)
 
-                    # Emit streaming update event
-                    await self.event_bus.emit(
-                        "ollama.streaming.update",
-                        {
-                            'content': content,
-                            'partial_response': full_response
-                        },
-                        source="OllamaClient"
-                    )
+                        # Emit streaming update event
+                        await self.event_bus.emit(
+                            "ollama.streaming.update",
+                            {
+                                'content': content,
+                                'partial_response': full_response
+                            },
+                            source="OllamaClient"
+                        )
+
+            await asyncio.wait_for(_stream_with_timeout(), timeout=self.timeout_seconds)
 
             processing_time = (datetime.now() - start_time).total_seconds()
 
@@ -522,6 +527,8 @@ class OllamaClient:
                 'streaming': True
             }
 
+        except asyncio.TimeoutError:
+            raise ConnectionError(f"Streaming request timed out after {self.timeout_seconds}s")
         except Exception as e:
             logger.error("Streaming request failed: %s", e)
             raise ConnectionError(f"Streaming request failed: {e}")
@@ -725,7 +732,7 @@ class OllamaClient:
                 self.server_url = value
                 # Trigger health check for new server
                 await self._perform_health_check()
-            elif key in ['ollama.timeout_seconds', 'ollama.max_retries', 'ollama.enable_streaming']:
+            elif key in ['ollama.max_retries', 'ollama.enable_streaming', 'optimization.request_timeout']:
                 # Reload all settings
                 await self._load_settings()
 

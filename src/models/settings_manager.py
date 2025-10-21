@@ -193,7 +193,6 @@ class SettingsManager:
             'chat.auto_scan_interval': lambda x: 0 <= x <= 3600,  # 0 to 1 hour
             'chat.retention_days': lambda x: 0 <= x <= 365,  # 0 = never cleanup
             'chat.max_messages_per_screenshot': lambda x: 0 <= x <= 1000,  # 0 = unlimited
-            'ollama.timeout_seconds': lambda x: 5 <= x <= 300,
             'ollama.max_retries': lambda x: 0 <= x <= 10,
             'auto_start.delay_seconds': lambda x: 0 <= x <= 60,
             # Optimization validation rules

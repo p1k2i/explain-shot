@@ -239,7 +239,7 @@ class GalleryWindow(QWidget):
                     asyncio.create_task(self._handle_screenshot_display_change(key, value))
 
                 # Ollama/AI settings that affect chat interface
-                elif key in ['ollama.server_url', 'ollama.default_model', 'ollama.timeout_seconds',
+                elif key in ['ollama.server_url', 'ollama.default_model',
                            'ollama.max_retries', 'ollama.enable_streaming']:
                     asyncio.create_task(self._handle_ollama_setting_change(key, value))
 
@@ -278,7 +278,7 @@ class GalleryWindow(QWidget):
                         asyncio.create_task(self._handle_screenshot_display_change(key, settings[key]))
 
                 # Check for Ollama setting changes
-                ollama_keys = ['ollama.server_url', 'ollama.default_model', 'ollama.timeout_seconds',
+                ollama_keys = ['ollama.server_url', 'ollama.default_model',
                               'ollama.max_retries', 'ollama.enable_streaming']
                 for key in ollama_keys:
                     if key in settings:
@@ -402,11 +402,15 @@ class GalleryWindow(QWidget):
         try:
             if event_data.data:
                 error_info = event_data.data
-                error_message = error_info.get('error', 'Unknown error')
+                error_message = error_info.get('message', 'Unknown error')
 
                 # Show error in chat interface
                 if self.chat_interface:
                     self.chat_interface.add_system_message(f"Error: {error_message}")
+
+                    # Set status to "Timeout" if it's a timeout error
+                    if 'timed out' in error_message.lower():
+                        self.chat_interface.set_status("Timeout")
 
                 logger.warning(f"Gallery received error event: {error_message}")
 
@@ -1094,6 +1098,7 @@ class GalleryWindow(QWidget):
             if preset_data and self.chat_interface:
                 # Add user message showing preset execution
                 self.chat_interface.add_user_message(preset_data.prompt)
+                self.chat_interface.set_status("Processing...")
 
                 # Save user message to chat history immediately
                 asyncio.create_task(self._save_user_message_to_history(preset_data.prompt))

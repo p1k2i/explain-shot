@@ -488,7 +488,7 @@ class MainController:
         try:
             error_data = event_data.data or {}
             error_type = error_data.get('error', 'unknown_error')
-            source = error_data.get('source', 'unknown')
+            source = event_data.source or 'unknown'
 
             logger.error("Error occurred in %s: %s", source, error_type)
 
