@@ -155,6 +155,7 @@ class ChatWidget(QWidget):
                 content_html = self._escape_html(message.content)
 
             html += f"""
+            <div class="message-delimiter"></div>
             <div class="message {sender_class}">
                 <div class="message-header">
                     <span class="sender">{message.sender.upper()}</span>

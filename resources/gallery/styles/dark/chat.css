@@ -7,12 +7,18 @@ body {
     line-height: 1.2;
 }
 .message {
-    margin: 4px 0;
+    margin: 8px 0;
     padding: 6px 10px;
     border-radius: 12px;
     max-width: 80%;
     word-wrap: break-word;
     position: relative;
+}
+.message-delimiter {
+    height: 1px;
+    background-color: rgba(255, 255, 255, 0.2);
+    margin: 4px 0;
+    border: none;
 }
 .message-content {
     margin-top: 2px;
