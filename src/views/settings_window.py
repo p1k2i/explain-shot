@@ -173,7 +173,7 @@ class SettingsWindow(QDialog):
         self.setup_validation()
         self.connect_signals()
 
-        logger.info("SettingsWindow initialized")
+        logger.debug("SettingsWindow initialized")
 
     def setup_styling(self):
         """Apply theme styling to the window."""
@@ -726,7 +726,7 @@ class SettingsWindow(QDialog):
             True if initialization successful
         """
         try:
-            logger.info("Initializing settings window...")
+            logger.debug("Initializing settings window...")
 
             # Show progress
             if self.progress_bar:
@@ -755,7 +755,7 @@ class SettingsWindow(QDialog):
             # Reset unsaved changes flag
             self.unsaved_changes = False
 
-            logger.info("Settings window initialization complete")
+            logger.debug("Settings window initialization complete")
             return True
 
         except Exception as e:
@@ -1269,7 +1269,7 @@ class SettingsWindow(QDialog):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        logger.info("Settings dialog cancelled")
+        logger.debug("Settings dialog cancelled")
 
         # Emit window closed event
         asyncio.create_task(self.event_bus.emit(
@@ -1347,6 +1347,6 @@ class SettingsWindow(QDialog):
                     a0.ignore()
                 return
 
-        logger.info("Settings window closed")
+        logger.debug("Settings window closed")
         if a0:
             a0.accept()

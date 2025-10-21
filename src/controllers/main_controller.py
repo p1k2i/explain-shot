@@ -75,7 +75,7 @@ class MainController:
         self._initialized = False
         self._app_state = AppState.STARTING
 
-        logger.info("MainController initialized")
+        logger.debug("MainController initialized")
 
     async def initialize(self) -> bool:
         """
@@ -89,7 +89,7 @@ class MainController:
             return True
 
         try:
-            logger.info("Initializing MainController...")
+            logger.debug("Initializing MainController...")
 
             # Subscribe to core events
             await self._subscribe_to_events()
@@ -105,7 +105,7 @@ class MainController:
             # Initialize preset manager if available
             if self.preset_manager:
                 await self.preset_manager.initialize()
-                logger.info("Preset manager initialized")
+                logger.debug("Preset manager initialized")
 
             # Initialize UI manager if available
             if self.ui_manager:
@@ -139,7 +139,7 @@ class MainController:
                 source="MainController"
             )
 
-            logger.info("MainController initialization complete")
+            logger.debug("MainController initialization complete")
             return True
 
         except Exception as e:
@@ -245,7 +245,7 @@ class MainController:
                     },
                     source="MainController"
                 )
-                logger.info("Screenshot captured successfully from %s: %s",
+                logger.debug("Screenshot captured successfully from %s: %s",
                           source, result.get('filename', 'unknown'))
             else:
                 # Handle capture failure
@@ -297,7 +297,7 @@ class MainController:
                     },
                     source="MainController"
                 )
-                logger.info("Screenshot captured successfully via hotkey: %s",
+                logger.debug("Screenshot captured successfully via hotkey: %s",
                           result.get('filename', 'unknown'))
             else:
                 # Handle capture failure
@@ -515,11 +515,10 @@ class MainController:
             Dictionary with capture result and metadata, or None if failed
         """
         try:
-            logger.info("Starting screenshot capture...")
-            logger.info("Trigger source: %s", trigger_data.get('trigger_source', 'unknown'))
+            logger.debug("Starting screenshot capture...")
 
             if 'hotkey_combination' in trigger_data:
-                logger.info("Triggered by hotkey: %s", trigger_data['hotkey_combination'])
+                logger.debug("Triggered by hotkey: %s", trigger_data['hotkey_combination'])
 
             # Check if screenshot manager is available
             if not self.screenshot_manager:
@@ -533,7 +532,7 @@ class MainController:
             result = await self.screenshot_manager.capture_screenshot()
 
             if result.success and result.metadata:
-                logger.info("Screenshot captured successfully: %s", result.metadata.filename)
+                logger.debug("Screenshot captured successfully: %s", result.metadata.filename)
 
                 return {
                     'success': True,

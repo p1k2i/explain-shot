@@ -134,7 +134,7 @@ class ThumbnailManager:
                 self.event_bus.subscribe("gallery.viewport_changed", self._handle_viewport_changed)
                 self.event_bus.subscribe("settings.changed", self._handle_settings_changed)
 
-            logger.info("ThumbnailManager initialized successfully")
+            logger.debug("ThumbnailManager initialized successfully")
 
         except Exception as e:
             logger.error(f"Failed to initialize ThumbnailManager: {e}")
@@ -571,7 +571,7 @@ class ThumbnailManager:
     async def shutdown(self) -> None:
         """Shutdown the thumbnail manager."""
         try:
-            logger.info("Shutting down ThumbnailManager")
+            logger.debug("Shutting down ThumbnailManager")
 
             # Shutdown executor
             self._executor.shutdown(wait=True)
@@ -584,7 +584,7 @@ class ThumbnailManager:
             self._loading_in_progress.clear()
             self._prefetch_queue.clear()
 
-            logger.info("ThumbnailManager shutdown complete")
+            logger.debug("ThumbnailManager shutdown complete")
 
         except Exception as e:
             logger.error(f"Error during ThumbnailManager shutdown: {e}")

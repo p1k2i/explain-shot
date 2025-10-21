@@ -114,7 +114,7 @@ class OllamaClient:
         self._health_check_interval = 30.0
         self._retry_delays = [1, 2, 4, 8, 16]  # Exponential backoff
 
-        logger.info("OllamaClient initialized with server: %s", server_url)
+        logger.debug("OllamaClient initialized with server: %s", server_url)
 
     async def initialize(self) -> bool:
         """
@@ -127,7 +127,7 @@ class OllamaClient:
             return True
 
         try:
-            logger.info("Initializing OllamaClient...")
+            logger.debug("Initializing OllamaClient...")
 
             # Check if ollama library is available
             if not OLLAMA_AVAILABLE:
@@ -149,7 +149,7 @@ class OllamaClient:
             self._health_check_task = asyncio.create_task(self._health_monitor_loop())
 
             self._initialized = True
-            logger.info("OllamaClient initialization complete - Online: %s", self._is_online)
+            logger.debug("OllamaClient initialization complete - Online: %s", self._is_online)
             return True
 
         except Exception as e:
@@ -225,7 +225,7 @@ class OllamaClient:
                 self._available_models = [model.get('name', model.get('model', '')) for model in response['models']]
                 # Filter out empty names
                 self._available_models = [name for name in self._available_models if name]
-                logger.info("Available Ollama models: %s", self._available_models)
+                logger.debug("Available Ollama models: %s", self._available_models)
 
             # Verify current model is available
             if self.current_model not in self._available_models and self._available_models:
@@ -248,7 +248,7 @@ class OllamaClient:
                 source="OllamaClient"
             )
 
-            logger.info("Ollama health check passed - Server online")
+            logger.debug("Ollama health check passed - Server online")
             return True
 
         except asyncio.TimeoutError:
@@ -345,10 +345,13 @@ class OllamaClient:
             messages = await self._build_conversation_messages(screenshot_hash, prompt, image_data)
 
             # Send request to Ollama
+            logger.info("Sending chat message to Ollama - Screenshot: %s, Size: %d bytes", screenshot_hash[:8], len(messages))
             if self.enable_streaming and stream_callback:
                 response = await self._send_streaming_request(messages, stream_callback)
             else:
                 response = await self._send_standard_request(messages)
+            response_content = response.get('content', '')
+            logger.info("Received response from Ollama - Screenshot: %s, Size: %d bytes", screenshot_hash[:8], len(response_content))
 
             # Store in chat history files using ChatHistoryManager
             if self.chat_history_manager:
@@ -362,7 +365,7 @@ class OllamaClient:
                 {
                     'screenshot_hash': screenshot_hash,
                     'prompt': prompt,
-                    'response': response['content'],
+                    'response': response_content,
                     'model': self.current_model,
                     'processing_time': response.get('processing_time', 0),
                     'timestamp': datetime.now().isoformat()
@@ -844,7 +847,7 @@ Please provide a detailed analysis based on the image content and user request a
 
     async def shutdown(self) -> None:
         """Shutdown the Ollama client."""
-        logger.info("Shutting down OllamaClient...")
+        logger.debug("Shutting down OllamaClient...")
 
         # Cancel health check task
         if self._health_check_task:
@@ -858,4 +861,4 @@ Please provide a detailed analysis based on the image content and user request a
         self._conversation_history.clear()
 
         self._initialized = False
-        logger.info("OllamaClient shutdown complete")
+        logger.debug("OllamaClient shutdown complete")

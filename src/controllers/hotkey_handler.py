@@ -249,7 +249,7 @@ class HotkeyHandler:
         # Current hotkey configuration
         self._hotkey_config: Optional[Any] = None
 
-        logger.info("HotkeyHandler initialized")
+        logger.debug("HotkeyHandler initialized")
 
     def _setup_validation_rules(self) -> Dict[str, Callable[[HotkeyCombo], bool]]:
         """Setup hotkey validation rules."""
@@ -308,7 +308,7 @@ class HotkeyHandler:
             return True
 
         try:
-            logger.info("Initializing hotkey handlers...")
+            logger.debug("Initializing hotkey handlers...")
 
             # Get the current event loop and set it in the event queue
             try:
@@ -349,7 +349,7 @@ class HotkeyHandler:
                 source="HotkeyHandler"
             )
 
-            logger.info("HotkeyHandler initialization complete")
+            logger.debug("HotkeyHandler initialization complete")
             return True
 
         except Exception as e:
@@ -435,7 +435,7 @@ class HotkeyHandler:
                 )
 
                 if success:
-                    logger.info("Registered hotkey: %s -> %s",
+                    logger.debug("Registered hotkey: %s -> %s",
                               combo.display_name, hotkey_def['action'])
                 else:
                     logger.warning("Failed to register hotkey: %s", hotkey_def['hotkey_id'])
@@ -695,7 +695,7 @@ class HotkeyHandler:
         # Try each alternative
         for alternative in registration.conflict_info.suggested_alternatives:
             if await self._test_hotkey_registration(alternative):
-                logger.info("Auto-resolved conflict: %s -> %s",
+                logger.debug("Auto-resolved conflict: %s -> %s",
                           registration.combination.display_name,
                           alternative.display_name)
 
@@ -770,7 +770,7 @@ class HotkeyHandler:
                         del self._registrations[hotkey_id]
 
                 self._used_fallbacks.clear()
-                logger.info("All hotkeys unregistered")
+                logger.debug("All hotkeys unregistered")
         except Exception as e:
             logger.error("Error unregistering all hotkeys: %s", e)
 
@@ -782,7 +782,7 @@ class HotkeyHandler:
             True if reloaded successfully
         """
         try:
-            logger.info("Reloading hotkey configuration")
+            logger.debug("Reloading hotkey configuration")
 
             # Unregister current hotkeys
             await self.unregister_all_hotkeys()
@@ -831,7 +831,7 @@ class HotkeyHandler:
             )
             self._listener_thread.start()
 
-            logger.info("Global hotkey listener started")
+            logger.debug("Global hotkey listener started")
 
         except Exception as e:
             logger.error("Failed to start global listener: %s", e)
@@ -960,7 +960,7 @@ class HotkeyHandler:
                     # Queue the event for processing in the asyncio loop
                     self._event_queue.put_event(hotkey_event)
 
-                    logger.info("Hotkey queued for processing: %s (%s)",
+                    logger.debug("Hotkey queued for processing: %s (%s)",
                               registration.hotkey_id, registration.combination.display_name)
                     break
 
@@ -1169,7 +1169,7 @@ class HotkeyHandler:
         if self._shutdown_requested:
             return
 
-        logger.info("Shutting down HotkeyHandler")
+        logger.debug("Shutting down HotkeyHandler")
         self._shutdown_requested = True
 
         try:
@@ -1200,7 +1200,7 @@ class HotkeyHandler:
                 source="HotkeyHandler"
             )
 
-            logger.info("HotkeyHandler shutdown complete")
+            logger.debug("HotkeyHandler shutdown complete")
 
         except Exception as e:
             logger.error("Error during HotkeyHandler shutdown: %s", e)

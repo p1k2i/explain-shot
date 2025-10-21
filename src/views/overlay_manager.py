@@ -69,7 +69,7 @@ class OverlayManager(QObject):
         self._cache_timestamp = 0.0
         self._cache_duration = 30.0  # Cache for 30 seconds
 
-        logger.info("OverlayManager initialized")
+        logger.debug("OverlayManager initialized")
 
     @property
     def is_initialized(self) -> bool:
@@ -92,7 +92,7 @@ class OverlayManager(QObject):
             return True
 
         try:
-            logger.info("Initializing OverlayManager...")
+            logger.debug("Initializing OverlayManager...")
 
             # Load configuration
             await self._load_configuration()
@@ -101,7 +101,7 @@ class OverlayManager(QObject):
             await self._subscribe_to_events()
 
             self._initialized = True
-            logger.info("OverlayManager initialization complete")
+            logger.debug("OverlayManager initialization complete")
 
             return True
 
@@ -180,7 +180,7 @@ class OverlayManager(QObject):
             True if overlay shown successfully
         """
         try:
-            logger.info("Showing overlay window...")
+            logger.debug("Showing overlay window...")
 
             # Create overlay window if needed (in main thread)
             if self.overlay_window is None:
@@ -228,7 +228,7 @@ class OverlayManager(QObject):
                 source="OverlayManager"
             )
 
-            logger.info(f"Overlay window shown at position {overlay_position}")
+            logger.debug(f"Overlay window shown at position {overlay_position}")
             return True
 
         except Exception as e:
@@ -250,7 +250,7 @@ class OverlayManager(QObject):
             if not self._overlay_visible or self.overlay_window is None:
                 return True
 
-            logger.info(f"Hiding overlay window (reason: {reason})")
+            logger.debug(f"Hiding overlay window (reason: {reason})")
 
             # Hide the window
             self.overlay_window.hide()
@@ -267,7 +267,7 @@ class OverlayManager(QObject):
                 source="OverlayManager"
             )
 
-            logger.info("Overlay window hidden")
+            logger.debug("Overlay window hidden")
             return True
 
         except Exception as e:
@@ -287,7 +287,7 @@ class OverlayManager(QObject):
     def _create_overlay_window(self) -> None:
         """Create the overlay window synchronously in main thread."""
         try:
-            logger.info("Creating overlay window...")
+            logger.debug("Creating overlay window...")
 
             # Create window with configuration
             self.overlay_window = OverlayWindow(
@@ -300,7 +300,7 @@ class OverlayManager(QObject):
             self.overlay_window.item_selected.connect(self._on_window_item_selected)
             self.overlay_window.overlay_dismissed.connect(self._on_window_dismissed)
 
-            logger.info("Overlay window created successfully")
+            logger.debug("Overlay window created successfully")
 
         except Exception as e:
             logger.error(f"Failed to create overlay window: {e}")
@@ -427,7 +427,7 @@ class OverlayManager(QObject):
             item_data: Data associated with the selected item
         """
         try:
-            logger.info(f"Overlay item selected: {item_type} - {item_data}")
+            logger.debug(f"Overlay item selected: {item_type} - {item_data}")
 
             # Create async task for event emission
             asyncio.create_task(self._handle_item_selection_async(item_type, item_data))
@@ -469,7 +469,7 @@ class OverlayManager(QObject):
             reason: Reason for dismissal
         """
         try:
-            logger.info(f"Overlay window dismissed: {reason}")
+            logger.debug(f"Overlay window dismissed: {reason}")
 
             # Create async task for hiding
             asyncio.create_task(self.hide_overlay(reason=reason))
@@ -489,7 +489,7 @@ class OverlayManager(QObject):
             item_type = selection_data.get("type", "unknown")
             item_data = selection_data.get("data", {})
 
-            logger.info(f"Processing overlay item selection: {item_type}")
+            logger.debug(f"Processing overlay item selection: {item_type}")
 
             if item_type == "function":
                 await self._handle_function_selection(item_data)
@@ -512,7 +512,7 @@ class OverlayManager(QObject):
             action = item_data.get("action", "unknown")
 
             if action == "take_screenshot":
-                logger.info("Taking screenshot from overlay...")
+                logger.debug("Taking screenshot from overlay...")
 
                 # Emit screenshot capture request event
                 await self.event_bus.emit(
@@ -528,7 +528,7 @@ class OverlayManager(QObject):
                 await self.hide_overlay(reason="screenshot_requested")
 
             elif action == "open_settings":
-                logger.info("Opening settings window from overlay...")
+                logger.debug("Opening settings window from overlay...")
 
                 # Emit real settings show event
                 await self.event_bus.emit(
@@ -544,7 +544,7 @@ class OverlayManager(QObject):
                 await self.hide_overlay(reason="settings_opened")
 
             elif action == "open_gallery":
-                logger.info("Opening gallery window from overlay...")
+                logger.debug("Opening gallery window from overlay...")
 
                 # Emit gallery show event (gallery implementation remains future feature)
                 await self.event_bus.emit(
@@ -555,9 +555,6 @@ class OverlayManager(QObject):
                     },
                     source="OverlayManager"
                 )
-
-                # For now, show a message that gallery is not implemented
-                logger.info("Gallery window not implemented - keeping as future feature")
 
             else:
                 logger.warning(f"Unknown function action: {action}")
@@ -576,7 +573,7 @@ class OverlayManager(QObject):
             screenshot_id = item_data.get("id", "unknown")
             filename = item_data.get("filename", "unknown")
 
-            logger.info(f"Opening gallery with screenshot: {filename}")
+            logger.debug(f"Opening gallery with screenshot: {filename}")
 
             # Emit gallery show event with specific screenshot (gallery remains future feature)
             await self.event_bus.emit(
@@ -589,9 +586,6 @@ class OverlayManager(QObject):
                 },
                 source="OverlayManager"
             )
-
-            # For now, just log that gallery is not implemented
-            logger.info("Gallery window not implemented - keeping as future feature")
 
             # Hide overlay after selection
             await self.hide_overlay(reason="screenshot_selected")
@@ -610,7 +604,7 @@ class OverlayManager(QObject):
             dismissal_data = event_data.data or {}
             reason = dismissal_data.get("reason", "unknown")
 
-            logger.info(f"Overlay dismissed: {reason}")
+            logger.debug(f"Overlay dismissed: {reason}")
 
             # Update internal state if needed
             self._overlay_visible = False
@@ -629,7 +623,7 @@ class OverlayManager(QObject):
             key = settings_data.get("key", "")
 
             if key.startswith("overlay."):
-                logger.info(f"Overlay setting changed: {key}")
+                logger.debug(f"Overlay setting changed: {key}")
 
                 # Reload configuration
                 await self._load_configuration()
@@ -683,7 +677,7 @@ class OverlayManager(QObject):
     async def shutdown(self) -> None:
         """Shutdown the overlay manager."""
         try:
-            logger.info("Shutting down OverlayManager...")
+            logger.debug("Shutting down OverlayManager...")
 
             # Hide overlay if visible
             if self._overlay_visible:
@@ -700,7 +694,7 @@ class OverlayManager(QObject):
             self._config_cache.clear()
 
             self._initialized = False
-            logger.info("OverlayManager shutdown complete")
+            logger.debug("OverlayManager shutdown complete")
 
         except Exception as e:
             logger.error(f"Error during OverlayManager shutdown: {e}")

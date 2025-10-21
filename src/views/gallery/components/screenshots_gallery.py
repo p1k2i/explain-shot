@@ -432,7 +432,7 @@ class ScreenshotGallery(QWidget):
                     col = 0
                     row += 1
 
-            logger.info(f"Loaded {len(screenshots)} screenshots (newest first)")
+            logger.debug(f"Loaded {len(screenshots)} screenshots")
 
         except Exception as e:
             logger.error(f"Failed to load screenshots: {e}")
@@ -517,7 +517,7 @@ class ScreenshotGallery(QWidget):
                             col = 0
                             row += 1
 
-            logger.info(f"Refreshed screenshots: {len(to_add)} added, {len(to_remove)} removed")
+            logger.debug(f"Refreshed screenshots: {len(to_add)} added, {len(to_remove)} removed")
 
         except Exception as e:
             logger.error(f"Failed to refresh screenshots: {e}")
@@ -525,7 +525,7 @@ class ScreenshotGallery(QWidget):
     async def force_directory_refresh(self, limit: int = 50):
         """Force a fresh directory scan and full refresh of screenshots."""
         try:
-            logger.info("Forcing complete directory refresh")
+            logger.debug("Forcing complete directory refresh")
             await self.refresh_screenshots(limit=limit, force_scan=True)
         except Exception as e:
             logger.error(f"Failed to force directory refresh: {e}")
@@ -581,7 +581,7 @@ class ScreenshotGallery(QWidget):
                     style.polish(self.selection_indicator)
 
             self.screenshot_selected.emit(screenshot_id)
-            logger.info(f"Screenshot selected: {screenshot_id}")
+            logger.debug(f"Screenshot selected: {screenshot_id}")
         else:
             self._selected_screenshot_id = None
             if self.selection_indicator:

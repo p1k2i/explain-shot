@@ -278,7 +278,7 @@ class GalleryOptimizer:
                 )
 
             self._optimization_enabled = True
-            self.logger.info("Gallery optimization initialized")
+            self.logger.debug("Gallery optimization initialized")
             return True
 
         except Exception as e:

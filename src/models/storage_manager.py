@@ -128,7 +128,7 @@ class StorageManager:
         self._consent_callbacks = []
         self._pending_consent_requests = {}
 
-        logger.info("StorageManager initialized")
+        logger.debug("StorageManager initialized")
 
     async def initialize(self) -> None:
         """Initialize the storage manager."""
@@ -147,7 +147,7 @@ class StorageManager:
                 await self._start_periodic_monitoring()
 
             self._initialized = True
-            logger.info("StorageManager initialized successfully")
+            logger.debug("StorageManager initialized successfully")
 
         except Exception as e:
             logger.error(f"Failed to initialize StorageManager: {e}")
@@ -646,7 +646,7 @@ class StorageManager:
     async def shutdown(self) -> None:
         """Shutdown the storage manager."""
         try:
-            logger.info("Shutting down StorageManager")
+            logger.debug("Shutting down StorageManager")
 
             # Cancel periodic task
             if self._periodic_task and not self._periodic_task.done():
@@ -662,7 +662,7 @@ class StorageManager:
                     future.set_result(False)
             self._pending_consent_requests.clear()
 
-            logger.info("StorageManager shutdown complete")
+            logger.debug("StorageManager shutdown complete")
 
         except Exception as e:
             logger.error(f"Error during StorageManager shutdown: {e}")

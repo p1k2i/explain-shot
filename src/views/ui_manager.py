@@ -80,7 +80,7 @@ class UIManager(QObject):
         # Event queue for async processing
         self._event_queue: List[Dict[str, Any]] = []
 
-        logger.info("UIManager initialized")
+        logger.debug("UIManager initialized")
 
     @property
     def is_initialized(self) -> bool:
@@ -99,7 +99,7 @@ class UIManager(QObject):
             return True
 
         try:
-            logger.info("Initializing UIManager...")
+            logger.debug("Initializing UIManager...")
 
             # Get or create QApplication instance
             self._app_instance = QApplication.instance()
@@ -128,7 +128,7 @@ class UIManager(QObject):
             self._async_timer.start()
 
             self._initialized = True
-            logger.info("UIManager initialization complete")
+            logger.debug("UIManager initialization complete")
 
             # Emit initialization event
             await self.event_bus.emit(
@@ -370,7 +370,7 @@ class UIManager(QObject):
             event_data: Event data containing shutdown information
         """
         try:
-            logger.info("UIManager shutdown requested")
+            logger.debug("UIManager shutdown requested")
             await self.shutdown()
 
         except Exception as e:
@@ -551,7 +551,7 @@ class UIManager(QObject):
                 source="UIManager"
             )
 
-            logger.info("Settings window shown successfully")
+            logger.debug("Settings window shown successfully")
             return True
 
         except Exception as e:
@@ -571,7 +571,7 @@ class UIManager(QObject):
         try:
             if self.settings_window and self.settings_window.isVisible():
                 self.settings_window.close()
-                logger.info("Settings window hidden successfully")
+                logger.debug("Settings window hidden successfully")
                 return True
 
             return False
@@ -657,7 +657,7 @@ class UIManager(QObject):
                 source="UIManager"
             )
 
-            logger.info(f"Gallery window shown successfully (pre-selected: {pre_selected_screenshot_id})")
+            logger.debug(f"Gallery window shown successfully (pre-selected: {pre_selected_screenshot_id})")
             return True
 
         except Exception as e:
@@ -677,7 +677,7 @@ class UIManager(QObject):
         try:
             if self.gallery_window and self.gallery_window.isVisible():
                 self.gallery_window.hide()  # Use hide() instead of close()
-                logger.info("Gallery window hidden successfully")
+                logger.debug("Gallery window hidden successfully")
                 return True
 
             return False
@@ -721,7 +721,7 @@ class UIManager(QObject):
             return
 
         try:
-            logger.info("Shutting down UIManager...")
+            logger.debug("Shutting down UIManager...")
 
             # Stop async timer
             self._async_timer.stop()
@@ -748,7 +748,7 @@ class UIManager(QObject):
             self._event_queue.clear()
 
             self._initialized = False
-            logger.info("UIManager shutdown complete")
+            logger.debug("UIManager shutdown complete")
 
         except Exception as e:
             logger.error(f"Error during UIManager shutdown: {e}")

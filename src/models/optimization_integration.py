@@ -77,7 +77,7 @@ class OptimizedComponentManager:
         self._initialized = False
         self._migration_complete = False
 
-        self.logger.info("OptimizedComponentManager initialized")
+        self.logger.debug("OptimizedComponentManager initialized")
 
     async def initialize(
         self,
@@ -99,7 +99,7 @@ class OptimizedComponentManager:
             return True
 
         try:
-            self.logger.info("Initializing optimization components...")
+            self.logger.debug("Initializing optimization components...")
 
             # Initialize database extensions
             self.db_extensions = DatabaseExtensions(self.db_manager, self.logger)
@@ -140,7 +140,7 @@ class OptimizedComponentManager:
                 await self.request_manager.initialize()
 
             self._initialized = True
-            self.logger.info("Optimization components initialized successfully")
+            self.logger.debug("Optimization components initialized successfully")
 
             # Emit initialization event
             await self.event_bus.emit(
@@ -375,7 +375,7 @@ class OptimizedComponentManager:
             return
 
         try:
-            self.logger.info("Shutting down optimization components...")
+            self.logger.debug("Shutting down optimization components...")
 
             # Shutdown request manager
             if self.request_manager:
@@ -386,7 +386,7 @@ class OptimizedComponentManager:
                 await self.storage_manager.shutdown()
 
             self._initialized = False
-            self.logger.info("Optimization components shutdown complete")
+            self.logger.debug("Optimization components shutdown complete")
 
         except Exception as e:
             self.logger.error(f"Error during optimization shutdown: {e}")

@@ -179,7 +179,7 @@ class SettingsManager:
         # Event bus for settings change notifications
         self._event_bus = get_event_bus()
 
-        logger.info("SettingsManager initialized")
+        logger.debug("SettingsManager initialized")
 
     def _setup_validation_rules(self) -> Dict[str, Callable]:
         """Set up validation rules for settings."""
@@ -216,7 +216,7 @@ class SettingsManager:
 
         # The database manager handles its own initialization
         await self.database_manager.initialize_database()
-        logger.info("Settings database initialized via DatabaseManager")
+        logger.debug("Settings database initialized via DatabaseManager")
 
     async def load_settings(self) -> ApplicationSettings:
         """

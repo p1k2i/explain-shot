@@ -202,7 +202,7 @@ class PresetsPanel(QWidget):
                 )
                 self.preset_items[preset_id] = item
 
-            logger.info(f"Loaded {len(self.preset_items)} presets from preset manager (user presets first)")
+            logger.debug(f"Loaded {len(self.preset_items)} presets from preset manager")
 
         except Exception as e:
             logger.error(f"Failed to load presets: {e}")
@@ -222,7 +222,7 @@ class PresetsPanel(QWidget):
             # Reload presets in UI
             await self.load_presets()
 
-            logger.info("Presets panel refreshed")
+            logger.debug("Presets panel refreshed")
 
         except Exception as e:
             logger.error(f"Failed to refresh presets: {e}")

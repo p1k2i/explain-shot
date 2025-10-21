@@ -101,7 +101,7 @@ class ScreenshotManager:
         Sets up configuration, validates directories, and prepares for operations.
         """
         try:
-            self.logger.info("Initializing ScreenshotManager")
+            self.logger.debug("Initializing ScreenshotManager")
 
             # Load configuration from settings
             await self._load_configuration()
@@ -514,7 +514,7 @@ class ScreenshotManager:
             # Sort by timestamp (newest first)
             screenshots.sort(key=lambda x: x.timestamp, reverse=True)
 
-            self.logger.info(f"Discovered {len(screenshots)} screenshots in directory")
+            self.logger.debug(f"Discovered {len(screenshots)} screenshots in directory")
 
             # Emit discovery event
             await self.event_bus.emit("screenshot.directory_scanned", {
@@ -631,7 +631,7 @@ class ScreenshotManager:
     async def shutdown(self) -> None:
         """Clean shutdown of the ScreenshotManager."""
         try:
-            self.logger.info("Shutting down ScreenshotManager")
+            self.logger.debug("Shutting down ScreenshotManager")
 
             # Perform final cleanup if needed
             if self._config and self._config.cleanup_days > 0:

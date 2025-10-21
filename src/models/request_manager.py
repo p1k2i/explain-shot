@@ -164,7 +164,7 @@ class RequestManager:
             'last_reset': datetime.now()
         }
 
-        logger.info("RequestManager initialized")
+        logger.debug("RequestManager initialized")
 
     async def initialize(self) -> None:
         """Initialize the request manager."""
@@ -181,7 +181,7 @@ class RequestManager:
             self._queue_processor_task = asyncio.create_task(self._process_request_queue())
 
             self._initialized = True
-            logger.info("RequestManager initialized successfully")
+            logger.debug("RequestManager initialized successfully")
 
         except Exception as e:
             logger.error(f"Failed to initialize RequestManager: {e}")
@@ -728,7 +728,7 @@ class RequestManager:
     async def shutdown(self) -> None:
         """Shutdown the request manager."""
         try:
-            logger.info("Shutting down RequestManager")
+            logger.debug("Shutting down RequestManager")
 
             # Cancel queue processor
             if self._queue_processor_task and not self._queue_processor_task.done():
@@ -752,7 +752,7 @@ class RequestManager:
                 for handle in list(self._active_requests.values()):
                     handle.cancel()
 
-            logger.info("RequestManager shutdown complete")
+            logger.debug("RequestManager shutdown complete")
 
         except Exception as e:
             logger.error(f"Error during RequestManager shutdown: {e}")

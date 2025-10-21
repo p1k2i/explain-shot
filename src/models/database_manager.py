@@ -353,4 +353,4 @@ class DatabaseManager:
         # In this implementation, connections are managed per-operation
         # so no persistent connections to close
         self._initialized = False
-        self.logger.info("Database manager closed")
+        self.logger.debug("Database manager closed")

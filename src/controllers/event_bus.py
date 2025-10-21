@@ -87,7 +87,7 @@ class EventBus:
         # Lock for thread safety
         self._lock = asyncio.Lock()
 
-        logger.info("EventBus initialized with max_queue_size=%d", max_queue_size)
+        logger.debug("EventBus initialized with max_queue_size=%d", max_queue_size)
 
     async def subscribe(
         self,
@@ -504,7 +504,7 @@ class EventBus:
         Args:
             timeout: Maximum time to wait for queue processing
         """
-        logger.info("Shutting down EventBus...")
+        logger.debug("Shutting down EventBus...")
         self._shutdown_requested = True
 
         # Wait for queue to empty or timeout
@@ -518,7 +518,7 @@ class EventBus:
             self._event_queue.clear()
             self._event_history.clear()
 
-        logger.info("EventBus shutdown complete")
+        logger.debug("EventBus shutdown complete")
 
     def __len__(self) -> int:
         """Return number of queued events."""

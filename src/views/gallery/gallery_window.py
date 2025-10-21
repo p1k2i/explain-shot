@@ -93,8 +93,6 @@ class GalleryWindow(QWidget):
         # Initialize UI
         self._setup_ui()
 
-        logger.info("GalleryWindow created with component-based architecture")
-
     async def _subscribe_to_events(self) -> None:
         """Subscribe to EventBus events."""
         # Subscribe to Ollama response events
@@ -175,11 +173,6 @@ class GalleryWindow(QWidget):
                 if screenshot_hash and self.gallery_state.selected_screenshot_id == screenshot_hash:
                     self.chat_interface.add_ai_message(response)
                     self.chat_interface.set_status("Response received")
-                    logger.info("AI response added to chat for screenshot: %s", screenshot_hash[:8])
-                else:
-                    logger.debug("Ignoring AI response for different screenshot: %s (current: %s)",
-                               screenshot_hash[:8] if screenshot_hash else 'None',
-                               self.gallery_state.selected_screenshot_id[:8] if self.gallery_state.selected_screenshot_id else 'None')
 
         except Exception as e:
             logger.error(f"Error handling Ollama response: {e}")
@@ -312,7 +305,7 @@ class GalleryWindow(QWidget):
                                getattr(self.screenshots_gallery, 'load_screenshots', None)
                 if refresh_method:
                     asyncio.create_task(refresh_method())
-                logger.info("Gallery refreshed after screenshot capture")
+                logger.debug("Gallery refreshed after screenshot capture")
 
         except Exception as e:
             logger.error(f"Error handling screenshot captured: {e}")
@@ -323,7 +316,7 @@ class GalleryWindow(QWidget):
             # Additional handling for completed screenshots
             if event_data.data and 'screenshot_id' in event_data.data:
                 screenshot_id = event_data.data['screenshot_id']
-                logger.info(f"Screenshot completed: {screenshot_id}")
+                logger.debug(f"Screenshot completed: {screenshot_id}")
 
                 # Update cache with new screenshot data
                 asyncio.create_task(self._update_cache())
@@ -346,7 +339,7 @@ class GalleryWindow(QWidget):
             # Only refresh if gallery is visible and content is loaded
             if self.isVisible() and self._content_loaded and self.presets_panel:
                 await self.presets_panel.refresh_presets()
-                logger.info("Presets panel refreshed after preset creation")
+                logger.debug("Presets panel refreshed after preset creation")
 
         except Exception as e:
             logger.error(f"Error handling preset created: {e}")
@@ -360,7 +353,7 @@ class GalleryWindow(QWidget):
             # Only refresh if gallery is visible and content is loaded
             if self.isVisible() and self._content_loaded and self.presets_panel:
                 await self.presets_panel.refresh_presets()
-                logger.info("Presets panel refreshed after preset update")
+                logger.debug("Presets panel refreshed after preset update")
 
         except Exception as e:
             logger.error(f"Error handling preset updated: {e}")
@@ -374,7 +367,7 @@ class GalleryWindow(QWidget):
             # Only refresh if gallery is visible and content is loaded
             if self.isVisible() and self._content_loaded and self.presets_panel:
                 await self.presets_panel.refresh_presets()
-                logger.info("Presets panel refreshed after preset deletion")
+                logger.debug("Presets panel refreshed after preset deletion")
 
         except Exception as e:
             logger.error(f"Error handling preset deleted: {e}")
@@ -551,7 +544,7 @@ class GalleryWindow(QWidget):
             )
 
             # Components should listen for the event emitted above
-            logger.info(f"Optimization setting updated: {key} = {value}")
+            logger.debug(f"Optimization setting updated: {key} = {value}")
 
         except Exception as e:
             logger.error(f"Error handling optimization setting change ({key}): {e}")
@@ -580,7 +573,7 @@ class GalleryWindow(QWidget):
             self._apply_theme()
 
             self._initialized = True
-            logger.info("GalleryWindow initialized successfully")
+            logger.debug("GalleryWindow initialized successfully")
             return True
 
         except Exception as e:
@@ -601,7 +594,7 @@ class GalleryWindow(QWidget):
                 self._style_manager
             )
 
-            logger.info("Style managers initialized")
+            logger.debug("Style managers initialized")
 
         except Exception as e:
             logger.error(f"Failed to initialize style managers: {e}")
@@ -621,7 +614,7 @@ class GalleryWindow(QWidget):
             if self.presets_panel and self._preset_item_style_manager:
                 self.presets_panel.set_style_manager(self._preset_item_style_manager)
 
-            logger.info("Components initialized")
+            logger.debug("Components initialized")
 
         except Exception as e:
             logger.error(f"Failed to initialize components: {e}")
@@ -737,7 +730,7 @@ class GalleryWindow(QWidget):
                 # Just do a standard refresh without selection
                 asyncio.create_task(self._refresh_screenshots_directory_async())
 
-            logger.info("Gallery window shown")
+            logger.debug("Gallery window shown")
 
         except Exception as e:
             logger.error(f"Error showing gallery: {e}")
@@ -780,10 +773,10 @@ class GalleryWindow(QWidget):
         try:
             # Check if cache is still valid
             if self._is_cache_valid():
-                logger.info("Using cached gallery content")
+                logger.debug("Using cached gallery content")
                 await self._restore_from_cache()
             else:
-                logger.info("Cache expired or invalid, reloading content")
+                logger.debug("Cache expired or invalid, reloading content")
                 await self._load_fresh_content()
                 await self._update_cache()
 
@@ -806,7 +799,7 @@ class GalleryWindow(QWidget):
         try:
             # If content is already loaded and cache is valid, don't reload
             if self._content_loaded and self._is_cache_valid():
-                logger.info("Content already loaded and cache valid, skipping reload")
+                logger.debug("Content already loaded and cache valid, skipping reload")
                 return
 
             # Load screenshots only if not already loaded
@@ -821,7 +814,7 @@ class GalleryWindow(QWidget):
             if self._ui_state_cache:
                 await self._restore_ui_state(self._ui_state_cache)
 
-            logger.info("Gallery content loaded (cache-aware)")
+            logger.debug("Gallery content loaded (cache-aware)")
 
         except Exception as e:
             logger.error(f"Error restoring from cache: {e}")
@@ -839,7 +832,7 @@ class GalleryWindow(QWidget):
             if self.presets_panel:
                 await self.presets_panel.refresh_presets()
 
-            logger.info("Fresh gallery content loaded")
+            logger.debug("Fresh gallery content loaded")
 
         except Exception as e:
             logger.error(f"Error loading fresh gallery content: {e}")
@@ -879,7 +872,7 @@ class GalleryWindow(QWidget):
             # Update cache timestamp
             self._cache_timestamp = time.time()
 
-            logger.info("Gallery cache updated")
+            logger.debug("Gallery cache updated")
 
         except Exception as e:
             logger.error(f"Error updating cache: {e}")
@@ -895,7 +888,7 @@ class GalleryWindow(QWidget):
             if ui_state.get('window_geometry'):
                 self.setGeometry(ui_state['window_geometry'])
 
-            logger.info("UI state restored from cache")
+            logger.debug("UI state restored from cache")
 
         except Exception as e:
             logger.error(f"Error restoring UI state: {e}")
@@ -933,7 +926,7 @@ class GalleryWindow(QWidget):
             if self.presets_panel:
                 await self.presets_panel.refresh_presets()
 
-            logger.info("Gallery content loaded")
+            logger.debug("Gallery content loaded")
 
         except Exception as e:
             logger.error(f"Error loading gallery content: {e}")
@@ -951,7 +944,7 @@ class GalleryWindow(QWidget):
         asyncio.create_task(self._load_selected_screenshot_data(screenshot_id))
 
         self.screenshot_selected.emit(screenshot_id)
-        logger.info(f"Screenshot selected: {screenshot_id}")
+        logger.debug(f"Screenshot selected: {screenshot_id}")
 
     async def _load_selected_screenshot_data(self, screenshot_hash: str):
         """Load metadata and chat history for the selected screenshot."""
@@ -1003,7 +996,7 @@ class GalleryWindow(QWidget):
                     elif message.role == "system":
                         self.chat_interface.add_system_message(message.content)
 
-                logger.info(f"Loaded {len(messages)} chat messages for screenshot {screenshot_hash[:8]}...")
+                logger.debug(f"Loaded {len(messages)} chat messages for screenshot {screenshot_hash[:8]}...")
 
                 # Set status to show conversation loaded
                 if self.chat_interface:
@@ -1028,7 +1021,7 @@ class GalleryWindow(QWidget):
         if self.chat_interface:
             self.chat_interface.clear_chat()
 
-        logger.info("Screenshot deselected")
+        logger.debug("Screenshot deselected")
 
     def _on_preset_run(self, preset_id: str):
         """Handle preset run button clicks."""
@@ -1209,7 +1202,7 @@ class GalleryWindow(QWidget):
             stylesheet = self._style_manager.load_base_styles()
             if stylesheet:
                 self.setStyleSheet(stylesheet)
-                logger.info("Theme applied to gallery window")
+                logger.debug("Theme applied to gallery window")
         else:
             logger.warning("No style manager available for theme application")
 
@@ -1222,7 +1215,7 @@ class GalleryWindow(QWidget):
 
         # Emit gallery closed event
         self.gallery_closed.emit()
-        logger.info("Gallery window hidden (not closed)")
+        logger.debug("Gallery window hidden (not closed)")
 
     def keyPressEvent(self, a0):
         """Handle key press events for shortcuts."""
@@ -1236,7 +1229,7 @@ class GalleryWindow(QWidget):
             if (a0.key() == Qt.Key.Key_F5 or
                 (a0.modifiers() == Qt.KeyboardModifier.ControlModifier and a0.key() == Qt.Key.Key_R)):
 
-                logger.info("Manual refresh triggered by user")
+                logger.debug("Manual refresh triggered by user")
                 if self.screenshots_gallery:
                     asyncio.create_task(self.screenshots_gallery.force_directory_refresh())
 

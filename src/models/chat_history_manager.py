@@ -168,7 +168,6 @@ class ChatHistoryManager:
 
         # Ensure directory exists
         self.chat_directory.mkdir(parents=True, exist_ok=True)
-        self.logger.info(f"ChatHistoryManager initialized with directory: {self.chat_directory}")
 
     async def initialize(self) -> None:
         """Initialize the chat history manager."""
@@ -179,7 +178,8 @@ class ChatHistoryManager:
             # Validate directory permissions
             await self._validate_directory()
             self._initialized = True
-            self.logger.info("ChatHistoryManager initialized successfully")
+            self.logger.debug("ChatHistoryManager ready for directory "
+                             f"{self.chat_directory}")
 
         except Exception as e:
             self.logger.error(f"Failed to initialize ChatHistoryManager: {e}")

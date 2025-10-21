@@ -73,11 +73,11 @@ class OverlayWindow(QWidget):
         # Connect dismiss signal to close/hide
         self.overlay_dismissed.connect(self._on_overlay_dismissed)
 
-        logger.info("OverlayWindow initialized")
+        logger.debug("OverlayWindow initialized")
 
     def _on_overlay_dismissed(self, reason: str) -> None:
         """Handle overlay dismissed signal by closing/hiding window."""
-        logger.info(f"Overlay dismissed: {reason}")
+        logger.debug(f"Overlay dismissed: {reason}")
         self.hide()
         self.close()
 
@@ -122,7 +122,7 @@ class OverlayWindow(QWidget):
     def _create_layout(self) -> None:
         """Create the window layout with two lists and separator."""
         try:
-            logger.info("Creating overlay layout...")
+            logger.debug("Creating overlay layout...")
 
             # Main vertical layout
             main_layout = QVBoxLayout(self)
@@ -141,7 +141,7 @@ class OverlayWindow(QWidget):
             self.app_functions_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self.app_functions_list.itemClicked.connect(self._on_function_item_clicked)
             main_layout.addWidget(self.app_functions_list)
-            logger.info("App functions list created")
+            logger.debug("App functions list created")
 
             # Separator
             self.separator = QFrame()
@@ -165,7 +165,7 @@ class OverlayWindow(QWidget):
 
             self.setLayout(main_layout)
 
-            logger.info("Layout created successfully")
+            logger.debug("Layout created successfully")
 
         except Exception as e:
             logger.error(f"Error creating layout: {e}")
@@ -294,7 +294,7 @@ class OverlayWindow(QWidget):
         try:
             item_data = item.data(Qt.ItemDataRole.UserRole)
             if item_data:
-                logger.info(f"Function item selected: {item_data.get('title', 'Unknown')}")
+                logger.debug(f"Function item selected: {item_data.get('title', 'Unknown')}")
                 self.item_selected.emit("function", item_data)
 
         except Exception as e:
@@ -310,7 +310,7 @@ class OverlayWindow(QWidget):
         try:
             item_data = item.data(Qt.ItemDataRole.UserRole)
             if item_data:
-                logger.info(f"Screenshot item selected: {item_data.get('filename', 'Unknown')}")
+                logger.debug(f"Screenshot item selected: {item_data.get('filename', 'Unknown')}")
                 self.item_selected.emit("screenshot", item_data)
 
         except Exception as e:

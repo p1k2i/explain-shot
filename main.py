@@ -142,11 +142,11 @@ class Application:
             existing_app = QApplication.instance()
             if existing_app is None:
                 self.qt_app = QApplication(sys.argv)
-                logger.info("Created new QApplication instance")
+                logger.debug("Created new QApplication instance")
             else:
                 # Safely cast since we know it's a QApplication if it exists
                 self.qt_app = existing_app  # type: ignore
-                logger.info("Using existing QApplication instance")
+                logger.debug("Using existing QApplication instance")
 
             # Set application icon
             from src.utils.icon_manager import get_icon_manager
@@ -154,7 +154,7 @@ class Application:
             app_icon = icon_manager.get_app_icon()
             if app_icon and self.qt_app:
                 self.qt_app.setWindowIcon(app_icon)
-                logger.info("Application icon set")
+                logger.debug("Application icon set")
 
             # Initialize UIManager
             self.ui_manager = UIManager(
@@ -197,7 +197,7 @@ class Application:
                 source="application"
             )
 
-            logger.info("Application initialization complete")
+            logger.debug("Application initialization complete")
             return True
 
         except Exception as e:
@@ -231,7 +231,7 @@ class Application:
             status = await self.auto_start_manager.get_auto_start_status()
 
             if status['overall_status'].value != 'enabled':
-                logger.info("Configuring auto-start...")
+                logger.debug("Configuring auto-start...")
 
                 # Enable auto-start with minimal startup options
                 success, method = await self.auto_start_manager.enable_auto_start(

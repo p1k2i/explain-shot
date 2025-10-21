@@ -91,7 +91,7 @@ class TrayManager:
         # Status tracking
         self._settings: Dict[str, Any] = {}
 
-        logger.info("TrayManager initialized: %s", app_name)
+        logger.debug("TrayManager initialized: %s", app_name)
 
     def _setup_default_menu(self) -> None:
         """Set up the default context menu structure."""
@@ -176,7 +176,7 @@ class TrayManager:
             # Start tray detached (non-blocking)
             self._start_tray_detached()
 
-            logger.info("TrayManager initialized successfully")
+            logger.debug("TrayManager initialized successfully")
             return True
 
         except Exception as e:
@@ -235,7 +235,7 @@ class TrayManager:
             # Mark as running
             self._is_running = True
 
-            logger.info("System tray started in detached mode")
+            logger.debug("System tray started in detached mode")
 
         except Exception as e:
             logger.error("Error starting detached tray: %s", e)
@@ -491,7 +491,7 @@ class TrayManager:
             return
 
         self._shutdown_requested = True
-        logger.info("Shutting down TrayManager...")
+        logger.debug("Shutting down TrayManager...")
 
         try:
             # Stop the tray icon
@@ -509,7 +509,7 @@ class TrayManager:
             self._icon = None
             self._is_running = False
 
-            logger.info("TrayManager shutdown complete")
+            logger.debug("TrayManager shutdown complete")
 
         except Exception as e:
             logger.error("Error during TrayManager shutdown: %s", e)

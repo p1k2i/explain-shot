@@ -79,7 +79,7 @@ class PresetManager:
             await self._load_all_presets()
 
             self._initialized = True
-            logger.info("PresetManager initialized successfully")
+            logger.debug("PresetManager initialized successfully")
 
         except Exception as e:
             logger.error(f"Failed to initialize PresetManager: {e}")
@@ -502,7 +502,7 @@ class PresetManager:
             # Load user presets
             await self._load_presets_from_directory(self.user_presets_dir, is_builtin=False)
 
-            logger.info(f"Loaded {len(self._preset_cache)} presets into cache")
+            logger.debug(f"Loaded {len(self._preset_cache)} presets into cache")
 
         except Exception as e:
             logger.error(f"Failed to load presets: {e}")
@@ -697,7 +697,7 @@ class PresetManager:
                     del self._preset_cache[preset_id]
                     logger.debug(f"Removed preset no longer on disk: {preset_id}")
 
-                logger.info(f"Refreshed presets: loaded {len(files_to_load)}, removed {len(files_to_remove)}")
+                logger.debug(f"Refreshed presets: loaded {len(files_to_load)}, removed {len(files_to_remove)}")
 
             except Exception as e:
                 logger.error(f"Failed to refresh presets: {e}")
@@ -710,7 +710,7 @@ class PresetManager:
                 self._preset_cache.clear()
 
             self._initialized = False
-            logger.info("PresetManager shutdown complete")
+            logger.debug("PresetManager shutdown complete")
 
         except Exception as e:
             logger.error(f"Error during PresetManager shutdown: {e}")

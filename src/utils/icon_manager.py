@@ -51,7 +51,7 @@ class IconManager:
             'tray': (16, 16)  # System tray standard size
         }
 
-        logger.info("IconManager initialized with resource directory: %s", self.resource_dir)
+        logger.debug("IconManager initialized with resource directory: %s", self.resource_dir)
 
     def _get_resource_dir(self) -> Path:
         """Get the resource directory path."""
@@ -321,7 +321,7 @@ class IconManager:
             for size in sizes:
                 self.load_icon(state, size)
 
-        logger.info("Preloaded %d icons", len(states) * len(sizes))
+        logger.debug("Preloaded %d icons", len(states) * len(sizes))
 
     def get_icon_info(self) -> Dict[str, Any]:
         """
