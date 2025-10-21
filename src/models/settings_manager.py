@@ -121,7 +121,7 @@ class OptimizationConfig:
 class ApplicationSettings:
     """Complete application settings."""
     # Core settings
-    version: str = "0.1.0"
+    version: str = "0.1.1"
     first_run: bool = True
     debug_mode: bool = False
     log_level: str = "INFO"

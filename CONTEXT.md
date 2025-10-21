@@ -1,6 +1,6 @@
 # ExplainShot - Project Context & Architecture Documentation
 
-**Version:** 0.1.0
+**Version:** 0.1.1
 **Language:** Python 3.12
 **Architecture Pattern:** MVC (Model-View-Controller) with Event-Driven Architecture
 **Last Updated:** October 2025
@@ -1367,7 +1367,7 @@ EXPLAIN QUERY PLAN SELECT ...
 - [ ] README.md updated if user-facing changes
 - [ ] Build executable: `pyinstaller --windowed --onefile --icon=resources/icons/app.ico main.py`
 - [ ] Test executable on Windows
-- [ ] Create git tag: `git tag v0.1.0`
+- [ ] Create git tag: `git tag v0.1.1`
 
 ---
 
