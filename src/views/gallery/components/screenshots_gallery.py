@@ -249,6 +249,12 @@ class ThumbnailLoader(QObject):
         self._cache.clear()
         logger.debug("Thumbnail cache cleared")
 
+    def remove_from_cache(self, screenshot_id: str) -> None:
+        """Remove a specific thumbnail from the cache."""
+        if screenshot_id in self._cache:
+            del self._cache[screenshot_id]
+            logger.debug(f"Removed thumbnail from cache for screenshot: {screenshot_id[:8]}")
+
 
 class ScreenshotItem(QWidget):
     """Individual screenshot item widget with thumbnail and metadata."""
@@ -515,8 +521,17 @@ class ScreenshotGallery(QWidget):
                 if hash_to_remove in self.screenshot_items:
                     item = self.screenshot_items[hash_to_remove]
                     self.screenshots_layout.removeWidget(item)
+                    item.hide()  # Fix ghosting in layout
                     item.deleteLater()
                     del self.screenshot_items[hash_to_remove]
+
+                    # Remove thumbnail from cache since the file no longer exists
+                    if self.thumbnail_loader:
+                        self.thumbnail_loader.remove_from_cache(hash_to_remove)
+
+            # Update the layout after removals
+            if to_remove:
+                self.screenshots_container.update()
 
             # If we have new screenshots to add, reorganize the entire grid to maintain newest-first order
             if to_add:
