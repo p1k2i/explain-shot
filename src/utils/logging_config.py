@@ -107,7 +107,7 @@ class ApplicationLogger:
 
     def __init__(
         self,
-        app_name: str = "explain-screenshot",
+        app_name: str = "explain-shot",
         log_dir: Optional[Path] = None,
         log_level: str = "INFO",
         max_file_size: int = 10 * 1024 * 1024,  # 10MB
