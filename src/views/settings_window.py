@@ -846,7 +846,7 @@ class SettingsWindow(QDialog):
             if self.ollama_client and self.ollama_client.is_online():
                 # Get models from real OllamaClient
                 models = await self.ollama_client.get_available_models()
-                logger.info(f"Retrieved {len(models)} Ollama models from server")
+                logger.debug(f"Retrieved {len(models)} Ollama models from server")
             else:
                 # Fallback: use mock data when offline
                 models = [
