@@ -496,11 +496,17 @@ class ScreenshotGallery(QWidget):
         except Exception as e:
             logger.error(f"Failed to load screenshots: {e}")
 
-    async def refresh_screenshots(self, limit: int = 150, force_scan: bool = False):
-        """Refresh screenshots - optimized for incremental updates."""
+    async def refresh_screenshots(self, limit: int = 150, force_scan: bool = False, clear_all: bool = False):
+        """Refresh screenshots - optimized for incremental updates or full reload.
+
+        Args:
+            limit: Maximum number of screenshots to load
+            force_scan: Force a fresh directory scan instead of using cached data
+            clear_all: Clear all existing items and reload everything from scratch
+        """
         try:
             # Get current screenshots
-            if force_scan:
+            if force_scan or clear_all:
                 # Force a fresh directory scan to catch any new files
                 logger.debug("Forcing fresh directory scan for screenshots")
                 screenshots = await self.screenshot_manager.scan_screenshot_directory()
@@ -508,6 +514,57 @@ class ScreenshotGallery(QWidget):
             else:
                 screenshots = await self.screenshot_manager.get_recent_screenshots(limit=limit)
 
+            # If clear_all is True, clear everything first and reload completely
+            if clear_all:
+                logger.debug("Clearing all screenshots for complete reload")
+                # Properly remove all items from layout and hide them before deleting
+                for item in self.screenshot_items.values():
+                    self.screenshots_layout.removeWidget(item)
+                    item.hide()  # Fix ghosting in layout
+                    item.deleteLater()
+                self.screenshot_items.clear()
+
+                # Clear thumbnail cache for complete reload
+                if self.thumbnail_loader:
+                    await self.thumbnail_loader.clear_cache()
+
+                # Sort screenshots by timestamp, newest first
+                screenshots_sorted = sorted(screenshots, key=lambda s: s.timestamp, reverse=True)
+
+                row, col = 0, 0
+                for screenshot in screenshots_sorted:
+                    # Use hash as unique identifier instead of database ID
+                    screenshot_hash = screenshot.hash or screenshot.unique_id
+                    if screenshot_hash:
+                        item = ScreenshotItem(
+                            screenshot_hash,
+                            screenshot.filename,
+                            screenshot.timestamp
+                        )
+                        item.clicked.connect(self._on_screenshot_clicked)
+
+                        if self._screenshot_item_style_manager:
+                            item.set_style_manager(self._screenshot_item_style_manager)
+
+                        self.screenshots_layout.addWidget(item, row, col)
+                        self.screenshot_items[screenshot_hash] = item
+
+                        # Queue thumbnail loading (this will show placeholder immediately)
+                        if self.thumbnail_loader:
+                            await self.thumbnail_loader.load_thumbnail(
+                                screenshot_hash,
+                                screenshot.full_path
+                            )
+
+                    col += 1
+                    if col >= GRID_COLS_PER_ROW:
+                        col = 0
+                        row += 1
+
+                logger.debug(f"Complete reload: loaded {len(screenshots)} screenshots")
+                return
+
+            # Original incremental update logic
             # Build set of current screenshot hashes for comparison
             current_hashes = {screenshot.hash or screenshot.unique_id for screenshot in screenshots if screenshot.hash or screenshot.unique_id}
             existing_hashes = set(self.screenshot_items.keys())
@@ -593,8 +650,8 @@ class ScreenshotGallery(QWidget):
     async def force_directory_refresh(self, limit: int = 150):
         """Force a fresh directory scan and full refresh of screenshots."""
         try:
-            logger.debug("Forcing complete directory refresh")
-            await self.refresh_screenshots(limit=limit, force_scan=True)
+            logger.debug("Forcing complete directory refresh with clear all")
+            await self.refresh_screenshots(limit=limit, force_scan=True, clear_all=True)
         except Exception as e:
             logger.error(f"Failed to force directory refresh: {e}")
 
@@ -653,6 +710,8 @@ class ScreenshotGallery(QWidget):
     def _clear_screenshot_items(self):
         """Clear all screenshot items."""
         for item in self.screenshot_items.values():
+            self.screenshots_layout.removeWidget(item)
+            item.hide()  # Fix ghosting in layout
             item.deleteLater()
         self.screenshot_items.clear()
 
