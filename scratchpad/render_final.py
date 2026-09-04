@@ -63,9 +63,9 @@ if records:
     history.append_root(records[0].id, "user", "What is this screenshot?")
     history.append_root(records[0].id, "assistant", "It's a blue rectangle with a caption.")
     gw._refresh_transcript()
-    gw.chat_panel.show_system_message(
+    chat.add_notice(
+        records[0].id, "error",
         "Connection to the model server failed: connection refused. Check your AI provider settings.",
-        variant="error",
     )
     gw.chat_panel.set_status(gw.chat_panel.STATUS_ERROR)
 
