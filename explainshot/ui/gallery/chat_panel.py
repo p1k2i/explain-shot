@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -107,15 +108,14 @@ class MessageBubble(QFrame):
         style = _CURRENT_ROLE_STYLES[role]
         self._body = QTextBrowser(self)
         self._body.setOpenExternalLinks(True)
-        # Explicit interaction flags: text-selection has to be on for every
-        # role (QTextBrowser has it on by default but a stylesheet is not
-        # enough to communicate that to the user — the visible selection
-        # colour also has to contrast the bubble background).
+        # Selection-only interaction: drag with the mouse to select, but no
+        # keyboard caret ever appears. Clicking never gives the widget focus,
+        # so the blinking text cursor never shows up either.
         self._body.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
-            | Qt.TextInteractionFlag.TextSelectableByKeyboard
             | Qt.TextInteractionFlag.LinksAccessibleByMouse
         )
+        self._body.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._body.viewport().setCursor(Qt.CursorShape.IBeamCursor)
         self._body.setStyleSheet(
             "QTextBrowser {"
@@ -207,7 +207,19 @@ class MessageBubble(QFrame):
         available = max(60, self._body.width() - 32)
         self._body.document().setTextWidth(available)
         doc_height = int(self._body.document().size().height())
-        self._body.setFixedHeight(doc_height + 24)
+        new_height = doc_height + 24
+        if self._body.height() != new_height:
+            self._body.setFixedHeight(new_height)
+            # Force the row + the transcript's content widget to rerun
+            # their layouts so the next row's start moves down instead of
+            # our action bar getting covered.
+            self.updateGeometry()
+            parent = self.parent()
+            while parent is not None:
+                parent.updateGeometry()
+                if parent.objectName() == "MessageRow":
+                    break
+                parent = parent.parent()
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
@@ -294,10 +306,18 @@ class _MessageRow(QWidget):
         self.notice_id = notice_id
         self.setObjectName("MessageRow")
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        # Take the width the transcript gives us but never squish vertically:
+        # each row must be exactly the sum of its (header + bubble + actions)
+        # heights, otherwise adjacent rows overlap and the action bar can be
+        # covered by the next row's bubble.
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         column = QVBoxLayout(self)
-        column.setContentsMargins(4, 4, 4, 4)
-        column.setSpacing(2)
+        column.setContentsMargins(4, 6, 4, 8)
+        column.setSpacing(4)
+        # Fix the row's height to what its layout sums up to — no over- or
+        # under-allocation from the parent QScrollArea's content widget.
+        column.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
 
         header = QHBoxLayout()
         header.setContentsMargins(2, 0, 2, 0)
@@ -369,15 +389,19 @@ class _MessageRow(QWidget):
 
     def _build_actions(self, node: MessageNode) -> QWidget:
         host = QWidget()
+        host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         row = QHBoxLayout(host)
-        row.setContentsMargins(2, 0, 2, 0)
-        row.setSpacing(4)
+        # Padding above and below so the bar visually belongs to its bubble
+        # and doesn't crowd the next row's header.
+        row.setContentsMargins(2, 4, 2, 2)
+        row.setSpacing(6)
         if node.role == "user":
             row.addStretch(1)
         for label, tooltip, handler in self._action_specs(node):
             btn = QPushButton(label)
             btn.setProperty("chip", True)
             btn.setToolTip(tooltip)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(handler)
             row.addWidget(btn)
         if node.role != "user":
@@ -488,7 +512,8 @@ class ChatPanel(QWidget):
         self._transcript_host = QWidget()
         self._transcript = QVBoxLayout(self._transcript_host)
         self._transcript.setContentsMargins(6, 6, 6, 6)
-        self._transcript.setSpacing(2)
+        # Constant spacing between rows regardless of individual row sizes.
+        self._transcript.setSpacing(6)
         self._transcript.addStretch(1)
         self.scroll.setWidget(self._transcript_host)
 
