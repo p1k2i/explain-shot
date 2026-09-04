@@ -1,29 +1,27 @@
 """Gallery window.
 
-Fluent frameless chrome + three panels (screenshots / chat / presets).
-The chat panel is now a branching ChatGPT-style tree — the window holds
-the coordination logic (submit / edit / regenerate / delete) that turns
-those UI events into ChatHistory mutations + AI provider calls.
+Layout: custom title bar over a three-column body — screenshots, chat,
+presets. The window is a *view* over the app's `ChatController` and
+`ChatHistory`: it visualises state, forwards user input, and rebuilds
+the transcript on demand. It never owns an in-flight completion, so
+closing the window or switching screenshots never drops a reply.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import datetime
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import (
     QFrame,
-    QHBoxLayout,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
+from ...ai.controller import ChatController
 from ...ai.history import ChatHistory, MessageNode
-from ...ai.provider import AIError, AIProvider
 from ...capture.models import ScreenshotRecord
 from ...capture.screenshot import ScreenshotService
 from ...capture.thumbnails import ThumbnailCache
@@ -41,6 +39,14 @@ from .screenshots_panel import ScreenshotsPanel
 log = logging.getLogger(__name__)
 
 
+def _humanise_size(nbytes: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if nbytes < 1024 or unit == "GB":
+            return f"{nbytes:.0f} {unit}" if unit == "B" else f"{nbytes:.1f} {unit}"
+        nbytes /= 1024
+    return f"{nbytes} B"
+
+
 class GalleryWindow(FramelessWindow):
     def __init__(
         self,
@@ -52,7 +58,7 @@ class GalleryWindow(FramelessWindow):
         thumbnails: ThumbnailCache,
         presets: PresetManager,
         history: ChatHistory,
-        provider_factory,
+        chat: ChatController,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -63,12 +69,14 @@ class GalleryWindow(FramelessWindow):
         self.thumbnails = thumbnails
         self.presets = presets
         self.history = history
-        self.provider_factory = provider_factory
+        self.chat = chat
 
         self.setWindowTitle("ExplainShot")
         self.setWindowIcon(app_icon())
         self.resize(1280, 800)
         self.setMinimumSize(960, 600)
+
+        set_chat_theme(settings.ui.theme)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -94,7 +102,6 @@ class GalleryWindow(FramelessWindow):
         )
         splitter.addWidget(self._wrap(self.screenshots_panel))
 
-        set_chat_theme(settings.ui.theme)
         self.chat_panel = ChatPanel()
         splitter.addWidget(self._wrap(self.chat_panel))
 
@@ -110,8 +117,6 @@ class GalleryWindow(FramelessWindow):
         root.addWidget(body, 1)
 
         self._selected: ScreenshotRecord | None = None
-        self._active_task: asyncio.Task | None = None
-
         self._preview_windows: list[PreviewWindow] = []
 
         # Wire panels
@@ -133,6 +138,16 @@ class GalleryWindow(FramelessWindow):
         self.signals.screenshot_deleted.connect(self.screenshots_panel.remove)
         self.signals.preset_saved.connect(lambda _: self.presets_panel.reload())
         self.signals.preset_deleted.connect(lambda _: self.presets_panel.reload())
+
+        # ChatController signals — the panel just visualises what the
+        # controller broadcasts, so closing/reopening this window never
+        # loses a reply.
+        self.chat.reply_started.connect(self._on_reply_started)
+        self.chat.reply_chunk.connect(self._on_reply_chunk)
+        self.chat.reply_completed.connect(self._on_reply_completed)
+        self.chat.reply_failed.connect(self._on_reply_failed)
+        self.chat.reply_cancelled.connect(self._on_reply_cancelled)
+        self.chat.history_changed.connect(self._on_history_changed)
 
         # Restore geometry
         state = self.db.load_window_state("gallery")
@@ -156,7 +171,6 @@ class GalleryWindow(FramelessWindow):
         self.title_bar.refresh_max_glyph()
 
     def changeEvent(self, event) -> None:  # type: ignore[override]
-        # Keep the max/restore glyph in sync when the OS toggles the state.
         super().changeEvent(event)
         try:
             self.title_bar.refresh_max_glyph()
@@ -164,8 +178,8 @@ class GalleryWindow(FramelessWindow):
             pass
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        if self._active_task and not self._active_task.done():
-            self._active_task.cancel()
+        # NOTE: never cancel a running completion here — the controller
+        # owns those tasks and they finish independently of us.
         try:
             self.db.save_window_state("gallery", bytes(self.saveGeometry()), self.isMaximized())
         except Exception:
@@ -192,17 +206,37 @@ class GalleryWindow(FramelessWindow):
         self._selected = record
         if record is None:
             self.chat_panel.clear()
-            self.chat_panel.set_enabled(False)
-            self.chat_panel.set_status("No screenshot")
+            self.chat_panel.set_context(None)
+            self.chat_panel.set_status(self.chat_panel.STATUS_IDLE)
             self.title_bar.set_title("ExplainShot")
             return
-        self.chat_panel.set_enabled(True)
-        self.chat_panel.set_status(f"{record.width}×{record.height}")
+        # Header: filename + resolution + file size in the context row
+        context = (
+            f"{record.filename}  ·  {record.width}×{record.height}  ·  {_humanise_size(record.size_bytes)}"
+        )
+        self.chat_panel.set_context(context)
         self.title_bar.set_title(f"ExplainShot — {record.filename}")
+
+        # Rehydrate transcript and pick up any in-progress reply already
+        # running for this screenshot.
         self._refresh_transcript()
+        progress = self.chat.in_progress(record.id)
+        if progress is not None:
+            placeholder = MessageNode(
+                id=-1, parent_id=progress.parent_id, role="assistant",
+                content=progress.text, model=None, created_at=progress.started_at,
+                siblings=None, index_in_siblings=0,
+            )
+            self.chat_panel.begin_streaming(placeholder)
+            if progress.text:
+                # We already have some text buffered — render it.
+                self.chat_panel._streaming_row.bubble.set_content(progress.text)  # type: ignore[union-attr]
+                self.chat_panel._streaming_row.bubble.set_thinking(False)         # type: ignore[union-attr]
+        else:
+            self.chat_panel.set_status(self.chat_panel.STATUS_IDLE)
 
     def _refresh_transcript(self) -> None:
-        if not self._selected:
+        if self._selected is None:
             self.chat_panel.clear()
             return
         path = self.history.active_path(self._selected.id)
@@ -217,7 +251,9 @@ class GalleryWindow(FramelessWindow):
             return
         window = PreviewWindow(record.path, record.filename)
         window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        window.destroyed.connect(lambda _=None, w=window: self._preview_windows.remove(w) if w in self._preview_windows else None)
+        window.destroyed.connect(
+            lambda _=None, w=window: self._preview_windows.remove(w) if w in self._preview_windows else None
+        )
         self._preview_windows.append(window)
         window.show()
         window.raise_()
@@ -232,43 +268,27 @@ class GalleryWindow(FramelessWindow):
             self.screenshots_panel.reload()
             self.screenshots_panel.select(updated.id)
 
-    # -- chat operations -------------------------------------------------------
+    # -- user actions in the chat -> controller ------------------------------
 
     def _on_prompt_submitted(self, prompt: str) -> None:
         if not self._selected:
             return
-        message_id = self.history.append_root(self._selected.id, "user", prompt)
-        self._refresh_transcript()
-        self._run_completion()
+        self.chat.submit(self._selected.id, self._selected.path, prompt)
 
     def _on_edit_submitted(self, source_id: int, new_content: str) -> None:
         if not self._selected:
             return
-        source = self.db.get_message(source_id)
-        if not source:
-            return
-        # Fork under the same parent as the edited message.
-        self.history.fork_from(
-            self._selected.id, source["parent_id"], "user", new_content,
-        )
-        self._refresh_transcript()
-        self._run_completion()
+        self.chat.resubmit_edited(self._selected.id, self._selected.path, source_id, new_content)
 
     def _on_regenerate_requested(self, assistant_id: int) -> None:
         if not self._selected:
             return
-        assistant = self.db.get_message(assistant_id)
-        if not assistant or assistant["role"] != "assistant":
-            return
-        # A new assistant sibling under the same parent (the user's prompt).
-        self._refresh_transcript()   # Optimistic: keep old bubble visible for a beat
-        self._run_completion(fork_parent_id=assistant["parent_id"])
+        self.chat.regenerate(self._selected.id, self._selected.path, assistant_id)
 
     def _on_delete_requested(self, message_id: int) -> None:
         if not self._selected:
             return
-        self.history.delete_subtree(self._selected.id, message_id)
-        self._refresh_transcript()
+        self.chat.delete_message(self._selected.id, message_id)
 
     def _on_branch_switch(self, message_id: int, direction: int) -> None:
         if not self._selected:
@@ -276,10 +296,7 @@ class GalleryWindow(FramelessWindow):
         current = self.db.get_message(message_id)
         if not current:
             return
-        siblings = [
-            row["id"]
-            for row in self.db.list_children(self._selected.id, current["parent_id"])
-        ]
+        siblings = [row["id"] for row in self.db.list_children(self._selected.id, current["parent_id"])]
         try:
             index = siblings.index(message_id)
         except ValueError:
@@ -287,14 +304,12 @@ class GalleryWindow(FramelessWindow):
         new_index = index + direction
         if not (0 <= new_index < len(siblings)):
             return
-        self.history.switch_branch(self._selected.id, siblings[new_index])
-        self._refresh_transcript()
+        self.chat.switch_branch(self._selected.id, siblings[new_index])
 
     def _on_clear(self) -> None:
         if not self._selected:
             return
-        self.history.clear(self._selected.id)
-        self._refresh_transcript()
+        self.chat.clear(self._selected.id)
 
     # -- preset actions --------------------------------------------------------
 
@@ -303,83 +318,59 @@ class GalleryWindow(FramelessWindow):
         if not preset or not self._selected:
             return
         self.presets.record_use(preset_id)
-        self._on_prompt_submitted(preset.prompt)
+        self.chat.submit(self._selected.id, self._selected.path, preset.prompt)
 
     def _on_preset_paste(self, preset_id: str) -> None:
         preset = self.presets.get(preset_id)
         if preset:
             self.chat_panel.replace_prompt(preset.prompt)
 
-    # -- completion runner -----------------------------------------------------
+    # -- controller signals -> panel -----------------------------------------
 
-    def _run_completion(self, *, fork_parent_id: int | None = None) -> None:
-        if not self._selected:
+    def _on_reply_started(self, screenshot_id: str, parent_id: int) -> None:
+        if not self._selected or self._selected.id != screenshot_id:
             return
-        if self._active_task and not self._active_task.done():
-            self._active_task.cancel()
+        placeholder = MessageNode(
+            id=-1, parent_id=parent_id if parent_id != -1 else None,
+            role="assistant", content="", model=None,
+            created_at=__import__("datetime").datetime.now(),
+            siblings=None, index_in_siblings=0,
+        )
+        self.chat_panel.begin_streaming(placeholder)
 
-        provider = self.provider_factory()
-        image_path = self._selected.path
-        screenshot_id = self._selected.id
-        history = self.history
-        chat_panel = self.chat_panel
-        signals = self.signals
+    def _on_reply_chunk(self, screenshot_id: str, delta: str) -> None:
+        if not self._selected or self._selected.id != screenshot_id:
+            return
+        self.chat_panel.append_stream(delta)
 
-        async def worker() -> None:
-            path = history.active_path(screenshot_id)
-            # Where do we attach the assistant turn?
-            parent_id = fork_parent_id if fork_parent_id is not None else (path[-1].id if path else None)
-            placeholder = MessageNode(
-                id=-1,
-                parent_id=parent_id,
-                role="assistant",
-                content="",
-                model=provider.model,
-                created_at=datetime.now(),
-                siblings=None,
-                index_in_siblings=0,
-            )
-            chat_panel.set_status("Thinking…")
-            chat_panel.begin_streaming(placeholder)
-            signals.ai_reply_started.emit(screenshot_id)
+    def _on_reply_completed(self, screenshot_id: str, reply: str, _new_id: int) -> None:
+        if not self._selected or self._selected.id != screenshot_id:
+            return
+        # Persisted; rebuild from history so the new turn has its real id.
+        self.chat_panel.end_streaming(reply)
+        self.chat_panel.set_status(self.chat_panel.STATUS_IDLE)
+        self._refresh_transcript()
 
-            messages = history.to_prompt(
-                screenshot_id,
-                image_path=image_path,
-                system=(
-                    "You are ExplainShot, a helpful assistant that describes "
-                    "and answers questions about the screenshot the user just captured. "
-                    "Be direct and specific."
-                ),
-            )
-            collected: list[str] = []
-            try:
-                async for chunk in provider.stream(messages):
-                    collected.append(chunk)
-                    chat_panel.append_stream(chunk)
-                    signals.ai_reply_chunk.emit(screenshot_id, chunk)
-                reply = "".join(collected)
-                chat_panel.end_streaming(reply)
-                history.fork_from(
-                    screenshot_id, parent_id, "assistant", reply, model=provider.model,
-                )
-                signals.ai_reply_completed.emit(screenshot_id, reply)
-                chat_panel.set_status("Ready")
-                self._refresh_transcript()
-            except asyncio.CancelledError:
-                chat_panel.end_streaming("".join(collected))
-                chat_panel.set_status("Cancelled")
-                self._refresh_transcript()
-                raise
-            except Exception as exc:
-                log.exception("chat completion failed")
-                chat_panel.end_streaming("".join(collected))
-                chat_panel.show_error(str(exc))
-                chat_panel.set_status("Error")
-                signals.ai_reply_failed.emit(screenshot_id, str(exc))
-                self._refresh_transcript()
+    def _on_reply_failed(self, screenshot_id: str, error: str) -> None:
+        if not self._selected or self._selected.id != screenshot_id:
+            return
+        # cancel_streaming drops the empty placeholder so we don't leave a
+        # ghost bubble behind — then the system-message row lands cleanly.
+        self.chat_panel.cancel_streaming()
+        self.chat_panel.show_system_message(error, variant="error")
+        self.chat_panel.set_status(self.chat_panel.STATUS_ERROR)
 
-        self._active_task = asyncio.ensure_future(worker())
+    def _on_reply_cancelled(self, screenshot_id: str) -> None:
+        if not self._selected or self._selected.id != screenshot_id:
+            return
+        self.chat_panel.cancel_streaming()
+        self.chat_panel.show_system_message("Cancelled.", variant="system")
+        self.chat_panel.set_status(self.chat_panel.STATUS_CANCELLED)
+
+    def _on_history_changed(self, screenshot_id: str) -> None:
+        if not self._selected or self._selected.id != screenshot_id:
+            return
+        self._refresh_transcript()
 
     # -- helpers ---------------------------------------------------------------
 

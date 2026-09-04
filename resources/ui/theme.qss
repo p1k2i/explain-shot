@@ -249,6 +249,24 @@ QLabel#StatusChip {
     padding: 2px 10px;
     font-size: 11px;
 }
+QLabel#StatusChip[variant="active"] {
+    background: @accent;
+    color: @accent_text;
+    border-color: @accent;
+}
+QLabel#StatusChip[variant="error"] {
+    background: rgba(201,64,64,0.15);
+    color: @danger;
+    border-color: @danger;
+}
+
+QLabel#ChatContext {
+    color: @text_secondary;
+    background: transparent;
+    padding: 2px 2px 6px 2px;
+    border-bottom: 1px solid @stroke;
+    font-size: 12px;
+}
 
 QListWidget, QListView, QTreeView {
     background: @bg_layer;
@@ -310,8 +328,8 @@ QPushButton[caption="true"] {
     background: transparent;
     border: none;
     border-radius: 0;
-    color: @text_secondary;
-    font-size: 12px;
+    color: @text_primary;
+    font-size: 15px;
     padding: 0;
     min-height: 0;
     min-width: 0;

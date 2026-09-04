@@ -1,13 +1,16 @@
-"""Middle column of the gallery: chat with the AI about the current screenshot.
+"""Middle column of the gallery: the chat panel.
 
-ChatGPT-style: each message is its own bubble widget with per-message
-actions (copy, edit for user turns, regenerate for assistant turns,
-delete). Forked turns show a `‹ 2/3 ›` branch switcher.
+Pure view over ChatController + ChatHistory. All state lives in those two
+objects; the panel only renders and forwards user input.
 
-Rendering strategy: a QScrollArea of `MessageRow` widgets, each of which
-renders its own bubble with `QTextBrowser` for markdown. We own the
-widgets so hit testing works — QTextBrowser inside one big transcript
-couldn't tell us which message was hovered.
+Concretely:
+  * ``render(path)`` rebuilds the transcript from an active-branch snapshot.
+  * ``begin_streaming()`` / ``append_stream()`` / ``end_streaming()`` react
+    to controller signals so the window can be closed and re-opened mid
+    reply without losing the buffered text.
+  * ``show_error(msg)`` renders an ephemeral system-message row. System
+    rows are visual only — they are not stored in history nor sent to the
+    model.
 """
 
 from __future__ import annotations
@@ -18,8 +21,8 @@ from datetime import datetime
 from typing import Callable
 
 import markdown2
-from PyQt6.QtCore import QSize, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QClipboard, QGuiApplication, QIcon, QKeyEvent
+from PyQt6.QtCore import QTimer, Qt, pyqtSignal
+from PyQt6.QtGui import QGuiApplication, QKeyEvent
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -29,62 +32,50 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QTextBrowser,
     QTextEdit,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from ...ai.history import MessageNode
-from ..animation import FadeInController, HoverAnimator, HoverStates, HoverStyle
-from ..theme import Theme
 
 log = logging.getLogger(__name__)
 
 
-# --- Message widget ---------------------------------------------------------
+# --- Theming ---------------------------------------------------------------
 
 
 _ROLE_STYLES_DARK = {
     "user":      {"bg": "#0067c0", "fg": "#ffffff", "border": "#0067c0", "code_bg": "rgba(0,0,0,0.30)"},
     "assistant": {"bg": "#2f2f2f", "fg": "#f2f2f2", "border": "#3d3d3d", "code_bg": "rgba(255,255,255,0.08)"},
-    "system":    {"bg": "transparent", "fg": "#b3b3b3", "border": "#5a5a5a", "code_bg": "rgba(127,127,127,0.15)"},
-    "error":     {"bg": "rgba(201,64,64,0.10)", "fg": "#c94040", "border": "#c94040", "code_bg": "rgba(201,64,64,0.20)"},
+    "system":    {"bg": "rgba(90,90,90,0.15)", "fg": "#b3b3b3", "border": "#5a5a5a", "code_bg": "rgba(127,127,127,0.15)"},
+    "error":     {"bg": "rgba(201,64,64,0.10)", "fg": "#e08585", "border": "#c94040", "code_bg": "rgba(201,64,64,0.20)"},
 }
 _ROLE_STYLES_LIGHT = {
     "user":      {"bg": "#0067c0", "fg": "#ffffff", "border": "#0067c0", "code_bg": "rgba(0,0,0,0.35)"},
     "assistant": {"bg": "#ffffff", "fg": "#1b1b1b", "border": "#e6e6e6", "code_bg": "rgba(0,0,0,0.06)"},
-    "system":    {"bg": "transparent", "fg": "#5c5c5c", "border": "#cfcfcf", "code_bg": "rgba(0,0,0,0.05)"},
+    "system":    {"bg": "rgba(200,200,200,0.35)", "fg": "#5c5c5c", "border": "#cfcfcf", "code_bg": "rgba(0,0,0,0.05)"},
     "error":     {"bg": "rgba(201,64,64,0.08)", "fg": "#a3241a", "border": "#c94040", "code_bg": "rgba(201,64,64,0.10)"},
 }
-
 _CURRENT_ROLE_STYLES: dict[str, dict[str, str]] = _ROLE_STYLES_DARK
 
 
 def set_chat_theme(theme: str) -> None:
-    """Called by GalleryWindow when the theme changes so new bubbles get the
-    right palette. Existing bubbles keep their instance stylesheet — we redraw
-    the transcript on theme change so this is fine."""
     global _CURRENT_ROLE_STYLES
     _CURRENT_ROLE_STYLES = _ROLE_STYLES_LIGHT if theme == "light" else _ROLE_STYLES_DARK
 
 
-class MessageBubble(QFrame):
-    """One rendered message with editable / actionable UI.
+# --- Message bubble --------------------------------------------------------
 
-    A bubble carries:
-      * the markdown-rendered content
-      * inline styling per role — we set an explicit stylesheet on each
-        instance because Qt's [property="…"] QSS selectors aren't picked
-        up until the next polish cycle when the property is set during
-        widget construction. Owning the per-role look here avoids that.
-      * a hover-revealed action row (in the parent MessageRow).
-    """
+
+class MessageBubble(QFrame):
+    """Rounded background for one message, holding a QTextBrowser for the
+    rendered markdown and a lazy inline editor for edit-in-place."""
 
     def __init__(self, node: MessageNode, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.node = node
         self.setObjectName("MessageBubble")
-        role = node.role if node.role in {"user", "assistant", "system", "error"} else "system"
+        role = node.role if node.role in _CURRENT_ROLE_STYLES else "system"
         self._role = role
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._apply_bubble_style()
@@ -104,7 +95,21 @@ class MessageBubble(QFrame):
         self._body.document().documentLayout().documentSizeChanged.connect(self._adjust_height)
         outer.addWidget(self._body)
 
-        # Editor is created lazily on Edit.
+        # ChatGPT-style "thinking" dots shown while an assistant bubble is
+        # empty and the reply hasn't produced its first chunk yet.
+        self._thinking_label = QLabel("● ● ●", self)
+        self._thinking_label.setStyleSheet(
+            f"background: transparent; border: none; padding: 12px 16px; "
+            f"color: {_CURRENT_ROLE_STYLES[role]['fg']}; font-size: 16px;"
+        )
+        self._thinking_label.hide()
+        outer.addWidget(self._thinking_label)
+        self._thinking_timer = QTimer(self)
+        self._thinking_timer.setInterval(320)
+        self._thinking_timer.timeout.connect(self._pulse_thinking)
+        self._thinking_step = 0
+
+        # Editor created lazily on Edit.
         self._editor: QTextEdit | None = None
         self._editor_actions: QWidget | None = None
 
@@ -135,15 +140,34 @@ class MessageBubble(QFrame):
     def set_content(self, content: str) -> None:
         self.node.content = content
         self._render()
+        if content:
+            self.set_thinking(False)
 
     def append_content(self, delta: str) -> None:
+        if delta and not self.node.content:
+            self.set_thinking(False)
         self.node.content += delta
         self._render()
 
+    def set_thinking(self, on: bool) -> None:
+        if on:
+            self._body.hide()
+            self._thinking_label.show()
+            self._thinking_step = 0
+            self._pulse_thinking()
+            self._thinking_timer.start()
+        else:
+            self._thinking_timer.stop()
+            self._thinking_label.hide()
+            self._body.show()
+
+    def _pulse_thinking(self) -> None:
+        filled = 1 + (self._thinking_step % 3)
+        dots = ("● " * filled + "○ " * (3 - filled)).strip()
+        self._thinking_label.setText(dots)
+        self._thinking_step += 1
+
     def _adjust_height(self) -> None:
-        # QTextBrowser doesn't size to content on its own. We give the document
-        # an explicit text width so wrapping matches the bubble width, then set
-        # our own height to whatever the layout comes out to.
         available = max(60, self._body.width() - 32)
         self._body.document().setTextWidth(available)
         doc_height = int(self._body.document().size().height())
@@ -179,7 +203,7 @@ class MessageBubble(QFrame):
         cancel.setProperty("flat", True)
         cancel.clicked.connect(lambda: self._exit_edit_mode(None, done_callback))
         row.addWidget(cancel)
-        confirm = QPushButton("Save & regenerate")
+        confirm = QPushButton("Save && regenerate")
         confirm.setProperty("accent", True)
         confirm.clicked.connect(
             lambda: self._exit_edit_mode(self._editor.toPlainText().strip() if self._editor else None, done_callback)
@@ -209,27 +233,28 @@ ul, ol { margin: 4px 0 6px 20px; padding: 0; }
 """
 
 
-class _MessageRow(QWidget):
-    """Container for a bubble plus its hover-reveal action bar and (optional)
-    branch switcher. Aligns user turns to the right, assistant to the left."""
+# --- Message row (bubble + per-message actions + branch switcher) ----------
 
+
+class _MessageRow(QWidget):
     edit_requested = pyqtSignal(int)
     delete_requested = pyqtSignal(int)
     regenerate_requested = pyqtSignal(int)
     copy_requested = pyqtSignal(int)
     branch_switch_requested = pyqtSignal(int, int)
+    system_dismiss_requested = pyqtSignal(object)  # self
 
-    def __init__(self, node: MessageNode, parent: QWidget | None = None) -> None:
+    def __init__(self, node: MessageNode, *, is_system: bool = False, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.node = node
+        self.is_system = is_system
         self.setObjectName("MessageRow")
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
         column = QVBoxLayout(self)
-        column.setContentsMargins(4, 6, 4, 6)
-        column.setSpacing(4)
+        column.setContentsMargins(4, 4, 4, 4)
+        column.setSpacing(2)
 
-        # Header: role label + branch switcher (if any) + timestamp
         header = QHBoxLayout()
         header.setContentsMargins(2, 0, 2, 0)
         header.setSpacing(6)
@@ -242,20 +267,22 @@ class _MessageRow(QWidget):
 
         header.addStretch(1)
 
-        # Branch switcher, e.g. "‹ 2 / 3 ›"
-        self._branch_widget: QWidget | None = None
         if node.has_siblings():
-            self._branch_widget = self._build_branch_switcher(node)
-            header.addWidget(self._branch_widget)
+            header.addWidget(self._build_branch_switcher(node))
 
         ts = QLabel(node.created_at.strftime("%H:%M"))
         ts.setObjectName("MessageMeta")
         ts.setProperty("muted", True)
         header.addWidget(ts)
 
+        if is_system:
+            dismiss = QPushButton("Dismiss")
+            dismiss.setProperty("chip", True)
+            dismiss.clicked.connect(lambda: self.system_dismiss_requested.emit(self))
+            header.addWidget(dismiss)
+
         column.addLayout(header)
 
-        # Bubble row: alignment depends on role.
         bubble_row = QHBoxLayout()
         bubble_row.setContentsMargins(0, 0, 0, 0)
         self.bubble = MessageBubble(node)
@@ -264,17 +291,16 @@ class _MessageRow(QWidget):
         if node.role == "user":
             bubble_row.addStretch(1)
             bubble_row.addWidget(self.bubble)
+        elif node.role in {"system", "error"}:
+            bubble_row.addWidget(self.bubble, 1)
         else:
             bubble_row.addWidget(self.bubble)
             bubble_row.addStretch(1)
         column.addLayout(bubble_row)
 
-        # Hover action bar.
-        self._actions = self._build_actions(node)
-        self._actions_fade = FadeInController(self._actions)
-        column.addWidget(self._actions)
-
-    # -- construction helpers --------------------------------------------------
+        if not is_system:
+            actions_bar = self._build_actions(node)
+            column.addWidget(actions_bar)
 
     def _build_branch_switcher(self, node: MessageNode) -> QWidget:
         host = QWidget()
@@ -282,7 +308,7 @@ class _MessageRow(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
 
-        prev_btn = QPushButton("‹")
+        prev_btn = QPushButton("‹")   # single left-pointing angle
         prev_btn.setProperty("chip", True)
         prev_btn.setFixedSize(22, 20)
         prev_btn.clicked.connect(lambda: self.branch_switch_requested.emit(node.id, -1))
@@ -291,7 +317,7 @@ class _MessageRow(QWidget):
         label = QLabel(f"{node.index_in_siblings + 1} / {len(node.siblings)}")
         label.setObjectName("MessageMeta")
 
-        next_btn = QPushButton("›")
+        next_btn = QPushButton("›")   # single right-pointing angle
         next_btn.setProperty("chip", True)
         next_btn.setFixedSize(22, 20)
         next_btn.clicked.connect(lambda: self.branch_switch_requested.emit(node.id, +1))
@@ -326,22 +352,12 @@ class _MessageRow(QWidget):
         if node.role == "user":
             specs.append(("Edit", "Edit & regenerate", lambda: self.edit_requested.emit(node.id)))
         if node.role == "assistant":
-            specs.append(("Regenerate", "Regenerate this response as a new branch", lambda: self.regenerate_requested.emit(node.id)))
+            specs.append(("Regenerate", "Regenerate as a new branch", lambda: self.regenerate_requested.emit(node.id)))
         specs.append(("Delete", "Delete this message and every message below", lambda: self.delete_requested.emit(node.id)))
         return specs
 
-    # -- events ----------------------------------------------------------------
 
-    def enterEvent(self, event) -> None:  # type: ignore[override]
-        self._actions_fade.show()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event) -> None:  # type: ignore[override]
-        self._actions_fade.hide()
-        super().leaveEvent(event)
-
-
-# --- Prompt editor ----------------------------------------------------------
+# --- Prompt editor ---------------------------------------------------------
 
 
 class _PromptEditor(QTextEdit):
@@ -363,35 +379,41 @@ class _PromptEditor(QTextEdit):
         super().keyPressEvent(event)
 
 
-# --- Panel ------------------------------------------------------------------
+# --- Panel -----------------------------------------------------------------
 
 
 class ChatPanel(QWidget):
     """Signals emitted upwards to the GalleryWindow."""
 
-    message_submitted = pyqtSignal(str)                       # brand-new user prompt
-    edit_submitted = pyqtSignal(int, str)                     # (source_message_id, new_content)
-    regenerate_requested = pyqtSignal(int)                    # assistant message_id
-    delete_requested = pyqtSignal(int)                        # message_id
-    branch_switch_requested = pyqtSignal(int, int)            # message_id, direction
+    message_submitted = pyqtSignal(str)
+    edit_submitted = pyqtSignal(int, str)
+    regenerate_requested = pyqtSignal(int)
+    delete_requested = pyqtSignal(int)
+    branch_switch_requested = pyqtSignal(int, int)
     clear_requested = pyqtSignal()
+
+    STATUS_IDLE = "Idle"
+    STATUS_THINKING = "Thinking…"
+    STATUS_ERROR = "Error"
+    STATUS_CANCELLED = "Cancelled"
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._rows: list[_MessageRow] = []
+        self._system_rows: list[_MessageRow] = []
         self._streaming_row: _MessageRow | None = None
-        self._auto_pin = True   # stay at the bottom while streaming unless user scrolls up
+        self._auto_pin = True
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
         header = QHBoxLayout()
-        title = QLabel("AI conversation")
+        title = QLabel("CHAT")
         title.setProperty("section", True)
         header.addWidget(title, 1)
 
-        self.status = QLabel("Idle")
+        self.status = QLabel(self.STATUS_IDLE)
         self.status.setObjectName("StatusChip")
         header.addWidget(self.status)
 
@@ -401,6 +423,15 @@ class ChatPanel(QWidget):
         clear.clicked.connect(self.clear_requested.emit)
         header.addWidget(clear)
         layout.addLayout(header)
+
+        # A second row shows *what* screenshot the chat is about — that used
+        # to be jammed into the status chip which reads as chat state.
+        self.context_row = QLabel("Select a screenshot to start chatting.")
+        self.context_row.setObjectName("ChatContext")
+        self.context_row.setProperty("muted", True)
+        self.context_row.setWordWrap(False)
+        self.context_row.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        layout.addWidget(self.context_row)
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -424,9 +455,7 @@ class ChatPanel(QWidget):
         input_row.addWidget(self.editor)
 
         button_row = QHBoxLayout()
-        self.hint = QLabel("Select a screenshot to start chatting.")
-        self.hint.setProperty("muted", True)
-        button_row.addWidget(self.hint, 1)
+        button_row.addStretch(1)
         self.send = QPushButton("Send")
         self.send.setProperty("accent", True)
         self.send.clicked.connect(self._on_submit)
@@ -434,38 +463,66 @@ class ChatPanel(QWidget):
         input_row.addLayout(button_row)
         layout.addLayout(input_row)
 
-        self.set_enabled(False)
+        self.set_context(None)
 
     # -- public interface ------------------------------------------------------
 
-    def set_enabled(self, enabled: bool) -> None:
-        self.editor.setEnabled(enabled)
-        self.send.setEnabled(enabled)
-        self.hint.setVisible(not enabled)
+    def set_context(self, context: str | None) -> None:
+        """The screenshot metadata line under the header."""
+        if context:
+            self.context_row.setText(context)
+            self.editor.setEnabled(True)
+            self.send.setEnabled(True)
+        else:
+            self.context_row.setText("Select a screenshot to start chatting.")
+            self.editor.setEnabled(False)
+            self.send.setEnabled(False)
 
     def clear(self) -> None:
-        for row in self._rows:
+        for row in self._rows + self._system_rows:
             row.deleteLater()
         self._rows.clear()
+        self._system_rows.clear()
         self._streaming_row = None
         self._auto_pin = True
 
     def render(self, path: list[MessageNode]) -> None:
-        """Rebuild the visible column from a fresh active-path snapshot."""
-        self.clear()
+        """Rebuild the persisted transcript. System rows are kept — they're
+        ephemeral notices, not part of the conversation history."""
+        for row in self._rows:
+            row.deleteLater()
+        self._rows.clear()
+        self._streaming_row = None
         for node in path:
             self._append_row(node)
+        # Re-insert system rows so they always sit at the bottom.
+        for row in list(self._system_rows):
+            self._transcript.removeWidget(row)
+            self._transcript.insertWidget(self._transcript.count() - 1, row)
         self._pin_bottom()
 
     def set_status(self, text: str) -> None:
         self.status.setText(text)
+        # active = accent chip
+        active = text in {self.STATUS_THINKING}
+        error = text in {self.STATUS_ERROR}
+        variant = "active" if active else ("error" if error else "")
+        self.status.setProperty("variant", variant or None)
+        style = self.status.style()
+        if style is not None:
+            style.unpolish(self.status)
+            style.polish(self.status)
 
     def replace_prompt(self, text: str) -> None:
         self.editor.setPlainText(text)
         self.editor.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def begin_streaming(self, placeholder_node: MessageNode) -> None:
+        # Clear any lingering system rows from the previous turn.
+        self._dismiss_all_system_rows()
         self._streaming_row = self._append_row(placeholder_node)
+        self._streaming_row.bubble.set_thinking(True)
+        self.set_status(self.STATUS_THINKING)
         self._pin_bottom()
 
     def append_stream(self, delta: str) -> None:
@@ -475,18 +532,48 @@ class ChatPanel(QWidget):
         if self._auto_pin:
             self._pin_bottom(defer=True)
 
-    def end_streaming(self, final_text: str) -> None:
-        if self._streaming_row is not None:
-            self._streaming_row.bubble.set_content(final_text)
+    def end_streaming(self, final_text: str | None) -> None:
+        row = self._streaming_row
         self._streaming_row = None
+        if row is None:
+            return
+        # If we got nothing at all and the caller isn't going to replace
+        # this bubble, drop it entirely — an empty accent-bordered box
+        # looks like a UI bug.
+        if not (final_text or row.node.content):
+            row.deleteLater()
+            if row in self._rows:
+                self._rows.remove(row)
+            return
+        row.bubble.set_thinking(False)
+        if final_text is not None:
+            row.bubble.set_content(final_text)
 
-    def show_error(self, message: str) -> None:
+    def cancel_streaming(self) -> None:
+        """Drop the in-flight placeholder without reporting an error."""
+        if self._streaming_row is None:
+            return
+        row = self._streaming_row
+        self._streaming_row = None
+        row.deleteLater()
+        if row in self._rows:
+            self._rows.remove(row)
+
+    def show_system_message(self, message: str, *, variant: str = "system") -> None:
+        """Ephemeral notice row (error, cancelled, info). Not persisted."""
+        # Drop any dangling streaming placeholder so the system message
+        # replaces it rather than sitting next to an empty bubble.
+        self.cancel_streaming()
         node = MessageNode(
-            id=-1, parent_id=None, role="error",
+            id=-1, parent_id=None,
+            role=variant if variant in {"error", "system"} else "system",
             content=message, model=None, created_at=datetime.now(),
             siblings=None, index_in_siblings=0,
         )
-        self._append_row(node)
+        row = _MessageRow(node, is_system=True)
+        row.system_dismiss_requested.connect(self._on_system_dismiss)
+        self._transcript.insertWidget(self._transcript.count() - 1, row)
+        self._system_rows.append(row)
         self._pin_bottom()
 
     # -- signals plumbing ------------------------------------------------------
@@ -498,7 +585,10 @@ class ChatPanel(QWidget):
         row.delete_requested.connect(self.delete_requested.emit)
         row.regenerate_requested.connect(self.regenerate_requested.emit)
         row.branch_switch_requested.connect(self.branch_switch_requested.emit)
-        self._transcript.insertWidget(self._transcript.count() - 1, row)
+        # Insert before the trailing stretch AND before any system rows so
+        # system rows always visually trail the conversation.
+        insert_at = self._transcript.count() - 1 - len(self._system_rows)
+        self._transcript.insertWidget(max(0, insert_at), row)
         self._rows.append(row)
         return row
 
@@ -516,7 +606,6 @@ class ChatPanel(QWidget):
         clipboard = QGuiApplication.clipboard()
         if clipboard is not None:
             clipboard.setText(row.node.content)
-            self.set_status("Copied")
 
     def _on_edit(self, message_id: int) -> None:
         row = self._row_for(message_id)
@@ -527,6 +616,16 @@ class ChatPanel(QWidget):
                 self.edit_submitted.emit(message_id, new_text)
         row.bubble.enter_edit_mode(done)
 
+    def _on_system_dismiss(self, row: _MessageRow) -> None:
+        if row in self._system_rows:
+            self._system_rows.remove(row)
+        row.deleteLater()
+
+    def _dismiss_all_system_rows(self) -> None:
+        for row in list(self._system_rows):
+            row.deleteLater()
+        self._system_rows.clear()
+
     def _row_for(self, message_id: int) -> _MessageRow | None:
         return next((r for r in self._rows if r.node.id == message_id), None)
 
@@ -536,7 +635,6 @@ class ChatPanel(QWidget):
         scrollbar = self.scroll.verticalScrollBar()
         if scrollbar is None:
             return
-        # If the user is within ~20px of the bottom, keep auto-pinning; else pause.
         self._auto_pin = value >= scrollbar.maximum() - 20
 
     def _pin_bottom(self, *, defer: bool = False) -> None:

@@ -10,6 +10,7 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QApplication
 
 from . import APP_NAME
+from .ai.controller import ChatController
 from .ai.history import ChatHistory
 from .ai.provider import AIProvider
 from .capture.screenshot import ScreenshotService
@@ -55,6 +56,7 @@ class Application(QObject):
 
         self.presets = PresetManager(self.db, self.signals)
         self.history = ChatHistory(self.db)
+        self.chat = ChatController(self.history, self._build_provider, parent=self)
         self.hotkeys = HotkeyManager(self.settings.hotkeys, self.signals)
 
         self.tray = Tray(
@@ -106,7 +108,7 @@ class Application(QObject):
                 thumbnails=self.thumbnails,
                 presets=self.presets,
                 history=self.history,
-                provider_factory=self._build_provider,
+                chat=self.chat,
             )
             self._gallery.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
             self._gallery.destroyed.connect(self._on_gallery_destroyed)
