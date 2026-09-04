@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable
@@ -29,7 +30,7 @@ from typing import Callable
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from .history import ChatHistory
-from .provider import AIError, AIProvider
+from .provider import AIError, AIProvider, ChatMessage
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +38,20 @@ log = logging.getLogger(__name__)
 SYSTEM_PROMPT = (
     "You are ExplainShot, a helpful assistant that describes and answers "
     "questions about the screenshot the user just captured. Be direct and specific."
+)
+
+COMPACT_PROMPT = (
+    "You are compacting an ongoing conversation into a short reference so it "
+    "can continue past the model's context window. Produce a concise summary "
+    "in plain prose covering, in this order:\n"
+    "1. What the user is trying to do with the screenshot.\n"
+    "2. Key facts, values, names, or code the assistant has already established.\n"
+    "3. Decisions or preferences the user has stated.\n"
+    "4. The current state of the conversation (what was just discussed).\n\n"
+    "Do NOT restate every turn. Do NOT add greetings or filler. "
+    "Preserve any specific identifiers, numbers, or code exactly. "
+    "The output replaces the earlier turns in future prompts, so anything "
+    "you omit is lost."
 )
 
 
@@ -74,21 +89,51 @@ class ChatController(QObject):
     reply_cancelled = pyqtSignal(str)           # screenshot_id
     history_changed = pyqtSignal(str)           # screenshot_id — user/assistant turns mutated
     notices_changed = pyqtSignal(str)           # screenshot_id — notices added/removed
+    compact_started = pyqtSignal(str)           # screenshot_id — compaction begins
+    compact_completed = pyqtSignal(str)         # screenshot_id — compaction landed
+    compact_failed = pyqtSignal(str, str)       # screenshot_id, error
 
-    def __init__(self, history: ChatHistory, provider_factory: Callable[[], AIProvider], parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        history: ChatHistory,
+        provider_factory: Callable[[], AIProvider],
+        *,
+        context_chars_limit: int = 24000,
+        parent: QObject | None = None,
+    ) -> None:
         super().__init__(parent)
         self.history = history
         self.provider_factory = provider_factory
+        self.context_chars_limit = max(2000, int(context_chars_limit))
         self._jobs: dict[str, asyncio.Task] = {}
         self._progress: dict[str, InProgress] = {}
+        self._compact_jobs: dict[str, asyncio.Task] = {}
+
+    def set_context_chars_limit(self, limit: int) -> None:
+        self.context_chars_limit = max(2000, int(limit))
 
     # -- introspection ---------------------------------------------------------
 
     def is_busy(self, screenshot_id: str) -> bool:
-        return screenshot_id in self._jobs
+        """Any AI work in flight for this screenshot (reply or compaction).
+        The UI uses this to disable the send button."""
+        return screenshot_id in self._jobs or screenshot_id in self._compact_jobs
+
+    def is_compacting(self, screenshot_id: str) -> bool:
+        return screenshot_id in self._compact_jobs
 
     def in_progress(self, screenshot_id: str) -> InProgress | None:
         return self._progress.get(screenshot_id)
+
+    def context_usage(self, screenshot_id: str) -> float:
+        """0.0–1.0 fraction of the compact threshold currently in play on
+        the next LLM request. Includes the compact summary itself — after
+        a compact the summary IS the context, so the gauge should reflect
+        its weight rather than reading zero."""
+        if self.context_chars_limit <= 0:
+            return 0.0
+        used = self.history.context_chars(screenshot_id)
+        return min(1.0, used / self.context_chars_limit)
 
     def notices(self, screenshot_id: str) -> list[SystemNotice]:
         return [
@@ -163,6 +208,76 @@ class ChatController(QObject):
         if task is not None and not task.done():
             task.cancel()
 
+    # -- compaction ------------------------------------------------------------
+
+    def compact(self, screenshot_id: str, image_path: str) -> None:
+        """Kick off a manual compaction. If one is already running for this
+        screenshot, this is a no-op — the existing task will finish first."""
+        if screenshot_id in self._compact_jobs:
+            return
+        provider = self.provider_factory()
+        task = asyncio.ensure_future(self._run_compact(screenshot_id, image_path, provider))
+        self._compact_jobs[screenshot_id] = task
+        task.add_done_callback(lambda t, sid=screenshot_id: self._compact_jobs.pop(sid, None))
+        self.compact_started.emit(screenshot_id)
+
+    async def _run_compact(self, screenshot_id: str, image_path: str, provider: AIProvider) -> None:
+        try:
+            tail = self.history.uncompacted_tail(screenshot_id)
+            previous = self.history.latest_compact(screenshot_id)
+            # We need SOMETHING new to work with — either fresh turns since
+            # the last compact, or a previous summary we can distil further.
+            if not tail and previous is None:
+                return
+            if len(tail) < 2 and previous is None:
+                return
+
+            # Compaction context:
+            #   [COMPACT_PROMPT]  (system rules for the summariser)
+            #   [previous summary, if any, as a "previous summary" system msg]
+            #   [every un-compacted user/assistant turn since that summary]
+            # This lets summaries build on summaries — we never re-send the
+            # raw pre-compact turns because they're already folded into the
+            # previous summary. That's what makes long-running conversations
+            # affordable.
+            messages: list[ChatMessage] = [ChatMessage(role="system", content=COMPACT_PROMPT)]
+            if previous is not None:
+                messages.append(ChatMessage(
+                    role="system",
+                    content=(
+                        "Previous summary of the conversation so far — fold "
+                        "this into your new summary alongside the turns below:"
+                        "\n\n" + previous.content
+                    ),
+                ))
+            for msg in tail:
+                messages.append(ChatMessage(role=msg.role, content=msg.content))
+
+            log.info(
+                "compact -> %s: summarising %d turn(s) + %s prior summary (%d chars total)",
+                screenshot_id[:8], len(tail),
+                "1" if previous is not None else "no",
+                sum(len(m.content) for m in messages[1:]),
+            )
+            summary = await provider.chat(messages)
+            if not summary.strip():
+                raise RuntimeError("The compaction model returned an empty summary.")
+            new_id = self.history.compact_from_tip(screenshot_id, summary.strip())
+            log.info("compact -> %s: stored as message %d", screenshot_id[:8], new_id)
+            # No system notice: the new "Summary of earlier conversation" row
+            # in the transcript already communicates what happened.
+            self.compact_completed.emit(screenshot_id)
+            self.history_changed.emit(screenshot_id)
+        except asyncio.CancelledError:
+            self.compact_completed.emit(screenshot_id)
+            raise
+        except Exception as exc:
+            log.exception("compaction failed")
+            message = _friendlier_error(str(exc))
+            self.history.db.add_notice(screenshot_id, "error", "Compaction failed: " + message)
+            self.notices_changed.emit(screenshot_id)
+            self.compact_failed.emit(screenshot_id, message)
+
     # -- runner ----------------------------------------------------------------
 
     def _start_reply(self, screenshot_id: str, image_path: str, *, parent_id: int | None) -> None:
@@ -204,13 +319,19 @@ class ChatController(QObject):
                 screenshot_id[:8], turns, char_count, provider.model,
             )
             collected: list[str] = []
+            # aclosing() guarantees the underlying httpx generator is closed
+            # explicitly on early termination (cancellation, break, exception).
+            # Without it httpcore prints "async generator ignored GeneratorExit"
+            # when the task is cancelled mid-stream — its inner byte-stream
+            # generator can't release the connection synchronously.
             try:
-                async for chunk in provider.stream(messages):
-                    if not chunk:
-                        continue
-                    collected.append(chunk)
-                    state.text += chunk
-                    self.reply_chunk.emit(screenshot_id, chunk)
+                async with aclosing(provider.stream(messages)) as stream:
+                    async for chunk in stream:
+                        if not chunk:
+                            continue
+                        collected.append(chunk)
+                        state.text += chunk
+                        self.reply_chunk.emit(screenshot_id, chunk)
             except AIError:
                 raise
             reply = "".join(collected)
@@ -233,6 +354,11 @@ class ChatController(QObject):
             )
             self.reply_completed.emit(screenshot_id, reply, new_id)
             self.history_changed.emit(screenshot_id)
+            # Auto-compact after a successful turn if we've crossed the
+            # configured character threshold. Compaction runs as its own
+            # task; the UI observes compact_started to lock input.
+            if self.context_usage(screenshot_id) >= 1.0:
+                self.compact(screenshot_id, image_path)
         except asyncio.CancelledError:
             self.history.db.add_notice(screenshot_id, "info", "Reply cancelled.")
             self.notices_changed.emit(screenshot_id)

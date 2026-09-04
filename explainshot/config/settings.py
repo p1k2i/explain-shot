@@ -40,6 +40,11 @@ class AIConfig:
     api_key: str = ""
     model: str = "llama3.2-vision"
     timeout_seconds: int = 120
+    # When the un-compacted portion of a chat exceeds this many characters,
+    # the controller auto-summarises it into a single "compact" message and
+    # the running conversation continues from there. Roughly 24k chars ≈ 6k
+    # tokens, which fits comfortably in even 8k-context models.
+    context_chars_limit: int = 24000
 
 
 @dataclass

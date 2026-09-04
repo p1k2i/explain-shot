@@ -134,14 +134,15 @@ class ChatHistory:
     ) -> list[ChatMessage]:
         """Convert the active branch into a list ready to send to the AI.
 
-        The FULL conversation is included — every user and assistant turn on
-        the active branch from the root to the tip. We never truncate; if
-        the model can't handle the size that's the model's problem to report.
+        The full un-compacted conversation is sent. If the branch contains
+        a `compact` message (a summary of everything before it), we send
+        [system, compact-as-system, messages-after-compact...] — the
+        pre-compact turns stay visible in the UI as history but never
+        cross the wire.
 
-        When `cutoff_message_id` is provided we stop AFTER that message. Used
-        for regeneration: we're about to create a new sibling under a user
-        turn, so the old assistant sibling below it must NOT be sent — else
-        the model sees its previous answer and just repeats.
+        `cutoff_message_id` truncates the path AFTER that message. Used by
+        regeneration so an old assistant sibling doesn't sneak into the
+        prompt for its own replacement.
         """
         history = self.active_path(screenshot_id)
         if cutoff_message_id is not None:
@@ -149,17 +150,83 @@ class ChatHistory:
                 if msg.id == cutoff_message_id:
                     history = history[: i + 1]
                     break
+
+        # Find the newest compact on the path; everything before it is
+        # already summarised and shouldn't be re-sent.
+        compact_index = -1
+        for i, msg in enumerate(history):
+            if msg.role == "compact":
+                compact_index = i
+
         out: list[ChatMessage] = []
         if system:
             out.append(ChatMessage(role="system", content=system))
+        if compact_index >= 0:
+            summary = history[compact_index].content
+            out.append(ChatMessage(
+                role="system",
+                content=(
+                    "Summary of the earlier conversation you're continuing:\n\n"
+                    + summary
+                ),
+            ))
+            tail = history[compact_index + 1:]
+        else:
+            tail = history
+
         last_user_index = -1
-        for i, msg in enumerate(history):
+        for i, msg in enumerate(tail):
             if msg.role == "user":
                 last_user_index = i
-        for i, msg in enumerate(history):
+        for i, msg in enumerate(tail):
+            if msg.role == "compact":
+                continue  # Shouldn't happen (only one compact per tail) but be safe.
             images = [image_path] if (image_path and i == last_user_index) else []
             out.append(ChatMessage(role=msg.role, content=msg.content, image_paths=images))
         return out
+
+    # -- context accounting ---------------------------------------------------
+
+    def uncompacted_tail(self, screenshot_id: str) -> list[MessageNode]:
+        """Messages on the active path since (and not including) the latest
+        compact. This is what would be sent to the LLM on the next request,
+        modulo the system prompt."""
+        history = self.active_path(screenshot_id)
+        for i in range(len(history) - 1, -1, -1):
+            if history[i].role == "compact":
+                return history[i + 1:]
+        return history
+
+    def latest_compact(self, screenshot_id: str) -> MessageNode | None:
+        """Newest compact on the active branch, if any. Used when compacting
+        again — the fresh compact should build on the previous summary rather
+        than re-reading every raw turn."""
+        for node in reversed(self.active_path(screenshot_id)):
+            if node.role == "compact":
+                return node
+        return None
+
+    def chars_since_compact(self, screenshot_id: str) -> int:
+        """Length of the un-compacted tail only. Used by _run_compact to
+        decide whether we have anything new worth summarising."""
+        return sum(len(m.content) for m in self.uncompacted_tail(screenshot_id))
+
+    def context_chars(self, screenshot_id: str) -> int:
+        """Bytes actually shipped to the model on the next request.
+        Includes the current compact summary (if any) because that content
+        rides on every request as system context — right after a compact
+        the gauge should reflect the summary's weight, not zero."""
+        total = self.chars_since_compact(screenshot_id)
+        compact = self.latest_compact(screenshot_id)
+        if compact is not None:
+            total += len(compact.content)
+        return total
+
+    def compact_from_tip(self, screenshot_id: str, summary_text: str) -> int:
+        """Attach a compact message at the current tip of the active branch."""
+        path = self.active_path(screenshot_id)
+        tip_id = path[-1].id if path else None
+        return self.db.add_message(screenshot_id, "compact", summary_text, parent_id=tip_id)
 
     # -- helpers ---------------------------------------------------------------
 

@@ -31,6 +31,55 @@ _STATES_LIGHT = HoverStates(
     duration_ms=140,
 )
 
+# Per-button hover animations for the action row. QSS :hover jumps
+# instantly and doesn't feel modern; this animates bg + border over 120ms.
+_BTN_STATES_DARK = {
+    "accent": HoverStates(
+        idle=HoverStyle(QColor("#0067c0"), QColor("#0067c0"), radius=4, border_width=1),
+        hover=HoverStyle(QColor("#0079e0"), QColor("#0079e0"), radius=4, border_width=1),
+        pressed=HoverStyle(QColor("#005ba1"), QColor("#005ba1"), radius=4, border_width=1),
+        duration_ms=120,
+    ),
+    "flat": HoverStates(
+        idle=HoverStyle(QColor(0, 0, 0, 0), QColor(0, 0, 0, 0), radius=4, border_width=1),
+        hover=HoverStyle(QColor("#3a3a3a"), QColor("#5a5a5a"), radius=4, border_width=1),
+        pressed=HoverStyle(QColor("#2b2b2b"), QColor("#3d3d3d"), radius=4, border_width=1),
+        duration_ms=120,
+    ),
+    "danger": HoverStates(
+        idle=HoverStyle(QColor(0, 0, 0, 0), QColor(0, 0, 0, 0), radius=4, border_width=1),
+        hover=HoverStyle(QColor("#c94040"), QColor("#c94040"), radius=4, border_width=1),
+        pressed=HoverStyle(QColor("#a33333"), QColor("#a33333"), radius=4, border_width=1),
+        duration_ms=120,
+    ),
+}
+_BTN_STATES_LIGHT = {
+    "accent": HoverStates(
+        idle=HoverStyle(QColor("#0067c0"), QColor("#0067c0"), radius=4, border_width=1),
+        hover=HoverStyle(QColor("#005ba1"), QColor("#005ba1"), radius=4, border_width=1),
+        pressed=HoverStyle(QColor("#004a85"), QColor("#004a85"), radius=4, border_width=1),
+        duration_ms=120,
+    ),
+    "flat": HoverStates(
+        idle=HoverStyle(QColor(0, 0, 0, 0), QColor(0, 0, 0, 0), radius=4, border_width=1),
+        hover=HoverStyle(QColor("#eef4fb"), QColor("#cfcfcf"), radius=4, border_width=1),
+        pressed=HoverStyle(QColor("#dceaf7"), QColor("#cfcfcf"), radius=4, border_width=1),
+        duration_ms=120,
+    ),
+    "danger": HoverStates(
+        idle=HoverStyle(QColor(0, 0, 0, 0), QColor(0, 0, 0, 0), radius=4, border_width=1),
+        hover=HoverStyle(QColor("#c94040"), QColor("#c94040"), radius=4, border_width=1),
+        pressed=HoverStyle(QColor("#a33333"), QColor("#a33333"), radius=4, border_width=1),
+        duration_ms=120,
+    ),
+}
+
+
+def _animate_button(btn, kind: str, theme: str) -> None:
+    """Attach a HoverAnimator that animates the button's own background."""
+    table = _BTN_STATES_LIGHT if theme == "light" else _BTN_STATES_DARK
+    HoverAnimator.attach(btn, table[kind])
+
 
 class PresetCard(QWidget):
     run_clicked = pyqtSignal(str)
@@ -70,27 +119,35 @@ class PresetCard(QWidget):
         actions = QHBoxLayout()
         run = QPushButton("Run")
         run.setProperty("accent", True)
+        run.setCursor(Qt.CursorShape.PointingHandCursor)
         run.clicked.connect(lambda: self.run_clicked.emit(preset.id))
         actions.addWidget(run)
+        _animate_button(run, "accent", theme)
 
         paste = QPushButton("Paste")
         paste.setProperty("flat", True)
+        paste.setCursor(Qt.CursorShape.PointingHandCursor)
         paste.clicked.connect(lambda: self.paste_clicked.emit(preset.id))
         actions.addWidget(paste)
+        _animate_button(paste, "flat", theme)
 
         actions.addStretch(1)
 
         if not preset.builtin:
             edit = QPushButton("Edit")
             edit.setProperty("flat", True)
+            edit.setCursor(Qt.CursorShape.PointingHandCursor)
             edit.clicked.connect(lambda: self.edit_clicked.emit(preset.id))
             actions.addWidget(edit)
+            _animate_button(edit, "flat", theme)
 
             delete = QPushButton("Delete")
             delete.setProperty("flat", True)
             delete.setProperty("danger", True)
+            delete.setCursor(Qt.CursorShape.PointingHandCursor)
             delete.clicked.connect(lambda: self.delete_clicked.emit(preset.id))
             actions.addWidget(delete)
+            _animate_button(delete, "danger", theme)
         layout.addLayout(actions)
 
         states = _STATES_DARK if theme == "dark" else _STATES_LIGHT

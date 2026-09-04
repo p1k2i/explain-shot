@@ -268,6 +268,31 @@ QLabel#ChatContext {
     font-size: 12px;
 }
 
+QLabel#ContextGauge {
+    background: @bg_layer_alt;
+    color: @text_secondary;
+    border: 1px solid @stroke;
+    border-radius: 10px;
+    padding: 2px 10px;
+    font-size: 11px;
+    min-width: 78px;
+    qproperty-alignment: AlignCenter;
+}
+QLabel#ContextGauge[variant="ok"] {
+    color: @text_secondary;
+    border-color: @stroke;
+}
+QLabel#ContextGauge[variant="warn"] {
+    background: rgba(200,140,60,0.15);
+    color: #e0a060;
+    border-color: #e0a060;
+}
+QLabel#ContextGauge[variant="over"] {
+    background: rgba(201,64,64,0.15);
+    color: @danger;
+    border-color: @danger;
+}
+
 QListWidget, QListView, QTreeView {
     background: @bg_layer;
     color: @text_primary;

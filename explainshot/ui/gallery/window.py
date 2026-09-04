@@ -131,6 +131,7 @@ class GalleryWindow(FramelessWindow):
         self.chat_panel.branch_switch_requested.connect(self._on_branch_switch)
         self.chat_panel.notice_dismiss_requested.connect(self._on_notice_dismiss)
         self.chat_panel.clear_requested.connect(self._on_clear)
+        self.chat_panel.compact_requested.connect(self._on_compact_requested)
         self.presets_panel.preset_run.connect(self._on_preset_run)
         self.presets_panel.preset_paste.connect(self._on_preset_paste)
 
@@ -150,6 +151,9 @@ class GalleryWindow(FramelessWindow):
         self.chat.reply_cancelled.connect(self._on_reply_cancelled)
         self.chat.history_changed.connect(self._on_history_changed)
         self.chat.notices_changed.connect(self._on_notices_changed)
+        self.chat.compact_started.connect(self._on_compact_started)
+        self.chat.compact_completed.connect(self._on_compact_completed)
+        self.chat.compact_failed.connect(self._on_compact_failed)
 
         # Restore geometry
         state = self.db.load_window_state("gallery")
@@ -234,8 +238,15 @@ class GalleryWindow(FramelessWindow):
                 # We already have some text buffered — render it.
                 self.chat_panel._streaming_row.bubble.set_content(progress.text)  # type: ignore[union-attr]
                 self.chat_panel._streaming_row.bubble.set_thinking(False)         # type: ignore[union-attr]
+        elif self.chat.is_compacting(record.id):
+            self.chat_panel.set_status(self.chat_panel.STATUS_COMPACTING)
         else:
             self.chat_panel.set_status(self.chat_panel.STATUS_IDLE)
+        # Busy reflects any in-flight AI job on the newly-selected screenshot
+        # (reply OR compaction). Selecting a different screenshot switches
+        # the view — the previous screenshot's job continues running.
+        self.chat_panel.set_busy(self.chat.is_busy(record.id))
+        self._refresh_gauge()
 
     def _refresh_transcript(self) -> None:
         """Fully rebuild the panel from persisted state for the current
@@ -344,6 +355,7 @@ class GalleryWindow(FramelessWindow):
             siblings=None, index_in_siblings=0,
         )
         self.chat_panel.begin_streaming(placeholder)
+        self.chat_panel.set_busy(True)
 
     def _on_reply_chunk(self, screenshot_id: str, delta: str) -> None:
         if not self._selected or self._selected.id != screenshot_id:
@@ -355,7 +367,12 @@ class GalleryWindow(FramelessWindow):
             return
         # Persisted; rebuild from history so the new turn has its real id.
         self.chat_panel.end_streaming(reply)
-        self.chat_panel.set_status(self.chat_panel.STATUS_IDLE)
+        # If auto-compact is about to fire, the controller will re-set busy.
+        # For now assume idle; compact_started will overwrite this.
+        self.chat_panel.set_busy(self.chat.is_busy(screenshot_id))
+        if not self.chat.is_compacting(screenshot_id):
+            self.chat_panel.set_status(self.chat_panel.STATUS_IDLE)
+        self._refresh_gauge()
         self._refresh_transcript()
 
     def _on_reply_failed(self, screenshot_id: str, _error: str) -> None:
@@ -365,18 +382,21 @@ class GalleryWindow(FramelessWindow):
         # notices_changed will fire and re-render the transcript. All we
         # do here is drop the empty streaming placeholder + set the chip.
         self.chat_panel.cancel_streaming()
+        self.chat_panel.set_busy(False)
         self.chat_panel.set_status(self.chat_panel.STATUS_ERROR)
 
     def _on_reply_cancelled(self, screenshot_id: str) -> None:
         if not self._selected or self._selected.id != screenshot_id:
             return
         self.chat_panel.cancel_streaming()
+        self.chat_panel.set_busy(False)
         self.chat_panel.set_status(self.chat_panel.STATUS_CANCELLED)
 
     def _on_history_changed(self, screenshot_id: str) -> None:
         if not self._selected or self._selected.id != screenshot_id:
             return
         self._refresh_transcript()
+        self._refresh_gauge()
 
     def _on_notices_changed(self, screenshot_id: str) -> None:
         if not self._selected or self._selected.id != screenshot_id:
@@ -387,6 +407,36 @@ class GalleryWindow(FramelessWindow):
         if not self._selected:
             return
         self.chat.dismiss_notice(self._selected.id, notice_id)
+
+    def _on_compact_requested(self) -> None:
+        if not self._selected:
+            return
+        self.chat.compact(self._selected.id, self._selected.path)
+
+    def _on_compact_started(self, screenshot_id: str) -> None:
+        if not self._selected or self._selected.id != screenshot_id:
+            return
+        self.chat_panel.set_busy(True)
+        self.chat_panel.set_status(self.chat_panel.STATUS_COMPACTING)
+
+    def _on_compact_completed(self, screenshot_id: str) -> None:
+        if not self._selected or self._selected.id != screenshot_id:
+            return
+        self.chat_panel.set_busy(False)
+        self.chat_panel.set_status(self.chat_panel.STATUS_IDLE)
+        self._refresh_gauge()
+
+    def _on_compact_failed(self, screenshot_id: str, _error: str) -> None:
+        if not self._selected or self._selected.id != screenshot_id:
+            return
+        self.chat_panel.set_busy(False)
+        self.chat_panel.set_status(self.chat_panel.STATUS_ERROR)
+        self._refresh_gauge()
+
+    def _refresh_gauge(self) -> None:
+        if self._selected is None:
+            return
+        self.chat_panel.set_context_usage(self.chat.context_usage(self._selected.id))
 
     # -- helpers ---------------------------------------------------------------
 

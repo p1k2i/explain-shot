@@ -56,7 +56,12 @@ class Application(QObject):
 
         self.presets = PresetManager(self.db, self.signals)
         self.history = ChatHistory(self.db)
-        self.chat = ChatController(self.history, self._build_provider, parent=self)
+        self.chat = ChatController(
+            self.history,
+            self._build_provider,
+            context_chars_limit=self.settings.ai.context_chars_limit,
+            parent=self,
+        )
         self.hotkeys = HotkeyManager(self.settings.hotkeys, self.signals)
 
         self.tray = Tray(
@@ -183,6 +188,7 @@ class Application(QObject):
         self.screenshots.config = self.settings.screenshot
         self.screenshots.directory = self._ensured_screenshot_dir()
         self.screenshots.scan_directory()
+        self.chat.set_context_chars_limit(self.settings.ai.context_chars_limit)
         # Push the theme change into the live gallery so cards restyle.
         from .ui.gallery.chat_panel import set_chat_theme
         set_chat_theme(self.settings.ui.theme)

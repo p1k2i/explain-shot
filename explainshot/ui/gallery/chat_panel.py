@@ -62,6 +62,9 @@ _ROLE_STYLES_DARK = {
     "error":     {"bg": "rgba(201,64,64,0.10)", "fg": "#e08585", "border": "#c94040",
                   "code_bg": "rgba(201,64,64,0.20)",
                   "sel_bg": "#c94040", "sel_fg": "#ffffff"},
+    "compact":   {"bg": "rgba(0,103,192,0.10)", "fg": "#9ccbf2", "border": "#0067c0",
+                  "code_bg": "rgba(0,0,0,0.30)",
+                  "sel_bg": "#0067c0", "sel_fg": "#ffffff"},
 }
 _ROLE_STYLES_LIGHT = {
     "user":      {"bg": "#0067c0", "fg": "#ffffff", "border": "#0067c0",
@@ -76,6 +79,9 @@ _ROLE_STYLES_LIGHT = {
     "error":     {"bg": "rgba(201,64,64,0.08)", "fg": "#a3241a", "border": "#c94040",
                   "code_bg": "rgba(201,64,64,0.10)",
                   "sel_bg": "#c94040", "sel_fg": "#ffffff"},
+    "compact":   {"bg": "rgba(0,103,192,0.08)", "fg": "#0b3a63", "border": "#0067c0",
+                  "code_bg": "rgba(0,0,0,0.06)",
+                  "sel_bg": "#0067c0", "sel_fg": "#ffffff"},
 }
 _CURRENT_ROLE_STYLES: dict[str, dict[str, str]] = _ROLE_STYLES_DARK
 
@@ -323,7 +329,14 @@ class _MessageRow(QWidget):
         header.setContentsMargins(2, 0, 2, 0)
         header.setSpacing(6)
 
-        role_label = QLabel(node.role.capitalize())
+        role_display = {
+            "user": "User",
+            "assistant": "Assistant",
+            "system": "System",
+            "error": "Error",
+            "compact": "Summary of earlier conversation",
+        }.get(node.role, node.role.capitalize())
+        role_label = QLabel(role_display)
         role_label.setObjectName("MessageMeta")
         role_label.setProperty("muted", True)
         role_label.setStyleSheet("font-weight: 600;")
@@ -357,9 +370,14 @@ class _MessageRow(QWidget):
         bubble_row.addWidget(self.bubble, 1)
         column.addLayout(bubble_row)
 
-        if not is_system:
-            actions_bar = self._build_actions(node)
-            column.addWidget(actions_bar)
+        # Compact rows carry a machine-generated summary — showing Copy
+        # is useful (users may want to inspect what got sent) but Edit /
+        # Regenerate / Delete would break the branch semantics, so only
+        # the copy control is offered.
+        if node.role == "compact":
+            column.addWidget(self._build_actions(node))
+        elif not is_system:
+            column.addWidget(self._build_actions(node))
 
     def _build_branch_switcher(self, node: MessageNode) -> QWidget:
         host = QWidget()
@@ -412,6 +430,10 @@ class _MessageRow(QWidget):
         specs: list[tuple[str, str, Callable[[], None]]] = [
             ("Copy", "Copy the message text", lambda: self.copy_requested.emit(node.id)),
         ]
+        # Compact summaries: copy-only. Edit/regenerate/delete would break
+        # the tail-cut semantics on this branch.
+        if node.role == "compact":
+            return specs
         if node.role == "user":
             specs.append(("Edit", "Edit & regenerate", lambda: self.edit_requested.emit(node.id)))
         if node.role == "assistant":
@@ -455,9 +477,11 @@ class ChatPanel(QWidget):
     branch_switch_requested = pyqtSignal(int, int)
     notice_dismiss_requested = pyqtSignal(int)  # notice id (persisted)
     clear_requested = pyqtSignal()
+    compact_requested = pyqtSignal()
 
     STATUS_IDLE = "Idle"
     STATUS_THINKING = "Thinking…"
+    STATUS_COMPACTING = "Compacting…"
     STATUS_ERROR = "Error"
     STATUS_CANCELLED = "Cancelled"
 
@@ -484,12 +508,30 @@ class ChatPanel(QWidget):
         self.status.setObjectName("StatusChip")
         header.addWidget(self.status)
 
-        clear = QPushButton("Clear")
-        clear.setProperty("chip", True)
-        clear.setToolTip("Delete the entire conversation")
-        clear.clicked.connect(self.clear_requested.emit)
-        header.addWidget(clear)
         layout.addLayout(header)
+
+        # The context gauge + Compact/Clear used to live in the top header,
+        # but they belong with the input controls (they act on what the user
+        # is about to send). Constructed here; laid out in the send row below.
+        self.context_gauge = QLabel("")
+        self.context_gauge.setObjectName("ContextGauge")
+        self.context_gauge.setToolTip(
+            "Portion of the compact threshold used by this conversation. "
+            "At 100% the app summarises earlier turns automatically."
+        )
+
+        self.compact_btn = QPushButton("Compact")
+        self.compact_btn.setProperty("chip", True)
+        self.compact_btn.setToolTip("Summarise earlier turns to free up context")
+        self.compact_btn.clicked.connect(self.compact_requested.emit)
+
+        self._clear_btn = QPushButton("Clear")
+        self._clear_btn.setProperty("chip", True)
+        self._clear_btn.setToolTip("Delete the entire conversation")
+        self._clear_btn.clicked.connect(self.clear_requested.emit)
+
+        self._busy = False
+        self._enabled_for_screenshot = False
 
         # A second row shows *what* screenshot the chat is about — that used
         # to be jammed into the status chip which reads as chat state.
@@ -523,6 +565,13 @@ class ChatPanel(QWidget):
         input_row.addWidget(self.editor)
 
         button_row = QHBoxLayout()
+        button_row.setSpacing(6)
+        # Left cluster: context gauge + chat-scope actions (Compact / Clear).
+        # Sit next to the input because they act on the conversation the
+        # user is about to send another turn into.
+        button_row.addWidget(self.context_gauge)
+        button_row.addWidget(self.compact_btn)
+        button_row.addWidget(self._clear_btn)
         button_row.addStretch(1)
         self.send = QPushButton("Send")
         self.send.setProperty("accent", True)
@@ -539,12 +588,44 @@ class ChatPanel(QWidget):
         """The screenshot metadata line under the header."""
         if context:
             self.context_row.setText(context)
-            self.editor.setEnabled(True)
-            self.send.setEnabled(True)
+            self._enabled_for_screenshot = True
         else:
             self.context_row.setText("Select a screenshot to start chatting.")
-            self.editor.setEnabled(False)
-            self.send.setEnabled(False)
+            self._enabled_for_screenshot = False
+        self._apply_enabled_state()
+
+    def set_busy(self, busy: bool) -> None:
+        """Disable input while the controller is running a reply or compact.
+        We keep the send button visible but greyed so it's obvious the user
+        needs to wait."""
+        self._busy = busy
+        self._apply_enabled_state()
+
+    def _apply_enabled_state(self) -> None:
+        interactive = self._enabled_for_screenshot and not self._busy
+        self.editor.setEnabled(interactive)
+        self.send.setEnabled(interactive)
+        self.compact_btn.setEnabled(interactive)
+
+    def set_context_usage(self, ratio: float) -> None:
+        """Refresh the gauge. `ratio` is 0.0–1.0 fraction of the compact
+        threshold. >=100% means auto-compact will fire after the next reply."""
+        pct = max(0, min(999, int(round(ratio * 100))))
+        if ratio >= 1.0:
+            variant = "over"
+            text = f"context {pct}%"
+        elif ratio >= 0.75:
+            variant = "warn"
+            text = f"context {pct}%"
+        else:
+            variant = "ok"
+            text = f"context {pct}%"
+        self.context_gauge.setText(text)
+        self.context_gauge.setProperty("variant", variant)
+        style = self.context_gauge.style()
+        if style is not None:
+            style.unpolish(self.context_gauge)
+            style.polish(self.context_gauge)
 
     def clear(self) -> None:
         for row in self._rows:
@@ -571,10 +652,12 @@ class ChatPanel(QWidget):
 
     def set_status(self, text: str) -> None:
         self.status.setText(text)
-        # active = accent chip
-        active = text in {self.STATUS_THINKING}
-        error = text in {self.STATUS_ERROR}
-        variant = "active" if active else ("error" if error else "")
+        if text in {self.STATUS_THINKING, self.STATUS_COMPACTING}:
+            variant = "active"
+        elif text == self.STATUS_ERROR:
+            variant = "error"
+        else:
+            variant = ""
         self.status.setProperty("variant", variant or None)
         style = self.status.style()
         if style is not None:
@@ -677,8 +760,14 @@ class ChatPanel(QWidget):
         if row is None or row.node.role != "user":
             return
         def done(new_text: str | None) -> None:
-            if new_text and new_text != row.node.content:
-                self.edit_submitted.emit(message_id, new_text)
+            # Fork whenever Save is pressed, even if the text is unchanged —
+            # that's the user asking to regenerate this turn as a new branch,
+            # which is what they expect when they hit the primary button.
+            # None means Cancel was pressed; an empty string is treated as
+            # cancel too (nothing meaningful to submit).
+            if new_text is None or not new_text.strip():
+                return
+            self.edit_submitted.emit(message_id, new_text)
         row.bubble.enter_edit_mode(done)
 
     def _row_for(self, message_id: int) -> _MessageRow | None:
