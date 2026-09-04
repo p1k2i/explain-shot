@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLayout,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -494,6 +495,10 @@ class ChatPanel(QWidget):
         self._rows: list[_MessageRow] = []
         self._streaming_row: _MessageRow | None = None
         self._auto_pin = True
+        # rangeChanged/valueChanged fire when we programmatically pin, so we
+        # briefly suppress the user-scroll tracking to avoid the pin being
+        # misread as "user scrolled".
+        self._suppress_scroll_tracking = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -523,12 +528,12 @@ class ChatPanel(QWidget):
         self.compact_btn = QPushButton("Compact")
         self.compact_btn.setProperty("chip", True)
         self.compact_btn.setToolTip("Summarise earlier turns to free up context")
-        self.compact_btn.clicked.connect(self.compact_requested.emit)
+        self.compact_btn.clicked.connect(self._confirm_compact)
 
         self._clear_btn = QPushButton("Clear")
         self._clear_btn.setProperty("chip", True)
         self._clear_btn.setToolTip("Delete the entire conversation")
-        self._clear_btn.clicked.connect(self.clear_requested.emit)
+        self._clear_btn.clicked.connect(self._confirm_clear)
 
         self._busy = False
         self._enabled_for_screenshot = False
@@ -549,6 +554,12 @@ class ChatPanel(QWidget):
         scrollbar = self.scroll.verticalScrollBar()
         if scrollbar is not None:
             scrollbar.valueChanged.connect(self._on_scroll)
+            # rangeChanged fires *after* Qt lays out newly-added rows, so
+            # scrollbar.maximum() is finally the true bottom. If we're in
+            # "should stick to bottom" mode we jump there now — this covers
+            # both the initial render (rendering finishes async) and every
+            # streamed chunk that grows the transcript.
+            scrollbar.rangeChanged.connect(self._on_scroll_range)
         layout.addWidget(self.scroll, 1)
 
         self._transcript_host = QWidget()
@@ -747,6 +758,46 @@ class ChatPanel(QWidget):
         self.editor.clear()
         self.message_submitted.emit(text)
 
+    def _confirm_compact(self) -> None:
+        """Confirm before compacting: it fires an LLM call and the result
+        replaces earlier context on this branch, so the user should opt in."""
+        box = QMessageBox(self)
+        box.setWindowTitle("Compact conversation?")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText("Compact this conversation now?")
+        box.setInformativeText(
+            "The AI will summarise the earlier turns into a single message. "
+            "After compaction only the summary is sent to the model in future "
+            "requests — the original turns stay visible above but no longer "
+            "shape new responses."
+        )
+        box.setStandardButtons(QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Ok)
+        ok = box.button(QMessageBox.StandardButton.Ok)
+        if ok is not None:
+            ok.setText("Compact")
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if box.exec() == QMessageBox.StandardButton.Ok:
+            self.compact_requested.emit()
+
+    def _confirm_clear(self) -> None:
+        """Confirm before clearing: destructive and unrecoverable."""
+        box = QMessageBox(self)
+        box.setWindowTitle("Clear conversation?")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText("Delete the entire conversation for this screenshot?")
+        box.setInformativeText(
+            "Every user turn, assistant reply, branch, compact summary, and "
+            "system notice on this screenshot will be permanently removed. "
+            "This can't be undone."
+        )
+        box.setStandardButtons(QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Discard)
+        discard = box.button(QMessageBox.StandardButton.Discard)
+        if discard is not None:
+            discard.setText("Clear conversation")
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if box.exec() == QMessageBox.StandardButton.Discard:
+            self.clear_requested.emit()
+
     def _on_copy(self, message_id: int) -> None:
         row = self._row_for(message_id)
         if row is None:
@@ -776,16 +827,35 @@ class ChatPanel(QWidget):
     # -- scroll behaviour ------------------------------------------------------
 
     def _on_scroll(self, value: int) -> None:
+        """User dragged the scrollbar. If they moved off the bottom, stop
+        auto-pinning; if they went back to the bottom, resume."""
         scrollbar = self.scroll.verticalScrollBar()
-        if scrollbar is None:
+        if scrollbar is None or scrollbar.maximum() == 0:
+            return
+        # Ignore programmatic jumps we caused ourselves (rangeChanged /
+        # _pin_bottom emit valueChanged too). Guard with a flag.
+        if self._suppress_scroll_tracking:
             return
         self._auto_pin = value >= scrollbar.maximum() - 20
+
+    def _on_scroll_range(self, _min: int, _max: int) -> None:
+        """The transcript grew (or shrank). When we want to be at the
+        bottom — initial render, streaming append, new row — this is our
+        chance to actually get there, because Qt has just finished the
+        layout that changed the range."""
+        if self._auto_pin:
+            self._pin_bottom()
 
     def _pin_bottom(self, *, defer: bool = False) -> None:
         def go() -> None:
             scrollbar = self.scroll.verticalScrollBar()
-            if scrollbar is not None:
+            if scrollbar is None:
+                return
+            self._suppress_scroll_tracking = True
+            try:
                 scrollbar.setValue(scrollbar.maximum())
+            finally:
+                self._suppress_scroll_tracking = False
         if defer:
             QTimer.singleShot(0, go)
         else:
