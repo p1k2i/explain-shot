@@ -19,9 +19,15 @@ from .paths import database_path, screenshots_dir
 
 @dataclass
 class HotkeyConfig:
-    capture_region: str = "ctrl+shift+s"
+    # Print Screen is the universal "take a screenshot" key on Windows —
+    # matches every popular screenshot tool the user might already know.
+    capture_region: str = "print_screen"
+    # Ctrl+Shift+G — memorable ("G" for gallery) and unlikely to clash
+    # with common text-editing shortcuts.
     toggle_gallery: str = "ctrl+shift+g"
-    open_settings: str = "ctrl+shift+p"
+    # Ctrl+, is the standard "open preferences" shortcut popularised by
+    # VS Code, Slack, GitHub, and most modern desktop apps.
+    open_settings: str = "ctrl+,"
 
 
 @dataclass

@@ -21,19 +21,56 @@ from ..core.signals import AppSignals
 log = logging.getLogger(__name__)
 
 
+_ALIASES = {
+    # Modifier keys
+    "ctrl": "<ctrl>",
+    "control": "<ctrl>",
+    "shift": "<shift>",
+    "alt": "<alt>",
+    "cmd": "<cmd>",
+    "win": "<cmd>",
+    "super": "<cmd>",
+    "meta": "<cmd>",
+    # Named special keys — includes every form Qt's QKeySequenceEdit
+    # produces so the settings picker round-trips cleanly with pynput.
+    "print": "<print_screen>",
+    "print_screen": "<print_screen>",
+    "printscreen": "<print_screen>",
+    "prtscr": "<print_screen>",
+    "prtsc": "<print_screen>",
+    "esc": "<esc>",
+    "escape": "<esc>",
+    "space": "<space>",
+    "return": "<enter>",
+    "enter": "<enter>",
+    "tab": "<tab>",
+    "backspace": "<backspace>",
+    "delete": "<delete>",
+    "del": "<delete>",
+    "insert": "<insert>",
+    "ins": "<insert>",
+    "home": "<home>",
+    "end": "<end>",
+    "page_up": "<page_up>",
+    "pageup": "<page_up>",
+    "page_down": "<page_down>",
+    "pagedown": "<page_down>",
+    "up": "<up>",
+    "down": "<down>",
+    "left": "<left>",
+    "right": "<right>",
+    "f1": "<f1>", "f2": "<f2>", "f3": "<f3>", "f4": "<f4>",
+    "f5": "<f5>", "f6": "<f6>", "f7": "<f7>", "f8": "<f8>",
+    "f9": "<f9>", "f10": "<f10>", "f11": "<f11>", "f12": "<f12>",
+}
+
+
 def _normalize(combination: str) -> str:
-    """Convert "ctrl+shift+s" style to pynput's "<ctrl>+<shift>+s" style."""
+    """Convert "ctrl+shift+s" style to pynput's "<ctrl>+<shift>+s" style.
+    Handles both plain human names ("print_screen") and Qt's key-sequence
+    form ("Print") that the settings picker produces."""
     tokens = [t.strip().lower() for t in combination.split("+") if t.strip()]
-    aliases = {
-        "ctrl": "<ctrl>",
-        "control": "<ctrl>",
-        "shift": "<shift>",
-        "alt": "<alt>",
-        "cmd": "<cmd>",
-        "win": "<cmd>",
-        "super": "<cmd>",
-    }
-    return "+".join(aliases.get(t, t) for t in tokens)
+    return "+".join(_ALIASES.get(t, t) for t in tokens)
 
 
 class HotkeyManager:
