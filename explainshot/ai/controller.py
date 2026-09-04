@@ -187,10 +187,21 @@ class ChatController(QObject):
 
     async def _run(self, screenshot_id: str, image_path: str, provider: AIProvider, state: InProgress) -> None:
         try:
+            # Full conversation, minus anything AFTER the message we're
+            # forking from. For a fresh submit that's the tip (no truncation);
+            # for regeneration that stops before the assistant sibling we're
+            # about to replace.
             messages = self.history.to_prompt(
                 screenshot_id,
                 image_path=image_path,
                 system=SYSTEM_PROMPT,
+                cutoff_message_id=state.parent_id,
+            )
+            turns = sum(1 for m in messages if m.role != "system")
+            char_count = sum(len(m.content) for m in messages)
+            log.info(
+                "chat -> %s: sending %d turn(s) (%d chars) to model %s",
+                screenshot_id[:8], turns, char_count, provider.model,
             )
             collected: list[str] = []
             try:
@@ -229,8 +240,34 @@ class ChatController(QObject):
             raise
         except Exception as exc:
             log.exception("chat completion failed")
-            self.history.db.add_notice(screenshot_id, "error", str(exc))
+            message = _friendlier_error(str(exc))
+            self.history.db.add_notice(screenshot_id, "error", message)
             self.notices_changed.emit(screenshot_id)
-            self.reply_failed.emit(screenshot_id, str(exc))
+            self.reply_failed.emit(screenshot_id, message)
         finally:
             self._progress.pop(screenshot_id, None)
+
+
+_CONTEXT_LENGTH_MARKERS = (
+    "context length",
+    "context_length_exceeded",
+    "maximum context",
+    "maximum tokens",
+    "too many tokens",
+    "prompt is too long",
+    "exceeds the model",
+)
+
+
+def _friendlier_error(raw: str) -> str:
+    """Detect a few common upstream error phrasings and rewrite them into
+    a plainer sentence the user can act on. Falls through unchanged for
+    anything we don't recognise."""
+    lower = raw.lower()
+    if any(marker in lower for marker in _CONTEXT_LENGTH_MARKERS):
+        return (
+            "The conversation is too long for this model's context window. "
+            "Start a new chat (Clear) or switch to a model with a larger "
+            "context.\n\nRaw error: " + raw
+        )
+    return raw

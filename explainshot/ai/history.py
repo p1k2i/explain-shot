@@ -130,9 +130,25 @@ class ChatHistory:
         *,
         image_path: str | None = None,
         system: str | None = None,
+        cutoff_message_id: int | None = None,
     ) -> list[ChatMessage]:
-        """Convert the active branch into a list ready to send to the AI."""
+        """Convert the active branch into a list ready to send to the AI.
+
+        The FULL conversation is included — every user and assistant turn on
+        the active branch from the root to the tip. We never truncate; if
+        the model can't handle the size that's the model's problem to report.
+
+        When `cutoff_message_id` is provided we stop AFTER that message. Used
+        for regeneration: we're about to create a new sibling under a user
+        turn, so the old assistant sibling below it must NOT be sent — else
+        the model sees its previous answer and just repeats.
+        """
         history = self.active_path(screenshot_id)
+        if cutoff_message_id is not None:
+            for i, msg in enumerate(history):
+                if msg.id == cutoff_message_id:
+                    history = history[: i + 1]
+                    break
         out: list[ChatMessage] = []
         if system:
             out.append(ChatMessage(role="system", content=system))
