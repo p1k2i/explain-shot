@@ -36,6 +36,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ...ai.controller import SystemNotice
 from ...ai.history import MessageNode
 
 log = logging.getLogger(__name__)
@@ -242,12 +243,20 @@ class _MessageRow(QWidget):
     regenerate_requested = pyqtSignal(int)
     copy_requested = pyqtSignal(int)
     branch_switch_requested = pyqtSignal(int, int)
-    system_dismiss_requested = pyqtSignal(object)  # self
+    notice_dismiss_requested = pyqtSignal(int)   # notice id
 
-    def __init__(self, node: MessageNode, *, is_system: bool = False, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        node: MessageNode,
+        *,
+        is_system: bool = False,
+        notice_id: int | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.node = node
         self.is_system = is_system
+        self.notice_id = notice_id
         self.setObjectName("MessageRow")
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
@@ -275,10 +284,10 @@ class _MessageRow(QWidget):
         ts.setProperty("muted", True)
         header.addWidget(ts)
 
-        if is_system:
+        if is_system and notice_id is not None:
             dismiss = QPushButton("Dismiss")
             dismiss.setProperty("chip", True)
-            dismiss.clicked.connect(lambda: self.system_dismiss_requested.emit(self))
+            dismiss.clicked.connect(lambda: self.notice_dismiss_requested.emit(notice_id))
             header.addWidget(dismiss)
 
         column.addLayout(header)
@@ -390,6 +399,7 @@ class ChatPanel(QWidget):
     regenerate_requested = pyqtSignal(int)
     delete_requested = pyqtSignal(int)
     branch_switch_requested = pyqtSignal(int, int)
+    notice_dismiss_requested = pyqtSignal(int)  # notice id (persisted)
     clear_requested = pyqtSignal()
 
     STATUS_IDLE = "Idle"
@@ -399,8 +409,11 @@ class ChatPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # All rows the transcript is currently showing, in visual order.
+        # Storing them in one list means every rebuild is atomic — we clear
+        # this list, drop everything, then materialise from the caller's
+        # snapshot. There is no per-screenshot state stashed on the panel.
         self._rows: list[_MessageRow] = []
-        self._system_rows: list[_MessageRow] = []
         self._streaming_row: _MessageRow | None = None
         self._auto_pin = True
 
@@ -479,26 +492,26 @@ class ChatPanel(QWidget):
             self.send.setEnabled(False)
 
     def clear(self) -> None:
-        for row in self._rows + self._system_rows:
-            row.deleteLater()
-        self._rows.clear()
-        self._system_rows.clear()
-        self._streaming_row = None
-        self._auto_pin = True
-
-    def render(self, path: list[MessageNode]) -> None:
-        """Rebuild the persisted transcript. System rows are kept — they're
-        ephemeral notices, not part of the conversation history."""
         for row in self._rows:
             row.deleteLater()
         self._rows.clear()
         self._streaming_row = None
+        self._auto_pin = True
+
+    def render(self, path: list[MessageNode], notices: list[SystemNotice] | None = None) -> None:
+        """Rebuild the entire transcript from a snapshot. This is the ONE way
+        content lands in the panel — there is no incremental drift between
+        screenshots because we always clear before rebuilding.
+
+        `path` is the active branch of the message tree (persisted history).
+        `notices` is the list of scoped-to-this-screenshot system messages;
+        they render as system-styled rows with a Dismiss button.
+        """
+        self.clear()
         for node in path:
             self._append_row(node)
-        # Re-insert system rows so they always sit at the bottom.
-        for row in list(self._system_rows):
-            self._transcript.removeWidget(row)
-            self._transcript.insertWidget(self._transcript.count() - 1, row)
+        for notice in notices or []:
+            self._append_notice_row(notice)
         self._pin_bottom()
 
     def set_status(self, text: str) -> None:
@@ -518,8 +531,6 @@ class ChatPanel(QWidget):
         self.editor.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def begin_streaming(self, placeholder_node: MessageNode) -> None:
-        # Clear any lingering system rows from the previous turn.
-        self._dismiss_all_system_rows()
         self._streaming_row = self._append_row(placeholder_node)
         self._streaming_row.bubble.set_thinking(True)
         self.set_status(self.STATUS_THINKING)
@@ -559,22 +570,8 @@ class ChatPanel(QWidget):
         if row in self._rows:
             self._rows.remove(row)
 
-    def show_system_message(self, message: str, *, variant: str = "system") -> None:
-        """Ephemeral notice row (error, cancelled, info). Not persisted."""
-        # Drop any dangling streaming placeholder so the system message
-        # replaces it rather than sitting next to an empty bubble.
-        self.cancel_streaming()
-        node = MessageNode(
-            id=-1, parent_id=None,
-            role=variant if variant in {"error", "system"} else "system",
-            content=message, model=None, created_at=datetime.now(),
-            siblings=None, index_in_siblings=0,
-        )
-        row = _MessageRow(node, is_system=True)
-        row.system_dismiss_requested.connect(self._on_system_dismiss)
-        self._transcript.insertWidget(self._transcript.count() - 1, row)
-        self._system_rows.append(row)
-        self._pin_bottom()
+    # (System-message rendering happens through render() / _append_notice_row
+    # now — the panel no longer owns notice state.)
 
     # -- signals plumbing ------------------------------------------------------
 
@@ -585,9 +582,22 @@ class ChatPanel(QWidget):
         row.delete_requested.connect(self.delete_requested.emit)
         row.regenerate_requested.connect(self.regenerate_requested.emit)
         row.branch_switch_requested.connect(self.branch_switch_requested.emit)
-        # Insert before the trailing stretch AND before any system rows so
-        # system rows always visually trail the conversation.
-        insert_at = self._transcript.count() - 1 - len(self._system_rows)
+        # Insert before the trailing stretch.
+        insert_at = self._transcript.count() - 1
+        self._transcript.insertWidget(max(0, insert_at), row)
+        self._rows.append(row)
+        return row
+
+    def _append_notice_row(self, notice: SystemNotice) -> _MessageRow:
+        role = "error" if notice.kind == "error" else "system"
+        node = MessageNode(
+            id=-1, parent_id=None, role=role, content=notice.message,
+            model=None, created_at=notice.created_at,
+            siblings=None, index_in_siblings=0,
+        )
+        row = _MessageRow(node, is_system=True, notice_id=notice.id)
+        row.notice_dismiss_requested.connect(self.notice_dismiss_requested.emit)
+        insert_at = self._transcript.count() - 1
         self._transcript.insertWidget(max(0, insert_at), row)
         self._rows.append(row)
         return row
@@ -615,16 +625,6 @@ class ChatPanel(QWidget):
             if new_text and new_text != row.node.content:
                 self.edit_submitted.emit(message_id, new_text)
         row.bubble.enter_edit_mode(done)
-
-    def _on_system_dismiss(self, row: _MessageRow) -> None:
-        if row in self._system_rows:
-            self._system_rows.remove(row)
-        row.deleteLater()
-
-    def _dismiss_all_system_rows(self) -> None:
-        for row in list(self._system_rows):
-            row.deleteLater()
-        self._system_rows.clear()
 
     def _row_for(self, message_id: int) -> _MessageRow | None:
         return next((r for r in self._rows if r.node.id == message_id), None)

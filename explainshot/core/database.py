@@ -81,6 +81,20 @@ SCHEMA = [
         maximized  INTEGER DEFAULT 0
     )
     """,
+    # System notices are visible in the chat transcript but never sent to
+    # the model. Scoped per screenshot so switching screenshots or restarting
+    # the app shows the right notices for the right conversation.
+    """
+    CREATE TABLE IF NOT EXISTS system_notices (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        screenshot_id  TEXT NOT NULL,
+        kind           TEXT NOT NULL,             -- error | info
+        message        TEXT NOT NULL,
+        created_at     TEXT NOT NULL,
+        FOREIGN KEY (screenshot_id) REFERENCES screenshots(id) ON DELETE CASCADE
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_notices_screenshot ON system_notices (screenshot_id, id)",
 ]
 
 
@@ -334,6 +348,30 @@ class Database:
 
     def bump_preset_usage(self, preset_id: str) -> None:
         self.execute("UPDATE presets SET usage_count = usage_count + 1 WHERE id = ?", (preset_id,))
+
+    # -- system notices --------------------------------------------------------
+
+    def add_notice(self, screenshot_id: str, kind: str, message: str, *, created_at: datetime | None = None) -> int:
+        cursor = self.execute(
+            """
+            INSERT INTO system_notices (screenshot_id, kind, message, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (screenshot_id, kind, message, (created_at or datetime.now()).isoformat()),
+        )
+        return int(cursor.lastrowid or 0)
+
+    def list_notices(self, screenshot_id: str) -> list[sqlite3.Row]:
+        return self.query(
+            "SELECT * FROM system_notices WHERE screenshot_id = ? ORDER BY id",
+            (screenshot_id,),
+        )
+
+    def delete_notice(self, notice_id: int) -> None:
+        self.execute("DELETE FROM system_notices WHERE id = ?", (notice_id,))
+
+    def clear_notices(self, screenshot_id: str) -> None:
+        self.execute("DELETE FROM system_notices WHERE screenshot_id = ?", (screenshot_id,))
 
     # -- window state ----------------------------------------------------------
 

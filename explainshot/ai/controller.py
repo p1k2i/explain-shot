@@ -50,6 +50,17 @@ class InProgress:
     started_at: datetime = field(default_factory=datetime.now)
 
 
+@dataclass(frozen=True)
+class SystemNotice:
+    """A visible-in-transcript, invisible-to-LLM message scoped to a
+    screenshot. Persists in the DB so reopening the app or switching
+    screenshots shows the correct set of notices."""
+    id: int
+    kind: str            # "error" | "info"
+    message: str
+    created_at: datetime
+
+
 class ChatController(QObject):
     """UI-agnostic owner of running chat completions.
 
@@ -62,6 +73,7 @@ class ChatController(QObject):
     reply_failed = pyqtSignal(str, str)         # screenshot_id, human-readable error
     reply_cancelled = pyqtSignal(str)           # screenshot_id
     history_changed = pyqtSignal(str)           # screenshot_id — user/assistant turns mutated
+    notices_changed = pyqtSignal(str)           # screenshot_id — notices added/removed
 
     def __init__(self, history: ChatHistory, provider_factory: Callable[[], AIProvider], parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -77,6 +89,29 @@ class ChatController(QObject):
 
     def in_progress(self, screenshot_id: str) -> InProgress | None:
         return self._progress.get(screenshot_id)
+
+    def notices(self, screenshot_id: str) -> list[SystemNotice]:
+        return [
+            SystemNotice(
+                id=row["id"],
+                kind=row["kind"],
+                message=row["message"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+            for row in self.history.db.list_notices(screenshot_id)
+        ]
+
+    def add_notice(self, screenshot_id: str, kind: str, message: str) -> None:
+        self.history.db.add_notice(screenshot_id, kind, message)
+        self.notices_changed.emit(screenshot_id)
+
+    def dismiss_notice(self, screenshot_id: str, notice_id: int) -> None:
+        self.history.db.delete_notice(notice_id)
+        self.notices_changed.emit(screenshot_id)
+
+    def clear_notices(self, screenshot_id: str) -> None:
+        self.history.db.clear_notices(screenshot_id)
+        self.notices_changed.emit(screenshot_id)
 
     # -- user actions ----------------------------------------------------------
 
@@ -119,7 +154,9 @@ class ChatController(QObject):
     def clear(self, screenshot_id: str) -> None:
         self.cancel(screenshot_id)
         self.history.clear(screenshot_id)
+        self.history.db.clear_notices(screenshot_id)
         self.history_changed.emit(screenshot_id)
+        self.notices_changed.emit(screenshot_id)
 
     def cancel(self, screenshot_id: str) -> None:
         task = self._jobs.get(screenshot_id)
@@ -175,7 +212,10 @@ class ChatController(QObject):
                     self.reply_chunk.emit(screenshot_id, reply)
                     state.text = reply
             if not reply.strip():
-                self.reply_failed.emit(screenshot_id, "The model returned an empty response.")
+                message = "The model returned an empty response."
+                self.history.db.add_notice(screenshot_id, "error", message)
+                self.notices_changed.emit(screenshot_id)
+                self.reply_failed.emit(screenshot_id, message)
                 return
             new_id = self.history.fork_from(
                 screenshot_id, state.parent_id, "assistant", reply, model=provider.model,
@@ -183,10 +223,14 @@ class ChatController(QObject):
             self.reply_completed.emit(screenshot_id, reply, new_id)
             self.history_changed.emit(screenshot_id)
         except asyncio.CancelledError:
+            self.history.db.add_notice(screenshot_id, "info", "Reply cancelled.")
+            self.notices_changed.emit(screenshot_id)
             self.reply_cancelled.emit(screenshot_id)
             raise
         except Exception as exc:
             log.exception("chat completion failed")
+            self.history.db.add_notice(screenshot_id, "error", str(exc))
+            self.notices_changed.emit(screenshot_id)
             self.reply_failed.emit(screenshot_id, str(exc))
         finally:
             self._progress.pop(screenshot_id, None)

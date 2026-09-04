@@ -129,6 +129,7 @@ class GalleryWindow(FramelessWindow):
         self.chat_panel.regenerate_requested.connect(self._on_regenerate_requested)
         self.chat_panel.delete_requested.connect(self._on_delete_requested)
         self.chat_panel.branch_switch_requested.connect(self._on_branch_switch)
+        self.chat_panel.notice_dismiss_requested.connect(self._on_notice_dismiss)
         self.chat_panel.clear_requested.connect(self._on_clear)
         self.presets_panel.preset_run.connect(self._on_preset_run)
         self.presets_panel.preset_paste.connect(self._on_preset_paste)
@@ -148,6 +149,7 @@ class GalleryWindow(FramelessWindow):
         self.chat.reply_failed.connect(self._on_reply_failed)
         self.chat.reply_cancelled.connect(self._on_reply_cancelled)
         self.chat.history_changed.connect(self._on_history_changed)
+        self.chat.notices_changed.connect(self._on_notices_changed)
 
         # Restore geometry
         state = self.db.load_window_state("gallery")
@@ -236,11 +238,16 @@ class GalleryWindow(FramelessWindow):
             self.chat_panel.set_status(self.chat_panel.STATUS_IDLE)
 
     def _refresh_transcript(self) -> None:
+        """Fully rebuild the panel from persisted state for the current
+        screenshot — messages *and* system notices. This is called on
+        selection change and on every history/notice signal so the panel
+        can never drift or leak state from a previous screenshot."""
         if self._selected is None:
             self.chat_panel.clear()
             return
         path = self.history.active_path(self._selected.id)
-        self.chat_panel.render(path)
+        notices = self.chat.notices(self._selected.id)
+        self.chat_panel.render(path, notices)
 
     def _on_new_screenshot(self, record: ScreenshotRecord) -> None:
         self.screenshots_panel.add_or_update(record)
@@ -351,26 +358,35 @@ class GalleryWindow(FramelessWindow):
         self.chat_panel.set_status(self.chat_panel.STATUS_IDLE)
         self._refresh_transcript()
 
-    def _on_reply_failed(self, screenshot_id: str, error: str) -> None:
+    def _on_reply_failed(self, screenshot_id: str, _error: str) -> None:
         if not self._selected or self._selected.id != screenshot_id:
             return
-        # cancel_streaming drops the empty placeholder so we don't leave a
-        # ghost bubble behind — then the system-message row lands cleanly.
+        # The controller has already persisted a notice for this failure;
+        # notices_changed will fire and re-render the transcript. All we
+        # do here is drop the empty streaming placeholder + set the chip.
         self.chat_panel.cancel_streaming()
-        self.chat_panel.show_system_message(error, variant="error")
         self.chat_panel.set_status(self.chat_panel.STATUS_ERROR)
 
     def _on_reply_cancelled(self, screenshot_id: str) -> None:
         if not self._selected or self._selected.id != screenshot_id:
             return
         self.chat_panel.cancel_streaming()
-        self.chat_panel.show_system_message("Cancelled.", variant="system")
         self.chat_panel.set_status(self.chat_panel.STATUS_CANCELLED)
 
     def _on_history_changed(self, screenshot_id: str) -> None:
         if not self._selected or self._selected.id != screenshot_id:
             return
         self._refresh_transcript()
+
+    def _on_notices_changed(self, screenshot_id: str) -> None:
+        if not self._selected or self._selected.id != screenshot_id:
+            return
+        self._refresh_transcript()
+
+    def _on_notice_dismiss(self, notice_id: int) -> None:
+        if not self._selected:
+            return
+        self.chat.dismiss_notice(self._selected.id, notice_id)
 
     # -- helpers ---------------------------------------------------------------
 
