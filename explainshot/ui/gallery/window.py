@@ -367,11 +367,13 @@ class GalleryWindow(FramelessWindow):
             return
         # Persisted; rebuild from history so the new turn has its real id.
         self.chat_panel.end_streaming(reply)
-        # If auto-compact is about to fire, the controller will re-set busy.
-        # For now assume idle; compact_started will overwrite this.
-        self.chat_panel.set_busy(self.chat.is_busy(screenshot_id))
-        if not self.chat.is_compacting(screenshot_id):
-            self.chat_panel.set_status(self.chat_panel.STATUS_IDLE)
+        # Release the input unconditionally: reply_completed is emitted
+        # *inside* the running task (before its done-callback pops it from
+        # ChatController._jobs), so is_busy() still says True right here
+        # and would leave the input locked forever. Auto-compaction, if it
+        # fires, re-locks via its own compact_started signal a moment later.
+        self.chat_panel.set_busy(False)
+        self.chat_panel.set_status(self.chat_panel.STATUS_IDLE)
         self._refresh_gauge()
         self._refresh_transcript()
 
