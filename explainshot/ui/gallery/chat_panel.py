@@ -45,17 +45,36 @@ log = logging.getLogger(__name__)
 # --- Theming ---------------------------------------------------------------
 
 
+# Selection colours are role-specific — the default accent selection is
+# invisible against the accent-blue user bubble, so each role picks a
+# contrast pair that stays readable regardless of the bubble background.
 _ROLE_STYLES_DARK = {
-    "user":      {"bg": "#0067c0", "fg": "#ffffff", "border": "#0067c0", "code_bg": "rgba(0,0,0,0.30)"},
-    "assistant": {"bg": "#2f2f2f", "fg": "#f2f2f2", "border": "#3d3d3d", "code_bg": "rgba(255,255,255,0.08)"},
-    "system":    {"bg": "rgba(90,90,90,0.15)", "fg": "#b3b3b3", "border": "#5a5a5a", "code_bg": "rgba(127,127,127,0.15)"},
-    "error":     {"bg": "rgba(201,64,64,0.10)", "fg": "#e08585", "border": "#c94040", "code_bg": "rgba(201,64,64,0.20)"},
+    "user":      {"bg": "#0067c0", "fg": "#ffffff", "border": "#0067c0",
+                  "code_bg": "rgba(0,0,0,0.30)",
+                  "sel_bg": "#ffffff", "sel_fg": "#0b3a63"},
+    "assistant": {"bg": "#2f2f2f", "fg": "#f2f2f2", "border": "#3d3d3d",
+                  "code_bg": "rgba(255,255,255,0.08)",
+                  "sel_bg": "#0067c0", "sel_fg": "#ffffff"},
+    "system":    {"bg": "rgba(90,90,90,0.15)", "fg": "#b3b3b3", "border": "#5a5a5a",
+                  "code_bg": "rgba(127,127,127,0.15)",
+                  "sel_bg": "#0067c0", "sel_fg": "#ffffff"},
+    "error":     {"bg": "rgba(201,64,64,0.10)", "fg": "#e08585", "border": "#c94040",
+                  "code_bg": "rgba(201,64,64,0.20)",
+                  "sel_bg": "#c94040", "sel_fg": "#ffffff"},
 }
 _ROLE_STYLES_LIGHT = {
-    "user":      {"bg": "#0067c0", "fg": "#ffffff", "border": "#0067c0", "code_bg": "rgba(0,0,0,0.35)"},
-    "assistant": {"bg": "#ffffff", "fg": "#1b1b1b", "border": "#e6e6e6", "code_bg": "rgba(0,0,0,0.06)"},
-    "system":    {"bg": "rgba(200,200,200,0.35)", "fg": "#5c5c5c", "border": "#cfcfcf", "code_bg": "rgba(0,0,0,0.05)"},
-    "error":     {"bg": "rgba(201,64,64,0.08)", "fg": "#a3241a", "border": "#c94040", "code_bg": "rgba(201,64,64,0.10)"},
+    "user":      {"bg": "#0067c0", "fg": "#ffffff", "border": "#0067c0",
+                  "code_bg": "rgba(0,0,0,0.35)",
+                  "sel_bg": "#ffffff", "sel_fg": "#0b3a63"},
+    "assistant": {"bg": "#ffffff", "fg": "#1b1b1b", "border": "#e6e6e6",
+                  "code_bg": "rgba(0,0,0,0.06)",
+                  "sel_bg": "#0067c0", "sel_fg": "#ffffff"},
+    "system":    {"bg": "rgba(200,200,200,0.35)", "fg": "#5c5c5c", "border": "#cfcfcf",
+                  "code_bg": "rgba(0,0,0,0.05)",
+                  "sel_bg": "#0067c0", "sel_fg": "#ffffff"},
+    "error":     {"bg": "rgba(201,64,64,0.08)", "fg": "#a3241a", "border": "#c94040",
+                  "code_bg": "rgba(201,64,64,0.10)",
+                  "sel_bg": "#c94040", "sel_fg": "#ffffff"},
 }
 _CURRENT_ROLE_STYLES: dict[str, dict[str, str]] = _ROLE_STYLES_DARK
 
@@ -85,10 +104,26 @@ class MessageBubble(QFrame):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
+        style = _CURRENT_ROLE_STYLES[role]
         self._body = QTextBrowser(self)
         self._body.setOpenExternalLinks(True)
+        # Explicit interaction flags: text-selection has to be on for every
+        # role (QTextBrowser has it on by default but a stylesheet is not
+        # enough to communicate that to the user — the visible selection
+        # colour also has to contrast the bubble background).
+        self._body.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            | Qt.TextInteractionFlag.LinksAccessibleByMouse
+        )
+        self._body.viewport().setCursor(Qt.CursorShape.IBeamCursor)
         self._body.setStyleSheet(
-            f"background: transparent; border: none; padding: 10px 14px; color: {_CURRENT_ROLE_STYLES[role]['fg']};"
+            "QTextBrowser {"
+            f"  background: transparent; border: none; padding: 10px 14px;"
+            f"  color: {style['fg']};"
+            f"  selection-background-color: {style['sel_bg']};"
+            f"  selection-color: {style['sel_fg']};"
+            "}"
         )
         self._body.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._body.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

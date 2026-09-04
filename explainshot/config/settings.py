@@ -21,7 +21,10 @@ from .paths import database_path, screenshots_dir
 class HotkeyConfig:
     # Print Screen is the universal "take a screenshot" key on Windows —
     # matches every popular screenshot tool the user might already know.
-    capture_region: str = "print_screen"
+    # Stored as "print" (Qt's QKeySequence token) so the settings picker
+    # displays it natively; the hotkey normaliser maps it to pynput's
+    # <print_screen> at bind time.
+    capture_region: str = "print"
     # Ctrl+Shift+G — memorable ("G" for gallery) and unlikely to clash
     # with common text-editing shortcuts.
     toggle_gallery: str = "ctrl+shift+g"

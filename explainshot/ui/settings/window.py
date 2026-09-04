@@ -78,6 +78,12 @@ class SettingsWindow(FramelessWindow):
         body_layout.addWidget(tabs, 1)
 
         button_row = QHBoxLayout()
+
+        reset = QPushButton("Reset to defaults")
+        reset.setToolTip("Restore every setting to its shipped default. You still have to press Save to keep them.")
+        reset.clicked.connect(self._on_reset)
+        button_row.addWidget(reset)
+
         button_row.addStretch(1)
 
         cancel = QPushButton("Cancel")
@@ -297,3 +303,43 @@ class SettingsWindow(FramelessWindow):
 
         self.saved.emit(s)
         self.close()
+
+    def _on_reset(self) -> None:
+        """Repopulate every field from a fresh Settings() dataclass. Nothing
+        is written to disk — the user still has to press Save."""
+        confirm = QMessageBox.question(
+            self,
+            "Reset settings?",
+            "This will restore every field on every tab to its default value. "
+            "You still have to press Save to keep the changes.\n\nProceed?",
+            QMessageBox.StandardButton.Reset | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if confirm != QMessageBox.StandardButton.Reset:
+            return
+
+        defaults = Settings()
+
+        # AI provider
+        self.base_url.setText(defaults.ai.base_url)
+        self.api_key.setText(defaults.ai.api_key)
+        self.model.setCurrentText(defaults.ai.model)
+        self.timeout.setValue(defaults.ai.timeout_seconds)
+        self.test_status.setText("")
+
+        # Screenshots — resolved dir so the field shows an actual path
+        self.directory.setText(defaults.resolved_screenshot_dir())
+        self.image_format.setCurrentText(defaults.screenshot.image_format.upper())
+        self.quality.setValue(int(defaults.screenshot.jpeg_quality))
+
+        # Hotkeys
+        self.hk_capture.setKeySequence(QKeySequence(defaults.hotkeys.capture_region))
+        self.hk_gallery.setKeySequence(QKeySequence(defaults.hotkeys.toggle_gallery))
+        self.hk_settings.setKeySequence(QKeySequence(defaults.hotkeys.open_settings))
+
+        # Appearance
+        self.theme.setCurrentText(defaults.ui.theme)
+        self.accent.setText(defaults.ui.accent)
+        self.thumb.setValue(int(defaults.ui.thumbnail_px))
+
+        self.autostart.setChecked(defaults.autostart)
