@@ -1,28 +1,17 @@
-# Core dependencies for ExplainShot Application
+# ExplainShot runtime dependencies
 
-# System tray functionality
-pystray==0.19.5
+# UI
+PyQt6==6.9.1
+qasync==0.27.1
 
-# Global hotkey handling
+# Global hotkeys (Windows-friendly, cross-platform)
 pynput==1.8.1
 
-# Image processing and manipulation
+# Screen capture + image processing
 Pillow==11.3.0
 
-# UI framework (for settings and overlay windows)
-PyQt6==6.9.1
+# AI provider — OpenAI-compatible HTTP client
+httpx==0.28.1
 
-# AI integration
-ollama==0.6.0
-
-# System monitoring (for single instance check)
-psutil==7.1.0
-
-# Markdown rendering for chat
+# Markdown rendering in chat transcript
 markdown2==2.5.4
-
-# Windows registry access (included with Python on Windows)
-# winreg - built-in module
-
-# Optional: Better async support
-aiofiles==25.1.0

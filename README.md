@@ -1,184 +1,99 @@
 # ExplainShot
 
-A lightweight, cross-platform desktop application for capturing screenshots and explaining them using AI integration. Built with Python 3.12 following the MVC pattern with minimal coupling.
+Capture any region of your screen, send it to a vision-capable AI, and
+have a conversation about what's on it. Works with any OpenAI-compatible
+API — Ollama, LM Studio, vLLM, the OpenAI API itself, and anything else
+that speaks `/v1/chat/completions`.
 
-## Features
+Runs in your system tray, opens a modern Fluent-styled gallery when you
+need it, and remembers every conversation per screenshot.
 
-- **Background Process**: Runs as a daemon-like service with minimal resource footprint
-- **System Tray Integration**: Clean, responsive tray icon with context menu
-- **Auto-Start Support**: Configurable Windows startup integration
-- **Dark Theme UI**: Modern interface with transparency support
-- **Event-Driven Architecture**: Loose coupling between modules using asyncio
-- **Comprehensive Logging**: Structured logging with privacy protection
-- **Settings Management**: SQLite-based configuration with validation
+## Install
 
-## Project Structure
+Requires Python 3.12 on Windows 10/11.
 
-```
-explain-shot/
-├── src/
-│   ├── models/           # Data layer (Settings, Database)
-│   ├── views/            # UI layer (Tray, Windows)
-│   ├── controllers/      # Logic layer (EventBus, Main Controller)
-│   └── utils/            # Utilities (Logging, Auto-start, Icons)
-├── resources/
-│   └── icons/            # Application icons for different states
-├── logs/                 # Application logs
-├── tests/                # Unit tests
-├── main.py              # Application entry point
-└── requirements.txt     # Python dependencies
-```
-
-## Installation
-
-### Setting Up a Virtual Environment
-
-1. **Create a Virtual Environment**:
-  ```bash
-  python -m venv venv
-  ```
-
-2. **Activate the Virtual Environment**:
-  - On Windows:
-    ```bash
-    venv\Scripts\activate
-    ```
-  - On macOS/Linux:
-    ```bash
-    source venv/bin/activate
-    ```
-
-### For Production
-Install only the necessary dependencies:
 ```bash
+python -m venv venv
+venv\Scripts\activate
 pip install -r requirements.txt
+python main.py
 ```
 
-### For Development
-Install all dependencies, including development tools:
+For development:
+
 ```bash
 pip install -r requirements-dev.txt
 ```
 
+## Building
+
+The included `explain-shot.spec` targets PyInstaller. Run:
+
+```bash
+.\build.ps1 -Full
+```
+
+The executable ends up at `dist\ExplainShot\ExplainShot.exe`.
+
 ## Usage
 
-### Development Mode
-```bash
-python main.py
+- **Tray icon.** Right-click for capture / gallery / settings / quit. Double-click opens the gallery.
+- **Default hotkeys** (rebindable in Settings → Hotkeys):
+  - `Ctrl+Shift+S` — capture a region
+  - `Ctrl+Shift+G` — toggle the gallery
+  - `Ctrl+Shift+P` — open settings
+- **Gallery.** Three columns: screenshots (left), AI conversation (middle), reusable prompt presets (right).
+- **F5** in the gallery clears thumbnail cache and reloads the list. **Esc** closes it.
+
+## AI provider setup
+
+Open Settings → AI provider and point it at any OpenAI-compatible endpoint.
+Common values:
+
+| Provider  | Base URL                          | API key   |
+| :-------- | :-------------------------------- | :-------- |
+| Ollama    | `http://localhost:11434/v1`       | *(none)*  |
+| LM Studio | `http://localhost:1234/v1`        | *(none)*  |
+| OpenAI    | `https://api.openai.com/v1`       | required  |
+
+Use "Fetch models" to populate the model list from the endpoint, and
+"Test connection" to sanity-check the URL. Vision-capable models
+(`llama3.2-vision`, `gpt-4o`, `qwen2.5-vl`, etc.) are required for
+screenshot analysis.
+
+## Data locations
+
+Everything lives under `%APPDATA%\ExplainShot\` on Windows:
+
+```
+explainshot.db     — SQLite: settings, screenshot metadata, chat history, presets
+screenshots\       — captured PNG/JPEG files
+logs\              — rotating log files
+.instance.lock     — single-instance lock file
 ```
 
-### Command Line Options
-```bash
-python main.py --help
-python main.py --debug                    # Enable debug logging
-python main.py --log-level DEBUG         # Set log level
+## Project layout
+
 ```
-
-### Building Executable
-```bash
-pyinstaller --windowed --onefile --icon=resources/icons/app.ico main.py
+explainshot/
+├── main.py            entry point (qasync + Qt event loop)
+├── app.py             Application: owns singletons and window lifecycle
+├── config/            paths + settings dataclasses + SQLite persistence
+├── core/              AppSignals, Database, logging setup
+├── ai/                OpenAI-compatible provider + chat history
+├── capture/           screenshot capture, metadata, thumbnails
+├── presets/           prompt preset CRUD + built-ins
+├── hotkeys/           global hotkey binding (pynput -> Qt signals)
+├── ui/
+│   ├── theme.py       Fluent design tokens + QSS renderer
+│   ├── icons.py       icon loading
+│   ├── tray.py        system tray icon and menu
+│   ├── overlay/       full-screen region selector
+│   ├── settings/      settings window
+│   └── gallery/       gallery window and its three panels
+└── util/              autostart (Windows registry), singleton lock
 ```
-
-## Architecture
-
-### MVC Pattern Implementation
-
-- **Model Layer**:
-  - `SettingsManager`: Configuration and validation
-  - `DatabaseManager`: SQLite operations
-  - `ScreenshotManager`: Image capture and processing
-  - `OllamaClient`: AI integration
-
-- **View Layer**:
-  - `TrayManager`: System tray icon and menu
-  - `UIManager`: PyQt6 windows
-
-- **Controller Layer**:
-  - `EventBus`: Asynchronous event distribution
-  - `MainController`: Application orchestration
-  - `HotkeyHandler`: Global hotkey management
-
-### Event-Driven Communication
-
-All modules communicate through the `EventBus` using predefined event types:
-
-```python
-# Example event emission
-await event_bus.emit(EventTypes.SCREENSHOT_CAPTURE_REQUESTED)
-
-# Example event subscription
-await event_bus.subscribe(EventTypes.APP_SHUTDOWN_REQUESTED, handler)
-```
-
-### System Integration
-
-- **Auto-Start**: Supports both Windows Registry and Startup Folder methods
-- **Icon Management**: Dynamic state-based tray icons with fallback generation
-- **Logging**: Privacy-aware structured logging with file rotation
-- **Settings**: Database-backed configuration with validation
-
-## Configuration
-
-Settings are stored in SQLite database with the following structure:
-
-```python
-ApplicationSettings:
-  - hotkeys: HotkeyConfig
-  - ui: UIConfig
-  - screenshot: ScreenshotConfig
-  - ollama: OllamaConfig
-  - auto_start: AutoStartConfig
-```
-
-### Auto-Start Configuration
-
-The application can automatically start with Windows:
-
-- **Registry Method**: `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`
-- **Startup Folder**: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`
-- **Automatic Selection**: Chooses best available method based on permissions
-
-## Logging
-
-Structured logging with multiple output formats:
-
-- **File Logs**: JSON format with rotation (configurable size/count)
-- **Console Output**: Human-readable format for development
-- **Privacy Filtering**: Automatic sanitization of sensitive information
-- **Module-Specific**: Separate log files for different components
-
-## Error Handling
-
-Comprehensive error management:
-
-- **Classification**: Critical, Recoverable, Transient errors
-- **Recovery**: Automatic retry with exponential backoff
-- **Fallbacks**: Graceful degradation for service unavailability
-- **User Notification**: System tray notifications for important errors
-
-## Performance Considerations
-
-- **Startup Time**: Target < 2 seconds to tray visibility
-- **Memory Usage**: Target < 50MB resident memory
-- **CPU Usage**: Target < 0.1% when idle
-- **Resource Management**: Lazy loading and efficient caching
-
-## Dependencies
-
-### Core Dependencies
-- `pystray`: System tray functionality
-- `pynput`: Global hotkey handling
-- `Pillow`: Image processing
-- `PyQt6`: UI framework
-- `ollama`: AI integration
-- `psutil`: System monitoring
 
 ## License
 
-This project is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.en.html).
-
-See [LICENSE](LICENSE) in this repository or visit [https://www.gnu.org/licenses/gpl-3.0.en.html](https://www.gnu.org/licenses/gpl-3.0.en.html).
-
-## Contributing
-
-[Contributing guidelines to be added]
+[GNU General Public License v3.0](LICENSE).
