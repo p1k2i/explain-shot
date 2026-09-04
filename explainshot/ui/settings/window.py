@@ -35,6 +35,7 @@ from ...core.signals import AppSignals
 from ...util.autostart import AutoStart
 from ..chrome import FramelessWindow, TitleBar
 from ..icons import app_icon
+from ..widgets import ChevronComboBox
 
 log = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ class SettingsWindow(FramelessWindow):
         form.addRow("API key", self.api_key)
 
         model_row = QHBoxLayout()
-        self.model = QComboBox()
+        self.model = ChevronComboBox()
         self.model.setEditable(True)
         self.model.addItem(self.settings.ai.model)
         model_row.addWidget(self.model, 1)
@@ -160,7 +161,7 @@ class SettingsWindow(FramelessWindow):
         dir_row.addWidget(browse)
         form.addRow("Save folder", dir_row)
 
-        self.image_format = QComboBox()
+        self.image_format = ChevronComboBox()
         self.image_format.addItems(["PNG", "JPEG"])
         self.image_format.setCurrentText(self.settings.screenshot.image_format.upper())
         form.addRow("Image format", self.image_format)
@@ -204,7 +205,7 @@ class SettingsWindow(FramelessWindow):
         form = QFormLayout(tab)
         form.setSpacing(10)
 
-        self.theme = QComboBox()
+        self.theme = ChevronComboBox()
         self.theme.addItems(["dark", "light"])
         self.theme.setCurrentText(self.settings.ui.theme)
         form.addRow("Theme", self.theme)
