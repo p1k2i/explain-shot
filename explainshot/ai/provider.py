@@ -85,19 +85,32 @@ class AIProvider:
             raise AIError(f"unexpected response shape: {data}") from exc
 
     async def stream(self, messages: list[ChatMessage]) -> AsyncIterator[str]:
-        """Streaming completion. Yields text deltas as they arrive."""
+        """Streaming completion. Yields text deltas as they arrive.
+
+        Cleanup note: after `[DONE]` we keep iterating `aiter_lines()` until
+        it naturally exhausts instead of returning early. That's what lets
+        the underlying `httpcore.HTTP11ConnectionByteStream` async generator
+        run to `StopAsyncIteration`. If we bail with `return` here, the
+        outer `async with` calls `.aclose()` on that generator while it's
+        still suspended at its `yield part`, and it can't release the
+        connection synchronously — producing httpcore's
+        "async generator ignored GeneratorExit" warning at the end of every
+        reply. Draining the tail costs a millisecond and silences it.
+        """
         body = self._build_body(messages, stream=True)
         async with self._client() as client:
             async with client.stream(
                 "POST", f"{self.base_url}/chat/completions", json=body
             ) as resp:
                 resp.raise_for_status()
+                done_seen = False
                 async for line in resp.aiter_lines():
-                    if not line or not line.startswith("data:"):
+                    if done_seen or not line or not line.startswith("data:"):
                         continue
                     payload = line[5:].strip()
                     if payload == "[DONE]":
-                        return
+                        done_seen = True
+                        continue
                     try:
                         chunk = json.loads(payload)
                     except json.JSONDecodeError:
