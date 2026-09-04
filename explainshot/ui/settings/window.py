@@ -1,14 +1,7 @@
 """Settings window.
 
-Down from ~1500 lines to about 300 by removing:
-  * the FieldValidator plumbing (Qt already highlights invalid values via
-    QLineEdit::setValidator; for the few free-form fields we just show
-    an inline label if the value can't be applied),
-  * every widget for the deleted OptimizationConfig (twelve fields),
-  * every widget for the deleted ChatConfig (five fields nobody used),
-  * the modal-dialog-inside-a-QDialog trampoline,
-  * validation-error CSS classes, colored borders, and property polish
-    dances — the theme handles those via [error=true].
+Frameless, uses the custom TitleBar. Only shows settings the app actually
+consumes at runtime.
 """
 
 from __future__ import annotations
@@ -21,7 +14,6 @@ from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDialog,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -41,13 +33,14 @@ from ...ai.provider import AIProvider
 from ...config.settings import Settings, save_settings
 from ...core.signals import AppSignals
 from ...util.autostart import AutoStart
+from ..chrome import FramelessWindow, TitleBar
 from ..icons import app_icon
 
 log = logging.getLogger(__name__)
 
 
-class SettingsWindow(QDialog):
-    saved = pyqtSignal(object)   # emits the new Settings
+class SettingsWindow(FramelessWindow):
+    saved = pyqtSignal(object)
 
     def __init__(self, settings: Settings, signals: AppSignals, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -56,28 +49,38 @@ class SettingsWindow(QDialog):
 
         self.setWindowIcon(app_icon())
         self.setWindowTitle("ExplainShot — Settings")
-        self.resize(560, 520)
+        self.resize(620, 580)
+        self.setMinimumSize(520, 520)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self.title_bar = TitleBar(self, title="Settings", show_maximise=False)
+        self.title_bar.request_close.connect(self.close)
+        root.addWidget(self.title_bar)
+
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(20, 16, 20, 20)
+        body_layout.setSpacing(14)
 
         title = QLabel("Settings")
         title.setProperty("title", True)
-        layout.addWidget(title)
+        body_layout.addWidget(title)
 
         tabs = QTabWidget()
         tabs.addTab(self._ai_tab(), "AI provider")
         tabs.addTab(self._screenshot_tab(), "Screenshots")
         tabs.addTab(self._hotkeys_tab(), "Hotkeys")
         tabs.addTab(self._appearance_tab(), "Appearance")
-        layout.addWidget(tabs, 1)
+        body_layout.addWidget(tabs, 1)
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
 
         cancel = QPushButton("Cancel")
-        cancel.clicked.connect(self.reject)
+        cancel.clicked.connect(self.close)
         button_row.addWidget(cancel)
 
         save = QPushButton("Save")
@@ -85,7 +88,9 @@ class SettingsWindow(QDialog):
         save.setDefault(True)
         save.clicked.connect(self._on_save)
         button_row.addWidget(save)
-        layout.addLayout(button_row)
+        body_layout.addLayout(button_row)
+
+        root.addWidget(body, 1)
 
     # -- tabs ------------------------------------------------------------------
 
@@ -290,4 +295,4 @@ class SettingsWindow(QDialog):
             return
 
         self.saved.emit(s)
-        self.accept()
+        self.close()

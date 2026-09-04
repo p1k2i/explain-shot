@@ -1,24 +1,21 @@
 """Left column of the gallery: the screenshot list.
 
-Card grid, lazy thumbnails. No transparency, no CSS-per-item juggling —
-the theme handles the [selected=true] state via property polish.
+Card grid with lazy thumbnails and scripted hover/selection animations.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Callable
-
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QMouseEvent, QPixmap
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QColor, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import (
-    QFrame,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QMenu,
+    QMessageBox,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -26,22 +23,37 @@ from PyQt6.QtWidgets import (
 from ...capture.models import ScreenshotRecord
 from ...capture.screenshot import ScreenshotService
 from ...capture.thumbnails import ThumbnailCache
+from ..animation import HoverAnimator, HoverStates, HoverStyle
+
+
+_STATES_DARK = HoverStates(
+    idle=HoverStyle(QColor("#262626"), QColor("#3d3d3d"), radius=8),
+    hover=HoverStyle(QColor("#3a3a3a"), QColor("#0067c0"), radius=8, border_width=2),
+    selected=HoverStyle(QColor("#22344a"), QColor("#0067c0"), radius=8, border_width=2),
+    duration_ms=140,
+)
+_STATES_LIGHT = HoverStates(
+    idle=HoverStyle(QColor("#ffffff"), QColor("#dcdcdc"), radius=8),
+    hover=HoverStyle(QColor("#eef4fb"), QColor("#0067c0"), radius=8, border_width=2),
+    selected=HoverStyle(QColor("#dceaf7"), QColor("#0067c0"), radius=8, border_width=2),
+    duration_ms=140,
+)
 
 
 class ScreenshotCard(QWidget):
     clicked = pyqtSignal(str)
-    delete_requested = pyqtSignal(str)
+    activated = pyqtSignal(str)    # double-click → open preview
+    context_menu = pyqtSignal(str, object)   # right-click at global pos
 
-    def __init__(self, record: ScreenshotRecord, thumb_px: int, parent: QWidget | None = None) -> None:
+    def __init__(self, record: ScreenshotRecord, thumb_px: int, theme: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.record = record
         self.setObjectName("ScreenshotCard")
-        self.setProperty("selected", False)
-        self.setFixedWidth(thumb_px + 16)
+        self.setFixedWidth(thumb_px + 20)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(4)
 
         self.image = QLabel()
@@ -50,19 +62,18 @@ class ScreenshotCard(QWidget):
         self.image.setStyleSheet("background: transparent;")
         layout.addWidget(self.image)
 
-        meta_row = QHBoxLayout()
-        meta_row.setSpacing(4)
         self.name = QLabel(record.filename)
         self.name.setProperty("muted", True)
         self.name.setToolTip(record.filename)
-        # Truncate visually; QLabel will elide via style if needed.
         self.name.setMaximumWidth(thumb_px)
-        meta_row.addWidget(self.name, 1)
-        layout.addLayout(meta_row)
+        layout.addWidget(self.name)
 
         self.dim = QLabel(f"{record.width}×{record.height}")
         self.dim.setProperty("muted", True)
         layout.addWidget(self.dim)
+
+        states = _STATES_DARK if theme == "dark" else _STATES_LIGHT
+        self._anim = HoverAnimator.attach(self, states)
 
     def set_pixmap(self, pixmap: QPixmap) -> None:
         self.image.setPixmap(
@@ -73,23 +84,28 @@ class ScreenshotCard(QWidget):
             )
         )
 
-    def set_selected(self, selected: bool) -> None:
-        self.setProperty("selected", selected)
-        # Trigger QSS re-evaluation for property selectors.
-        style = self.style()
-        if style:
-            style.unpolish(self)
-            style.polish(self)
+    def set_selected(self, selected: bool, *, instant: bool = False) -> None:
+        self._anim.set_selected(selected, instant=instant)
 
     def mousePressEvent(self, event: QMouseEvent | None) -> None:  # type: ignore[override]
-        if event and event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self.record.id)
+        if event:
+            if event.button() == Qt.MouseButton.LeftButton:
+                self.clicked.emit(self.record.id)
+            elif event.button() == Qt.MouseButton.RightButton:
+                self.context_menu.emit(self.record.id, event.globalPosition().toPoint())
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent | None) -> None:  # type: ignore[override]
+        if event and event.button() == Qt.MouseButton.LeftButton:
+            self.activated.emit(self.record.id)
+        super().mouseDoubleClickEvent(event)
 
 
 class ScreenshotsPanel(QWidget):
-    selection_changed = pyqtSignal(object)  # ScreenshotRecord or None
-    delete_requested = pyqtSignal(str)      # screenshot id
+    selection_changed = pyqtSignal(object)   # ScreenshotRecord or None
+    preview_requested = pyqtSignal(str)      # screenshot id (double-click)
+    delete_requested = pyqtSignal(str)       # screenshot id
+    rename_requested = pyqtSignal(str, str)  # screenshot id, new stem
 
     def __init__(
         self,
@@ -104,6 +120,7 @@ class ScreenshotsPanel(QWidget):
         self.thumb_px = thumb_px
         self._cards: dict[str, ScreenshotCard] = {}
         self._selected_id: str | None = None
+        self._theme = "dark"
 
         self.thumbnails.ready.connect(self._on_thumbnail_ready)
 
@@ -117,7 +134,7 @@ class ScreenshotsPanel(QWidget):
         header.addWidget(title, 1)
 
         refresh = QPushButton("Refresh")
-        refresh.setProperty("flat", True)
+        refresh.setProperty("chip", True)
         refresh.clicked.connect(self.reload)
         header.addWidget(refresh)
         layout.addLayout(header)
@@ -125,15 +142,19 @@ class ScreenshotsPanel(QWidget):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setStyleSheet("background: transparent; border: none;")
         layout.addWidget(self.scroll, 1)
 
         self._grid_host = QWidget()
         self._grid = QGridLayout(self._grid_host)
-        self._grid.setContentsMargins(4, 4, 4, 4)
-        self._grid.setSpacing(8)
+        self._grid.setContentsMargins(2, 2, 2, 2)
+        self._grid.setSpacing(10)
         self.scroll.setWidget(self._grid_host)
 
-    # -- public API ------------------------------------------------------------
+    def set_theme(self, theme: str) -> None:
+        self._theme = theme
+        if self._cards:
+            self.reload()
 
     def reload(self) -> None:
         records = self.service.list_recent(limit=500)
@@ -175,25 +196,21 @@ class ScreenshotsPanel(QWidget):
         self.thumbnails.set_size(px)
         self.reload()
 
-    # -- internals -------------------------------------------------------------
-
     def _rebuild_grid(self, records: list[ScreenshotRecord]) -> None:
-        # Clear existing
         for card in self._cards.values():
             card.deleteLater()
         self._cards.clear()
         while self._grid.count():
             item = self._grid.takeAt(0)
-            if item is None:
-                continue
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
+            if item and item.widget():
+                item.widget().deleteLater()
 
-        columns = max(1, self.width() // (self.thumb_px + 32))
+        columns = max(1, self.width() // (self.thumb_px + 36))
         for index, record in enumerate(records):
-            card = ScreenshotCard(record, self.thumb_px, parent=self._grid_host)
+            card = ScreenshotCard(record, self.thumb_px, self._theme, parent=self._grid_host)
             card.clicked.connect(self.select)
+            card.activated.connect(self.preview_requested.emit)
+            card.context_menu.connect(self._on_context_menu)
             self._cards[record.id] = card
             row, col = divmod(index, columns)
             self._grid.addWidget(card, row, col)
@@ -201,11 +218,9 @@ class ScreenshotsPanel(QWidget):
             if pixmap is not None:
                 card.set_pixmap(pixmap)
 
-        # Stretch bottom row so cards align top-left cleanly
         self._grid.setRowStretch(self._grid.rowCount(), 1)
         self._grid.setColumnStretch(columns, 1)
 
-        # Re-apply selection if still valid
         if self._selected_id in self._cards:
             self._cards[self._selected_id].set_selected(True)
         else:
@@ -221,3 +236,47 @@ class ScreenshotsPanel(QWidget):
         if self._cards:
             records = [c.record for c in self._cards.values()]
             self._rebuild_grid(records)
+
+    def _on_context_menu(self, screenshot_id: str, global_pos) -> None:
+        card = self._cards.get(screenshot_id)
+        if not card:
+            return
+        menu = QMenu(self)
+        open_action = QAction("Open preview", menu)
+        open_action.triggered.connect(lambda: self.preview_requested.emit(screenshot_id))
+        menu.addAction(open_action)
+
+        rename_action = QAction("Rename…", menu)
+        rename_action.triggered.connect(lambda: self._prompt_rename(screenshot_id))
+        menu.addAction(rename_action)
+
+        menu.addSeparator()
+
+        delete_action = QAction("Delete", menu)
+        delete_action.triggered.connect(lambda: self._confirm_delete(screenshot_id))
+        menu.addAction(delete_action)
+
+        menu.exec(global_pos)
+
+    def _prompt_rename(self, screenshot_id: str) -> None:
+        card = self._cards.get(screenshot_id)
+        if not card:
+            return
+        from pathlib import Path
+        current_stem = Path(card.record.filename).stem
+        new_stem, ok = QInputDialog.getText(self, "Rename screenshot", "Name:", text=current_stem)
+        if ok and new_stem.strip() and new_stem.strip() != current_stem:
+            self.rename_requested.emit(screenshot_id, new_stem.strip())
+
+    def _confirm_delete(self, screenshot_id: str) -> None:
+        card = self._cards.get(screenshot_id)
+        if not card:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Delete screenshot",
+            f"Delete '{card.record.filename}' and its conversation?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.delete_requested.emit(screenshot_id)

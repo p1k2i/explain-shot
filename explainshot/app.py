@@ -1,18 +1,12 @@
-"""Application object — owns the singletons and controls window lifecycle.
-
-Replaces main_controller.py + ui_manager.py + optimized_main_controller.py
-(a combined ~1600 lines). All the async signal marshalling that ran through
-a custom EventBus, a per-tick QTimer, an event queue, then asyncio tasks —
-gone. Qt signals + qasync do the job natively.
-"""
+"""Application object — owns the singletons and controls window lifecycle."""
 
 from __future__ import annotations
 
 import logging
-
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, Qt
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QApplication
 
 from . import APP_NAME
@@ -27,7 +21,7 @@ from .hotkeys.manager import HotkeyManager
 from .presets.manager import PresetManager
 from .ui.gallery import GalleryWindow
 from .ui.icons import app_icon
-from .ui.overlay import RegionSelector
+from .ui.overlay import CaptureOverlay
 from .ui.settings import SettingsWindow
 from .ui.theme import Theme, apply_theme
 from .ui.tray import Tray
@@ -40,7 +34,7 @@ class Application(QObject):
         super().__init__()
         self.qt_app = qt_app
         self.qt_app.setApplicationName(APP_NAME)
-        self.qt_app.setQuitOnLastWindowClosed(False)  # tray keeps us alive
+        self.qt_app.setQuitOnLastWindowClosed(False)
         self.qt_app.setWindowIcon(app_icon())
 
         self.settings: Settings = load_settings()
@@ -77,10 +71,10 @@ class Application(QObject):
         # Live references so windows aren't garbage-collected while shown.
         self._gallery: GalleryWindow | None = None
         self._settings_window: SettingsWindow | None = None
-        self._region_selector: RegionSelector | None = None
+        self._capture_overlay: CaptureOverlay | None = None
 
-        # Connect hotkeys — pynput fires on a background thread, Qt marshals
-        # to the main thread via QueuedConnection automatically.
+        # Hotkeys — pynput's background thread signals cross into the main
+        # thread via Qt's automatic QueuedConnection.
         self.signals.hotkey_capture_region.connect(self._request_capture)
         self.signals.hotkey_toggle_gallery.connect(self.toggle_gallery)
         self.signals.hotkey_open_settings.connect(self.show_settings)
@@ -94,22 +88,20 @@ class Application(QObject):
     def quit(self) -> None:
         self.hotkeys.stop()
         self.tray.hide()
-        if self._gallery:
-            self._gallery.close()
-        if self._settings_window:
-            self._settings_window.close()
-        if self._region_selector:
-            self._region_selector.close()
+        for w in (self._gallery, self._settings_window, self._capture_overlay):
+            if w is not None:
+                w.close()
         self.db.close()
         self.qt_app.quit()
 
-    # -- window commands -------------------------------------------------------
+    # -- gallery ---------------------------------------------------------------
 
     def show_gallery(self) -> None:
         if self._gallery is None:
             self._gallery = GalleryWindow(
                 settings=self.settings,
                 signals=self.signals,
+                db=self.db,
                 screenshots=self.screenshots,
                 thumbnails=self.thumbnails,
                 presets=self.presets,
@@ -118,10 +110,9 @@ class Application(QObject):
             )
             self._gallery.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
             self._gallery.destroyed.connect(self._on_gallery_destroyed)
-        window = self._gallery
-        window.show()
-        window.raise_()
-        window.activateWindow()
+        self._gallery.show()
+        self._gallery.raise_()
+        self._gallery.activateWindow()
 
     def toggle_gallery(self) -> None:
         if self._gallery is None or not self._gallery.isVisible():
@@ -139,36 +130,47 @@ class Application(QObject):
         self._settings_window.raise_()
         self._settings_window.activateWindow()
 
-    def _request_capture(self) -> None:
-        # Only one selector at a time.
-        if self._region_selector is not None:
-            self._region_selector.close()
-        selector = RegionSelector(accent=self.settings.ui.accent)
-        selector.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        selector.region_selected.connect(self._on_region_selected)
-        selector.cancelled.connect(self._on_region_cancelled)
-        selector.destroyed.connect(self._on_selector_destroyed)
-        self._region_selector = selector
-        selector.show_over_desktop()
+    # -- capture flow: Lightshot-style overlay --------------------------------
 
-    def _on_region_selected(self, region) -> None:
-        try:
-            record = self.screenshots.capture(region)
-        except Exception as exc:
-            log.exception("capture failed")
-            self.tray.notify("Capture failed", str(exc))
+    def _request_capture(self) -> None:
+        if self._capture_overlay is not None:
+            return  # already up
+        background = self.screenshots.grab_desktop()
+        overlay = CaptureOverlay(background, accent=self.settings.ui.accent)
+        overlay.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        overlay.save_only.connect(self._on_capture_save_only)
+        overlay.save_and_open.connect(self._on_capture_save_and_open)
+        overlay.cancelled.connect(self._on_capture_cancelled)
+        overlay.destroyed.connect(self._on_overlay_destroyed)
+        self._capture_overlay = overlay
+        overlay.show_over_desktop()
+
+    def _on_capture_save_only(self, pixmap: QPixmap) -> None:
+        record = self._persist_capture(pixmap)
+        if record is not None:
+            self.tray.notify("Screenshot saved", record.filename)
+
+    def _on_capture_save_and_open(self, pixmap: QPixmap) -> None:
+        record = self._persist_capture(pixmap)
+        if record is None:
             return
-        self.tray.notify("Screenshot captured", record.filename)
-        # Open the gallery pre-selected on the new screenshot.
         self.show_gallery()
-        if self._gallery:
+        if self._gallery is not None:
+            self._gallery.screenshots_panel.reload()
             self._gallery.screenshots_panel.select(record.id)
 
-    def _on_region_cancelled(self) -> None:
-        # Nothing to do — the widget hides itself.
+    def _persist_capture(self, pixmap: QPixmap):
+        try:
+            return self.screenshots.save_pixmap(pixmap)
+        except Exception as exc:
+            log.exception("save failed")
+            self.tray.notify("Save failed", str(exc))
+            return None
+
+    def _on_capture_cancelled(self) -> None:
         pass
 
-    # -- signals plumbing ------------------------------------------------------
+    # -- settings-saved handling ----------------------------------------------
 
     def _on_settings_saved(self, new_settings: Settings) -> None:
         self.settings = new_settings
@@ -179,6 +181,13 @@ class Application(QObject):
         self.screenshots.config = self.settings.screenshot
         self.screenshots.directory = self._ensured_screenshot_dir()
         self.screenshots.scan_directory()
+        # Push the theme change into the live gallery so cards restyle.
+        from .ui.gallery.chat_panel import set_chat_theme
+        set_chat_theme(self.settings.ui.theme)
+        if self._gallery is not None:
+            self._gallery.screenshots_panel.set_theme(self.settings.ui.theme)
+            self._gallery.presets_panel.set_theme(self.settings.ui.theme)
+            self._gallery._refresh_transcript()
 
     def _on_gallery_destroyed(self, *_) -> None:
         self._gallery = None
@@ -186,8 +195,8 @@ class Application(QObject):
     def _on_settings_destroyed(self, *_) -> None:
         self._settings_window = None
 
-    def _on_selector_destroyed(self, *_) -> None:
-        self._region_selector = None
+    def _on_overlay_destroyed(self, *_) -> None:
+        self._capture_overlay = None
 
     def _apply_theme(self) -> None:
         theme = Theme.resolve(self.settings.ui.theme, self.settings.ui.accent)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
@@ -11,17 +12,24 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from ...presets.manager import Preset, PresetManager
+from ..animation import HoverAnimator, HoverStates, HoverStyle
 
 
-class _EditPresetDialog(QWidget):
-    """Simple inline editor. Called by PresetsPanel; not a full dialog because
-    it's cleaner to keep the flow in one column than to pop yet another window."""
+_STATES_DARK = HoverStates(
+    idle=HoverStyle(QColor("#262626"), QColor("#3d3d3d"), radius=6),
+    hover=HoverStyle(QColor("#3a3a3a"), QColor("#0067c0"), radius=6, border_width=2),
+    duration_ms=140,
+)
+_STATES_LIGHT = HoverStates(
+    idle=HoverStyle(QColor("#ffffff"), QColor("#dcdcdc"), radius=6),
+    hover=HoverStyle(QColor("#eef4fb"), QColor("#0067c0"), radius=6, border_width=2),
+    duration_ms=140,
+)
 
 
 class PresetCard(QWidget):
@@ -30,13 +38,13 @@ class PresetCard(QWidget):
     edit_clicked = pyqtSignal(str)
     delete_clicked = pyqtSignal(str)
 
-    def __init__(self, preset: Preset, parent: QWidget | None = None) -> None:
+    def __init__(self, preset: Preset, theme: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.preset = preset
         self.setObjectName("PresetCard")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(6)
 
         name_row = QHBoxLayout()
@@ -85,6 +93,9 @@ class PresetCard(QWidget):
             actions.addWidget(delete)
         layout.addLayout(actions)
 
+        states = _STATES_DARK if theme == "dark" else _STATES_LIGHT
+        HoverAnimator.attach(self, states)
+
 
 class PresetsPanel(QWidget):
     preset_run = pyqtSignal(str)
@@ -93,6 +104,7 @@ class PresetsPanel(QWidget):
     def __init__(self, manager: PresetManager, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.manager = manager
+        self._theme = "dark"
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -104,13 +116,14 @@ class PresetsPanel(QWidget):
         header.addWidget(title, 1)
 
         add = QPushButton("+ New")
-        add.setProperty("flat", True)
+        add.setProperty("chip", True)
         add.clicked.connect(self._on_new)
         header.addWidget(add)
         layout.addLayout(header)
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
+        self.scroll.setStyleSheet("background: transparent; border: none;")
         layout.addWidget(self.scroll, 1)
 
         self._host = QWidget()
@@ -122,8 +135,11 @@ class PresetsPanel(QWidget):
 
         self.reload()
 
+    def set_theme(self, theme: str) -> None:
+        self._theme = theme
+        self.reload()
+
     def reload(self) -> None:
-        # Remove old cards
         for i in reversed(range(self._list.count() - 1)):
             item = self._list.itemAt(i)
             if item is None:
@@ -134,14 +150,12 @@ class PresetsPanel(QWidget):
                 self._list.removeItem(item)
 
         for preset in self.manager.list():
-            card = PresetCard(preset)
+            card = PresetCard(preset, self._theme)
             card.run_clicked.connect(self.preset_run.emit)
             card.paste_clicked.connect(self.preset_paste.emit)
             card.edit_clicked.connect(self._on_edit)
             card.delete_clicked.connect(self._on_delete)
             self._list.insertWidget(self._list.count() - 1, card)
-
-    # -- actions ---------------------------------------------------------------
 
     def _on_new(self) -> None:
         name, ok = QInputDialog.getText(self, "New preset", "Name:")

@@ -294,3 +294,120 @@ QTextBrowser#ChatTranscript {
     border-radius: 6px;
     padding: 8px;
 }
+
+/* --- Custom title bar --------------------------------------------------- */
+
+QFrame#TitleBar {
+    background: @bg_base;
+    border-bottom: 1px solid @stroke;
+}
+QLabel#TitleBarTitle {
+    color: @text_secondary;
+    font-size: 12px;
+    padding: 0 4px;
+}
+QPushButton[caption="true"] {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    color: @text_secondary;
+    font-size: 12px;
+    padding: 0;
+    min-height: 0;
+    min-width: 0;
+}
+QPushButton[caption="true"]:hover {
+    background: @bg_layer_alt;
+    color: @text_primary;
+    border: none;
+}
+QPushButton[caption="true"]:pressed {
+    background: @bg_layer;
+    border: none;
+}
+QPushButton[captionDanger="true"]:hover {
+    background: #c42b1c;
+    color: #ffffff;
+}
+QPushButton[captionDanger="true"]:pressed {
+    background: #a3241a;
+    color: #ffffff;
+}
+
+/* --- Chat message bubbles ----------------------------------------------- */
+
+QWidget#MessageRow {
+    background: transparent;
+}
+QFrame#MessageBubble {
+    border-radius: 10px;
+    padding: 0;
+}
+QFrame#MessageBubble[role="user"] {
+    background: @accent;
+    color: @accent_text;
+}
+QFrame#MessageBubble[role="assistant"] {
+    background: @bg_layer_alt;
+    color: @text_primary;
+    border: 1px solid @stroke;
+}
+QFrame#MessageBubble[role="system"] {
+    background: transparent;
+    color: @text_secondary;
+    border: 1px dashed @stroke_strong;
+}
+QFrame#MessageBubble[role="error"] {
+    background: @bg_layer;
+    color: @danger;
+    border: 1px solid @danger;
+}
+QLabel#MessageMeta {
+    color: @text_secondary;
+    font-size: 11px;
+}
+
+QPushButton[chip="true"] {
+    background: transparent;
+    color: @text_secondary;
+    border: 1px solid @stroke;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 11px;
+    min-height: 0;
+}
+QPushButton[chip="true"]:hover {
+    background: @bg_layer_alt;
+    color: @text_primary;
+    border-color: @stroke_strong;
+}
+QPushButton[chip="true"]:disabled {
+    color: @text_disabled;
+    background: transparent;
+}
+
+/* --- Capture editor toolbar -------------------------------------------- */
+
+QFrame#EditorToolbar {
+    background: @bg_layer;
+    border-radius: 8px;
+    border: 1px solid @stroke;
+    padding: 4px;
+}
+QToolButton {
+    background: transparent;
+    color: @text_secondary;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 6px 10px;
+}
+QToolButton:hover {
+    background: @bg_layer_alt;
+    color: @text_primary;
+    border-color: @stroke;
+}
+QToolButton:checked {
+    background: @accent;
+    color: @accent_text;
+    border-color: @accent;
+}

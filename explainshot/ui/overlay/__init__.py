@@ -1,3 +1,3 @@
-from .region_selector import RegionSelector
+from .capture_overlay import CaptureOverlay
 
-__all__ = ["RegionSelector"]
+__all__ = ["CaptureOverlay"]

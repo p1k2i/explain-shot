@@ -10,6 +10,7 @@ slowness on translucent windows.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -93,6 +94,9 @@ def _theme_css_path() -> Path:
     return resources_dir() / "ui" / "theme.qss"
 
 
+_TOKEN_RE = re.compile(r"@([a-z][a-z0-9_]*)")
+
+
 def _read_template() -> str:
     path = _theme_css_path()
     if path.exists():
@@ -119,10 +123,13 @@ def render_stylesheet(theme: Theme) -> str:
         "accent_text": p.accent_text,
         "danger": p.danger,
     }
-    css = template
-    for key, value in tokens.items():
-        css = css.replace(f"@{key}", value)
-    return css
+    # Match a whole token — `\b` around the alphabetical part so `@bg_layer`
+    # never eats the prefix of `@bg_layer_alt`. Naive str.replace ordered by
+    # length is another option; the regex reads more clearly.
+    def _sub(match: re.Match[str]) -> str:
+        key = match.group(1)
+        return tokens.get(key, match.group(0))
+    return _TOKEN_RE.sub(_sub, template)
 
 
 def apply_theme(app: QApplication, theme: Theme) -> None:
