@@ -292,19 +292,14 @@ class _MessageRow(QWidget):
 
         column.addLayout(header)
 
+        # Bubbles take the full width of the chat panel. Role is still
+        # obvious from the coloured background (blue accent for user,
+        # subtle for assistant) and the header on the row.
         bubble_row = QHBoxLayout()
         bubble_row.setContentsMargins(0, 0, 0, 0)
         self.bubble = MessageBubble(node)
-        self.bubble.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
-        self.bubble.setMaximumWidth(720)
-        if node.role == "user":
-            bubble_row.addStretch(1)
-            bubble_row.addWidget(self.bubble)
-        elif node.role in {"system", "error"}:
-            bubble_row.addWidget(self.bubble, 1)
-        else:
-            bubble_row.addWidget(self.bubble)
-            bubble_row.addStretch(1)
+        self.bubble.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        bubble_row.addWidget(self.bubble, 1)
         column.addLayout(bubble_row)
 
         if not is_system:
