@@ -98,9 +98,10 @@ pump()
 gw.grab().save("scratchpad/uiux_list.png", "PNG")
 print("saved scratchpad/uiux_list.png")
 
-# 4) List view at size L
-from explainshot.ui.gallery.screenshots_panel import _SIZE_PRESETS
-gw.screenshots_panel._size_btns[_SIZE_PRESETS["L"]].click()
+# 4) List view at a larger size (drive the slider, apply immediately)
+sp = gw.screenshots_panel
+sp._size_slider.setValue(224)
+sp._apply_slider_size()
 pump()
 gw.grab().save("scratchpad/uiux_list_large.png", "PNG")
 print("saved scratchpad/uiux_list_large.png")
