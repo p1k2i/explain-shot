@@ -428,6 +428,18 @@ QPushButton[chip="true"]:disabled {
     color: @text_disabled;
     background: transparent;
 }
+/* Checkable chips (e.g. the gallery view/size switchers) show their active
+ * option in accent so the current mode reads at a glance. */
+QPushButton[chip="true"]:checked {
+    background: @accent;
+    color: @accent_text;
+    border-color: @accent;
+}
+QPushButton[chip="true"]:checked:hover {
+    background: @accent_pressed;
+    border-color: @accent_pressed;
+    color: @accent_text;
+}
 
 /* --- Capture editor toolbar -------------------------------------------- */
 

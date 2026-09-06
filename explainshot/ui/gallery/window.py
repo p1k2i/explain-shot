@@ -25,7 +25,7 @@ from ...ai.history import ChatHistory, MessageNode
 from ...capture.models import ScreenshotRecord
 from ...capture.screenshot import ScreenshotService
 from ...capture.thumbnails import ThumbnailCache
-from ...config.settings import Settings
+from ...config.settings import Settings, update_setting
 from ...core.database import Database
 from ...core.signals import AppSignals
 from ...presets.manager import PresetManager
@@ -99,6 +99,7 @@ class GalleryWindow(FramelessWindow):
 
         self.screenshots_panel = ScreenshotsPanel(
             self.screenshots, self.thumbnails, settings.ui.thumbnail_px,
+            settings.ui.gallery_view,
         )
         splitter.addWidget(self._wrap(self.screenshots_panel))
 
@@ -124,6 +125,7 @@ class GalleryWindow(FramelessWindow):
         self.screenshots_panel.preview_requested.connect(self._on_preview_requested)
         self.screenshots_panel.delete_requested.connect(self._on_screenshot_delete)
         self.screenshots_panel.rename_requested.connect(self._on_screenshot_rename)
+        self.screenshots_panel.prefs_changed.connect(self._on_gallery_prefs_changed)
         self.chat_panel.message_submitted.connect(self._on_prompt_submitted)
         self.chat_panel.edit_submitted.connect(self._on_edit_submitted)
         self.chat_panel.regenerate_requested.connect(self._on_regenerate_requested)
@@ -285,6 +287,15 @@ class GalleryWindow(FramelessWindow):
         if updated is not None:
             self.screenshots_panel.reload()
             self.screenshots_panel.select(updated.id)
+
+    def _on_gallery_prefs_changed(self, view_mode: str, thumb_px: int) -> None:
+        """Persist the gallery's view mode / thumbnail size when the user
+        changes them from the panel toolbar. We keep the shared in-memory
+        Settings in sync too so the settings window and next launch agree."""
+        self.settings.ui.gallery_view = view_mode
+        self.settings.ui.thumbnail_px = thumb_px
+        update_setting("ui.gallery_view", view_mode)
+        update_setting("ui.thumbnail_px", thumb_px)
 
     # -- user actions in the chat -> controller ------------------------------
 

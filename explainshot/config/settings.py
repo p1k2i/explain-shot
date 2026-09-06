@@ -59,6 +59,7 @@ class UIConfig:
     theme: str = "dark"        # "dark" | "light"
     accent: str = "#0067c0"    # Windows 11 default accent
     thumbnail_px: int = 160
+    gallery_view: str = "grid"  # "grid" (thumbnail cards) | "list" (compact rows)
 
 
 @dataclass

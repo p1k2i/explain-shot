@@ -493,12 +493,36 @@ class ChatPanel(QWidget):
         # this list, drop everything, then materialise from the caller's
         # snapshot. There is no per-screenshot state stashed on the panel.
         self._rows: list[_MessageRow] = []
+        # Non-message widgets living in the transcript (e.g. the "show earlier
+        # messages" bar). Tracked separately from _rows so message lookups
+        # never trip over a widget that has no .node.
+        self._aux_widgets: list[QWidget] = []
         self._streaming_row: _MessageRow | None = None
         self._auto_pin = True
+        # Symmetric to _auto_pin but for the top: set after expanding earlier
+        # history so the view sticks to the start of the conversation while the
+        # freshly-built bubbles finish sizing (their heights settle over
+        # several async layout passes, each firing rangeChanged).
+        self._pin_top = False
         # rangeChanged/valueChanged fire when we programmatically pin, so we
         # briefly suppress the user-scroll tracking to avoid the pin being
         # misread as "user scrolled".
         self._suppress_scroll_tracking = False
+        # Compacted history collapses matryoshka-style. Summaries can stack
+        # (each one folds every turn before it, including older summaries), so
+        # the transcript opens showing only the newest summary + live tail.
+        # `_expand_levels` is how many summary boundaries the user has stepped
+        # back through: 0 shows from the newest summary, 1 also reveals the
+        # segment up to the previous summary, and so on until the whole history
+        # is visible. It resets per screenshot (see set_context) for a lean open.
+        self._expand_levels = 0
+        # Set for one render by _on_show_earlier so the freshly-expanded
+        # transcript lands at the top (start of history) instead of the bottom.
+        self._land_top = False
+        # Last snapshot handed to render(), kept so the expand bar can rebuild
+        # without the window round-tripping through history again.
+        self._last_path: list[MessageNode] = []
+        self._last_notices: list[SystemNotice] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -596,7 +620,13 @@ class ChatPanel(QWidget):
     # -- public interface ------------------------------------------------------
 
     def set_context(self, context: str | None) -> None:
-        """The screenshot metadata line under the header."""
+        """The screenshot metadata line under the header.
+
+        Called by the window whenever the selected screenshot changes, so it
+        doubles as our "new conversation is being shown" hook: reset the
+        collapsed-history state so every screenshot opens lean (pre-compaction
+        turns hidden) regardless of how the previous one was left."""
+        self._expand_levels = 0
         if context:
             self.context_row.setText(context)
             self._enabled_for_screenshot = True
@@ -639,11 +669,23 @@ class ChatPanel(QWidget):
             style.polish(self.context_gauge)
 
     def clear(self) -> None:
+        # Reparent to None *before* deleteLater: deleteLater is async and is
+        # not even dispatched by processEvents(), so an old row keeps painting
+        # at its last position until the event loop tears it down. On a rebuild
+        # (e.g. expanding earlier history) that leaves the previous summary +
+        # tail ghosted at the top with the fresh rows stacked below them.
+        # Unparenting removes them from the layout and the screen immediately.
         for row in self._rows:
+            row.setParent(None)
             row.deleteLater()
         self._rows.clear()
+        for widget in self._aux_widgets:
+            widget.setParent(None)
+            widget.deleteLater()
+        self._aux_widgets.clear()
         self._streaming_row = None
         self._auto_pin = True
+        self._pin_top = False
 
     def render(self, path: list[MessageNode], notices: list[SystemNotice] | None = None) -> None:
         """Rebuild the entire transcript from a snapshot. This is the ONE way
@@ -653,13 +695,101 @@ class ChatPanel(QWidget):
         `path` is the active branch of the message tree (persisted history).
         `notices` is the list of scoped-to-this-screenshot system messages;
         they render as system-styled rows with a Dismiss button.
+
+        Compact summaries can nest (a newer summary folds in older summaries
+        too), so we collapse matryoshka-style: only the turns from the current
+        reveal floor down to the tail are built. The floor starts at the newest
+        summary; each "Show earlier messages" click steps it back to the
+        previous summary boundary, and the newly-exposed summary carries its own
+        bar. Everything above the floor stays un-built until asked for.
         """
         self.clear()
-        for node in path:
+        self._last_path = list(path)
+        self._last_notices = list(notices or [])
+
+        compact_indices = [i for i, node in enumerate(path) if node.role == "compact"]
+        floor = self._reveal_floor(compact_indices)
+        if floor > 0:
+            # The bar reveals the segment from the previous boundary up to the
+            # floor — i.e. one matryoshka layer, ending at the previous summary.
+            prev = self._prev_boundary(floor, compact_indices)
+            self._append_load_earlier_bar(floor - prev)
+        for node in path[floor:]:
             self._append_row(node)
-        for notice in notices or []:
+        for notice in self._last_notices:
             self._append_notice_row(notice)
-        self._pin_bottom()
+
+        if self._land_top:
+            # Just expanded a layer: stop tracking the bottom and stick to the
+            # start of the newly-revealed range so the user reads it forward.
+            # _pin_top keeps us there as the new bubbles finish sizing (async),
+            # the same way _auto_pin holds the bottom during streaming.
+            self._land_top = False
+            self._auto_pin = False
+            self._pin_top = True
+            self._scroll_to_top()
+        else:
+            self._pin_top = False
+            self._pin_bottom()
+
+    def _reveal_floor(self, compact_indices: list[int]) -> int:
+        """Index of the first message to actually build, given how many summary
+        layers the user has expanded. 0 means the whole history is shown."""
+        n = len(compact_indices)
+        if n == 0 or self._expand_levels >= n:
+            return 0
+        # levels 0..n-1 map to the summaries newest-first.
+        return compact_indices[n - 1 - self._expand_levels]
+
+    @staticmethod
+    def _prev_boundary(floor: int, compact_indices: list[int]) -> int:
+        """The largest summary index strictly below `floor`, else 0 (start).
+        The gap [prev, floor) is the layer the next click reveals."""
+        prev = 0
+        for ci in compact_indices:
+            if ci < floor:
+                prev = ci
+            else:
+                break
+        return prev
+
+    def _append_load_earlier_bar(self, hidden_count: int) -> None:
+        host = QWidget()
+        host.setObjectName("LoadEarlierBar")
+        # Fixed height so the transcript's vertical layout can't crush the bar:
+        # the message rows are rigid (fixed heights), and the chip button has
+        # `min-height: 0`, so when the content overflows the viewport the bar
+        # was the only compressible item and got squeezed to a few invisible
+        # pixels — exactly when there's lots of history to reveal. Pinning the
+        # height keeps it fully visible regardless of how tall the tail is.
+        host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        host.setFixedHeight(34)
+        row = QHBoxLayout(host)
+        row.setContentsMargins(4, 4, 4, 4)
+        row.setSpacing(0)
+        row.addStretch(1)
+        noun = "message" if hidden_count == 1 else "messages"
+        btn = QPushButton(f"↑  Show {hidden_count} earlier {noun}")
+        btn.setProperty("chip", True)
+        btn.setMinimumHeight(26)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip(
+            "These turns were folded into the summary below and are hidden to "
+            "keep the chat quick to open. Click to load them."
+        )
+        btn.clicked.connect(self._on_show_earlier)
+        row.addWidget(btn)
+        row.addStretch(1)
+        insert_at = self._transcript.count() - 1
+        self._transcript.insertWidget(max(0, insert_at), host)
+        self._aux_widgets.append(host)
+
+    def _on_show_earlier(self) -> None:
+        """Step back one matryoshka layer: reveal the turns up to the previous
+        summary, which itself becomes collapsible."""
+        self._expand_levels += 1
+        self._land_top = True
+        self.render(self._last_path, self._last_notices)
 
     def set_status(self, text: str) -> None:
         self.status.setText(text)
@@ -680,6 +810,10 @@ class ChatPanel(QWidget):
         self.editor.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def begin_streaming(self, placeholder_node: MessageNode) -> None:
+        # A brand-new reply is the user's own action — re-engage bottom-follow
+        # even if they had scrolled up (e.g. after expanding earlier history).
+        self._auto_pin = True
+        self._pin_top = False
         self._streaming_row = self._append_row(placeholder_node)
         self._streaming_row.bubble.set_thinking(True)
         self.set_status(self.STATUS_THINKING)
@@ -768,8 +902,9 @@ class ChatPanel(QWidget):
         box.setInformativeText(
             "The AI will summarise the earlier turns into a single message. "
             "After compaction only the summary is sent to the model in future "
-            "requests — the original turns stay visible above but no longer "
-            "shape new responses."
+            "requests — the original turns are hidden behind a “Show earlier "
+            "messages” bar (you can reopen them anytime) and no longer shape "
+            "new responses."
         )
         box.setStandardButtons(QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Ok)
         ok = box.button(QMessageBox.StandardButton.Ok)
@@ -836,15 +971,20 @@ class ChatPanel(QWidget):
         # _pin_bottom emit valueChanged too). Guard with a flag.
         if self._suppress_scroll_tracking:
             return
+        # A genuine user scroll takes over: they're no longer glued to the top
+        # after an expand; re-evaluate bottom-follow from where they landed.
+        self._pin_top = False
         self._auto_pin = value >= scrollbar.maximum() - 20
 
     def _on_scroll_range(self, _min: int, _max: int) -> None:
-        """The transcript grew (or shrank). When we want to be at the
-        bottom — initial render, streaming append, new row — this is our
-        chance to actually get there, because Qt has just finished the
-        layout that changed the range."""
+        """The transcript grew (or shrank). When we want to be at an edge —
+        bottom (initial render, streaming, new row) or top (just expanded
+        earlier history) — this is our chance to actually get there, because
+        Qt has just finished the layout that changed the range."""
         if self._auto_pin:
             self._pin_bottom()
+        elif self._pin_top:
+            self._scroll_to_top()
 
     def _pin_bottom(self, *, defer: bool = False) -> None:
         def go() -> None:
@@ -860,3 +1000,13 @@ class ChatPanel(QWidget):
             QTimer.singleShot(0, go)
         else:
             go()
+
+    def _scroll_to_top(self) -> None:
+        scrollbar = self.scroll.verticalScrollBar()
+        if scrollbar is None:
+            return
+        self._suppress_scroll_tracking = True
+        try:
+            scrollbar.setValue(scrollbar.minimum())
+        finally:
+            self._suppress_scroll_tracking = False
