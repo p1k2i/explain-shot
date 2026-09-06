@@ -12,7 +12,7 @@ persisted by the window via the `prefs_changed` signal.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -34,16 +35,22 @@ from ...capture.screenshot import ScreenshotService
 from ...capture.thumbnails import ThumbnailCache
 from ..animation import HoverAnimator, HoverStates, HoverStyle
 
-# Size presets exposed by the S/M/L switcher, mapped to the grid thumbnail
-# edge in px. The cache always decodes at this (larger) size; list mode just
-# displays a scaled-down copy, so toggling grid<->list never re-decodes.
-_SIZE_PRESETS: dict[str, int] = {"S": 112, "M": 160, "L": 224}
+# Grid thumbnail edge range for the size slider, in px (matches the settings
+# window's thumbnail spin box). The cache always decodes at this (larger) grid
+# size; list mode just displays a scaled-down copy, so toggling grid<->list
+# never re-decodes.
+_MIN_THUMB_PX = 32
+_MAX_THUMB_PX = 320
 
 
 def _list_px_for(grid_px: int) -> int:
     """The little thumbnail edge used in list rows, scaled off the grid size
-    so S/M/L also changes list density. Clamped to stay row-sized."""
+    so the slider also changes list density. Clamped to stay row-sized."""
     return max(40, min(84, round(grid_px * 0.36)))
+
+
+def _clamp_thumb(px: int) -> int:
+    return max(_MIN_THUMB_PX, min(_MAX_THUMB_PX, int(px)))
 
 
 _STATES_DARK = HoverStates(
@@ -182,11 +189,17 @@ class ScreenshotsPanel(QWidget):
         super().__init__(parent)
         self.service = service
         self.thumbnails = thumbnails
-        self.thumb_px = thumb_px
+        self.thumb_px = _clamp_thumb(thumb_px)
         self._view_mode = view_mode if view_mode in ("grid", "list") else "grid"
         self._cards: dict[str, ScreenshotCard] = {}
         self._selected_id: str | None = None
         self._theme = "dark"
+        # The size slider re-decodes every thumbnail on change, so we coalesce
+        # rapid drags into a single apply once the value settles.
+        self._size_debounce = QTimer(self)
+        self._size_debounce.setSingleShot(True)
+        self._size_debounce.setInterval(160)
+        self._size_debounce.timeout.connect(self._apply_slider_size)
 
         self.thumbnails.ready.connect(self._on_thumbnail_ready)
 
@@ -241,22 +254,18 @@ class ScreenshotsPanel(QWidget):
         size_label.setProperty("muted", True)
         tools.addWidget(size_label)
 
-        # Size presets (S/M/L), mutually exclusive.
-        self._size_group = QButtonGroup(self)
-        self._size_group.setExclusive(True)
-        self._size_btns: dict[int, QPushButton] = {}
-        for name, px in _SIZE_PRESETS.items():
-            b = QPushButton(name)
-            b.setProperty("chip", True)
-            b.setCheckable(True)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setToolTip(f"{name} thumbnails ({px}px)")
-            b.setFixedWidth(28)
-            b.clicked.connect(lambda _checked=False, p=px: self._on_size_pick(p))
-            self._size_group.addButton(b)
-            self._size_btns[px] = b
-            tools.addWidget(b)
-        self._size_btns[self._nearest_size_px()].setChecked(True)
+        # Size slider: drives the grid thumbnail edge (and, proportionally, the
+        # list thumbnail). The expensive re-decode/rebuild is debounced to when
+        # the drag settles.
+        self._size_slider = QSlider(Qt.Orientation.Horizontal)
+        self._size_slider.setRange(_MIN_THUMB_PX, _MAX_THUMB_PX)
+        self._size_slider.setSingleStep(8)
+        self._size_slider.setPageStep(32)
+        self._size_slider.setFixedWidth(140)
+        self._size_slider.setValue(self.thumb_px)
+        self._size_slider.setToolTip("Thumbnail size")
+        self._size_slider.valueChanged.connect(self._on_size_slider_changed)
+        tools.addWidget(self._size_slider)
         return tools
 
     def _toggle_button(self, glyph: str, tooltip: str, mode: str) -> QPushButton:
@@ -270,10 +279,6 @@ class ScreenshotsPanel(QWidget):
         self._view_group.addButton(b)
         return b
 
-    def _nearest_size_px(self) -> int:
-        return min(self._size_btns or _SIZE_PRESETS.values(),
-                   key=lambda p: abs(p - self.thumb_px))
-
     def _on_view_pick(self, mode: str) -> None:
         if mode == self._view_mode:
             return
@@ -282,11 +287,23 @@ class ScreenshotsPanel(QWidget):
         self._rebuild(records)
         self.prefs_changed.emit(self._view_mode, self.thumb_px)
 
-    def _on_size_pick(self, px: int) -> None:
+    def _on_size_slider_changed(self, _value: int) -> None:
+        # Defer the (expensive) re-decode/rebuild until the drag settles.
+        self._size_debounce.start()
+
+    def _apply_slider_size(self) -> None:
+        px = _clamp_thumb(self._size_slider.value())
         if px == self.thumb_px:
             return
         self.set_thumb_size(px)
         self.prefs_changed.emit(self._view_mode, self.thumb_px)
+
+    def _sync_size_controls(self) -> None:
+        """Move the slider to match self.thumb_px without retriggering the
+        debounce (used when the size changes from outside the slider)."""
+        self._size_slider.blockSignals(True)
+        self._size_slider.setValue(self.thumb_px)
+        self._size_slider.blockSignals(False)
 
     # -- public API ------------------------------------------------------------
 
@@ -329,16 +346,15 @@ class ScreenshotsPanel(QWidget):
         self.selection_changed.emit(card.record if card else None)
 
     def set_thumb_size(self, px: int) -> None:
-        """Change the thumbnail size preset. Re-decodes the cache at the new
-        (grid) edge and rebuilds; safe to call from outside (e.g. settings
-        sync) — it doesn't emit prefs_changed itself."""
+        """Change the thumbnail size. Re-decodes the cache at the new (grid)
+        edge and rebuilds; safe to call from outside (e.g. settings sync) — it
+        syncs the slider without recursing and doesn't emit prefs_changed."""
+        px = _clamp_thumb(px)
         if px == self.thumb_px:
             return
         self.thumb_px = px
         self.thumbnails.set_size(px)
-        btn = self._size_btns.get(self._nearest_size_px())
-        if btn is not None:
-            btn.setChecked(True)
+        self._sync_size_controls()
         if self._cards:
             self._rebuild([c.record for c in self._cards.values()])
         else:
