@@ -316,13 +316,13 @@ QLabel#ToastThumb {
     border: 1px solid @stroke;
     border-radius: 4px;
 }
+/* The "×" is vector-painted (see _CloseButton); `color` still drives the pen. */
 QPushButton#ToastClose {
     background: transparent;
     border: none;
     color: @text_secondary;
-    font-size: 14px;
     padding: 0;
-    border-radius: 4px;
+    border-radius: 6px;
     min-height: 0;
 }
 QPushButton#ToastClose:hover { background: @bg_layer_alt; color: @text_primary; }
