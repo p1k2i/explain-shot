@@ -203,7 +203,7 @@ class GalleryWindow(FramelessWindow):
                     focus = QApplication.focusWidget()
                     if focus is not None and self.isAncestorOf(focus):
                         forward = key == Qt.Key.Key_Tab and not (mods & Qt.KeyboardModifier.ShiftModifier)
-                        self._cycle_panel(forward=forward)
+                        self._cycle_group(forward=forward)
                         return True
         return super().eventFilter(obj, event)
 
@@ -221,8 +221,7 @@ class GalleryWindow(FramelessWindow):
             QTimer.singleShot(0, self._focus_initial)
 
     def _focus_initial(self) -> None:
-        if not self.screenshots_panel.focus_selected_or_first():
-            self.chat_panel.focus_editor()
+        self._cycle_group(forward=True)   # lands on the first focusable group
 
     def changeEvent(self, event) -> None:  # type: ignore[override]
         super().changeEvent(event)
@@ -269,46 +268,59 @@ class GalleryWindow(FramelessWindow):
             if ctrl and key == Qt.Key.Key_K:
                 self._on_clear()
                 return
-            # Panel jumping for keyboard-only use.
+            # F6 mirrors Tab (cycle groups); Ctrl+1/2/3 jump to the three lists.
             if key == Qt.Key.Key_F6:
-                self._cycle_panel(forward=not (mods & Qt.KeyboardModifier.ShiftModifier))
+                self._cycle_group(forward=not (mods & Qt.KeyboardModifier.ShiftModifier))
                 return
             if ctrl and key in (Qt.Key.Key_1, Qt.Key.Key_2, Qt.Key.Key_3):
-                self._focus_panel({Qt.Key.Key_1: 0, Qt.Key.Key_2: 1, Qt.Key.Key_3: 2}[key])
+                # groups: 0 screenshots list, 2 chat editor, 4 presets list
+                self._focus_group({Qt.Key.Key_1: 0, Qt.Key.Key_2: 2, Qt.Key.Key_3: 4}[key])
                 return
         super().keyPressEvent(event)
 
-    # -- keyboard panel navigation --------------------------------------------
+    # -- keyboard group navigation --------------------------------------------
+    #
+    # Six Tab-groups; Tab/Shift+Tab move between them, arrows navigate inside.
+    #   0 screenshots list        1 screenshots nav (view/size/refresh)
+    #   2 chat text field         3 chat buttons (Compact/Clear/Send)
+    #   4 presets list            5 presets nav (+ New)
 
-    def _focus_panel(self, index: int) -> bool:
-        """Focus the section's entry control. Returns False when the section
-        can't take focus right now (e.g. the chat is disabled because no
-        screenshot is selected) so the caller can skip past it."""
-        return bool((self.screenshots_panel.focus_selected_or_first,
-                     self.chat_panel.focus_editor,
-                     self.presets_panel.focus_first)[index]())
+    def _groups(self) -> list[tuple]:
+        sp, cp, pp = self.screenshots_panel, self.chat_panel, self.presets_panel
+        return [
+            (sp.focus_grid,    sp.owns_grid_focus),
+            (sp.focus_toolbar, sp.owns_toolbar_focus),
+            (cp.focus_editor,  cp.owns_editor_focus),
+            (cp.focus_buttons, cp.owns_buttons_focus),
+            (pp.focus_list,    pp.owns_list_focus),
+            (pp.focus_nav,     pp.owns_nav_focus),
+        ]
 
-    def _current_panel_index(self) -> int:
+    def _focus_group(self, index: int) -> bool:
+        return bool(self._groups()[index][0]())
+
+    def _current_group_index(self) -> int:
         widget = QApplication.focusWidget()
-        panels = (self.screenshots_panel, self.chat_panel, self.presets_panel)
-        while widget is not None:
-            for i, panel in enumerate(panels):
-                if widget is panel:
-                    return i
-            widget = widget.parentWidget()
+        if widget is None:
+            return -1
+        for i, (_enter, owns) in enumerate(self._groups()):
+            if owns(widget):
+                return i
         return -1
 
-    def _cycle_panel(self, *, forward: bool) -> None:
-        current = self._current_panel_index()
+    def _cycle_group(self, *, forward: bool) -> None:
+        groups = self._groups()
+        n = len(groups)
+        current = self._current_group_index()
         if current < 0:
-            order = [0, 1, 2] if forward else [2, 1, 0]
+            order = list(range(n)) if forward else list(range(n - 1, -1, -1))
         else:
             step = 1 if forward else -1
-            order = [(current + step * k) % 3 for k in range(1, 4)]
-        # Land on the first section that can actually take focus (skips a
-        # disabled chat), so Tab never appears to do nothing.
+            order = [(current + step * k) % n for k in range(1, n + 1)]
+        # Land on the first group that can take focus (skips a disabled chat or
+        # an empty list), so Tab never appears to do nothing.
         for idx in order:
-            if self._focus_panel(idx):
+            if groups[idx][0]():
                 return
 
     # -- selection -------------------------------------------------------------

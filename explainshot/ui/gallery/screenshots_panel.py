@@ -181,6 +181,8 @@ class ScreenshotCard(QWidget):
     _NAV_KEYS = {
         Qt.Key.Key_Left: "left", Qt.Key.Key_Right: "right",
         Qt.Key.Key_Up: "up", Qt.Key.Key_Down: "down",
+        Qt.Key.Key_Home: "home", Qt.Key.Key_End: "end",
+        Qt.Key.Key_PageUp: "pageup", Qt.Key.Key_PageDown: "pagedown",
     }
 
     def keyPressEvent(self, event) -> None:  # type: ignore[override]
@@ -262,6 +264,7 @@ class ScreenshotsPanel(QWidget):
         refresh.setProperty("chip", True)
         refresh.clicked.connect(self.reload)
         header.addWidget(refresh)
+        self._refresh_btn = refresh
         layout.addLayout(header)
 
         layout.addLayout(self._build_toolbar())
@@ -312,9 +315,13 @@ class ScreenshotsPanel(QWidget):
         self._size_slider.valueChanged.connect(self._on_size_slider_changed)
         tools.addWidget(self._size_slider)
 
-        # Keyboard nav across the toolbar strip (Left/Right between stops, Down
-        # into the grid, Up from the grid's top row back here). See eventFilter.
-        self._toolbar_stops = [self._grid_btn, self._list_btn, self._size_slider]
+        # This whole strip is the "screenshots nav" Tab-group: view toggles,
+        # size slider, and the Refresh button (which lives in the header row but
+        # belongs to this group logically). Left/Right move between the stops;
+        # see eventFilter. The slider keeps Up/Down/PageUp/PageDown/Home/End for
+        # its value (Left/Right are taken for navigation).
+        self._toolbar_stops = [self._grid_btn, self._list_btn,
+                               self._size_slider, self._refresh_btn]
         for w in self._toolbar_stops:
             w.installEventFilter(self)
         self._sync_toggle_checks()
@@ -346,30 +353,32 @@ class ScreenshotsPanel(QWidget):
         self._sync_toggle_checks()
 
     def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
-        """Arrow navigation across the size/view toolbar strip.
+        """Arrow navigation *within* the screenshots-nav group (Tab moves
+        between groups, not here).
 
-        Left/Right move focus between stops (the slider keeps Left/Right for its
-        own value); Down drops into the grid; Up (on the slider) steps back a
-        stop. This makes the toolbar reachable without Tab (which is reserved
-        for switching sections)."""
+        Left/Right move focus between the stops [grid, list, slider, Refresh];
+        Home/End jump to the first/last stop. On the slider, Left/Right are used
+        for navigation, so its value is adjusted with Up/Down, PageUp/PageDown
+        and Home/End instead (all handled natively by QSlider)."""
         if event is not None and event.type() == QEvent.Type.KeyPress and obj in self._toolbar_stops:
             key = event.key()
             stops = self._toolbar_stops
             idx = stops.index(obj)
-            if key == Qt.Key.Key_Down:
-                self.focus_selected_or_first()
+            is_slider = obj is self._size_slider
+            if key == Qt.Key.Key_Left and idx > 0:
+                stops[idx - 1].setFocus(Qt.FocusReason.OtherFocusReason)
                 return True
-            if obj is self._size_slider:
-                if key == Qt.Key.Key_Up and idx > 0:
-                    stops[idx - 1].setFocus(Qt.FocusReason.OtherFocusReason)
+            if key == Qt.Key.Key_Right and idx < len(stops) - 1:
+                stops[idx + 1].setFocus(Qt.FocusReason.OtherFocusReason)
+                return True
+            # Home/End jump across the strip — but on the slider they set
+            # min/max value (its standard behaviour), so leave those alone.
+            if not is_slider:
+                if key == Qt.Key.Key_Home:
+                    stops[0].setFocus(Qt.FocusReason.OtherFocusReason)
                     return True
-                # Left/Right pass through to the slider so it adjusts its value.
-            else:
-                if key == Qt.Key.Key_Left and idx > 0:
-                    stops[idx - 1].setFocus(Qt.FocusReason.OtherFocusReason)
-                    return True
-                if key == Qt.Key.Key_Right and idx < len(stops) - 1:
-                    stops[idx + 1].setFocus(Qt.FocusReason.OtherFocusReason)
+                if key == Qt.Key.Key_End:
+                    stops[-1].setFocus(Qt.FocusReason.OtherFocusReason)
                     return True
         return super().eventFilter(obj, event)
 
@@ -433,9 +442,9 @@ class ScreenshotsPanel(QWidget):
 
     # -- keyboard navigation ---------------------------------------------------
 
-    def focus_selected_or_first(self) -> bool:
-        """Move keyboard focus into the grid — onto the selected card, else the
-        first one. Returns whether anything was focused (used by panel-jump)."""
+    def focus_grid(self) -> bool:
+        """Focus the screenshots-list group — the selected card, else the first.
+        Returns False when there are no cards (so Tab skips this group)."""
         card = self._cards.get(self._selected_id or "")
         if card is None and self._cards:
             card = next(iter(self._cards.values()))
@@ -445,24 +454,52 @@ class ScreenshotsPanel(QWidget):
         self.scroll.ensureWidgetVisible(card, 0, 20)
         return True
 
+    # Back-compat alias (older callers / tests).
+    focus_selected_or_first = focus_grid
+
+    def focus_toolbar(self) -> bool:
+        """Focus the screenshots-nav group (view toggles / slider / Refresh)."""
+        self._toolbar_stops[0].setFocus(Qt.FocusReason.TabFocusReason)
+        return True
+
+    def owns_grid_focus(self, widget) -> bool:
+        return isinstance(widget, ScreenshotCard) and widget in self._cards.values()
+
+    def owns_toolbar_focus(self, widget) -> bool:
+        return widget in self._toolbar_stops
+
+    def _visible_rows(self) -> int:
+        """How many card rows fit in the viewport — the step for PageUp/Down."""
+        if not self._cards:
+            return 1
+        sample = next(iter(self._cards.values()))
+        row_h = sample.height() + self._grid.verticalSpacing()
+        vh = self.scroll.viewport().height()
+        return max(1, vh // max(1, row_h))
+
     def _on_move_focus(self, screenshot_id: str, direction: str) -> None:
-        """Arrow-key navigation: move focus to the neighbouring card and select
-        it (selection follows the caret, like a file browser)."""
+        """Arrow / Home / End / Page navigation: move focus to another card and
+        select it (selection follows the caret, like a file browser). Stays
+        within the grid group — Tab is what leaves it."""
         ids = list(self._cards.keys())
         if screenshot_id not in ids:
             return
+        n = len(ids)
         i = ids.index(screenshot_id)
         cols = self._columns if self._view_mode == "grid" else 1
-        # Up from the top row leaves the grid and lands on the toolbar, so the
-        # view toggles and size slider are reachable without the mouse.
-        if direction == "up" and i - cols < 0:
-            self._grid_btn.setFocus(Qt.FocusReason.OtherFocusReason)
-            return
-        step = {"left": -1, "right": 1, "up": -cols, "down": cols}.get(direction)
-        if step is None:
-            return
-        j = i + step
-        if not (0 <= j < len(ids)):
+        page = cols * self._visible_rows()
+        if direction in ("home", "end", "pageup", "pagedown"):
+            j = {"home": 0, "end": n - 1,
+                 "pageup": i - page, "pagedown": i + page}[direction]
+            j = max(0, min(n - 1, j))   # clamp
+        else:
+            step = {"left": -1, "right": 1, "up": -cols, "down": cols}.get(direction)
+            if step is None:
+                return
+            j = i + step
+            if not (0 <= j < n):        # single-step: no wrap, no move off-grid
+                return
+        if j == i:
             return
         target = self._cards[ids[j]]
         target.setFocus(Qt.FocusReason.OtherFocusReason)

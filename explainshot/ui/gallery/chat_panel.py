@@ -448,7 +448,6 @@ class _MessageRow(QWidget):
 
 class _PromptEditor(QTextEdit):
     submitted = pyqtSignal()
-    focus_next = pyqtSignal()   # Down pressed on the last line -> input buttons
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -463,12 +462,8 @@ class _PromptEditor(QTextEdit):
                 return
             self.submitted.emit()
             return
-        # Down on the last line steps out of the editor onto the input buttons,
-        # so a keyboard user can reach Send/Compact/Clear with the arrows.
-        if event and event.key() == Qt.Key.Key_Down:
-            if self.textCursor().blockNumber() == self.document().blockCount() - 1:
-                self.focus_next.emit()
-                return
+        # Everything else (arrows, Home/End, PageUp/PageDown) is standard text
+        # editing. The editor is its own Tab-group; Tab moves to the buttons.
         super().keyPressEvent(event)
 
 
@@ -604,7 +599,6 @@ class ChatPanel(QWidget):
         input_row = QVBoxLayout()
         self.editor = _PromptEditor()
         self.editor.submitted.connect(self._on_submit)
-        self.editor.focus_next.connect(self._focus_input_row)
         input_row.addWidget(self.editor)
 
         button_row = QHBoxLayout()
@@ -623,9 +617,8 @@ class ChatPanel(QWidget):
         input_row.addLayout(button_row)
         layout.addLayout(input_row)
 
-        # Arrow-key navigation across the input-row buttons (Left/Right between
-        # them, Up back to the editor), so the chat section is fully keyboard
-        # operable without Tab (which switches sections).
+        # The chat buttons (Compact / Clear / Send) are their own Tab-group;
+        # Left/Right (and Home/End) move between them. See eventFilter.
         self._input_buttons = [self.compact_btn, self._clear_btn, self.send]
         for btn in self._input_buttons:
             btn.installEventFilter(self)
@@ -644,21 +637,33 @@ class ChatPanel(QWidget):
                 if key == Qt.Key.Key_Right and idx < len(row) - 1:
                     row[idx + 1].setFocus(Qt.FocusReason.OtherFocusReason)
                     return True
-                if key == Qt.Key.Key_Up:
-                    self.focus_editor()
+                if key == Qt.Key.Key_Home:
+                    row[0].setFocus(Qt.FocusReason.OtherFocusReason)
+                    return True
+                if key == Qt.Key.Key_End:
+                    row[-1].setFocus(Qt.FocusReason.OtherFocusReason)
                     return True
         return super().eventFilter(obj, event)
 
-    def _focus_input_row(self) -> None:
-        """Focus the primary input button (Send when available, else the first
-        enabled one) — used when Down steps out of the editor."""
+    def focus_buttons(self) -> bool:
+        """Focus the chat-buttons group (Send if available, else the first
+        enabled one). Returns False when none can take focus (no screenshot)."""
+        if not self._enabled_for_screenshot:
+            return False
         if self.send.isEnabled():
-            self.send.setFocus(Qt.FocusReason.OtherFocusReason)
-            return
+            self.send.setFocus(Qt.FocusReason.TabFocusReason)
+            return True
         for btn in self._input_buttons:
             if btn.isEnabled():
-                btn.setFocus(Qt.FocusReason.OtherFocusReason)
-                return
+                btn.setFocus(Qt.FocusReason.TabFocusReason)
+                return True
+        return False
+
+    def owns_editor_focus(self, widget) -> bool:
+        return widget is self.editor
+
+    def owns_buttons_focus(self, widget) -> bool:
+        return widget in self._input_buttons
 
     # -- public interface ------------------------------------------------------
 

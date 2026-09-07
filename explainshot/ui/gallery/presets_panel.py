@@ -160,12 +160,16 @@ class PresetCard(QWidget):
         states = _STATES_DARK if theme == "dark" else _STATES_LIGHT
         self._anim = HoverAnimator.attach(self, states)
 
+    _NAV_KEYS = {
+        Qt.Key.Key_Up: "up", Qt.Key.Key_Down: "down",
+        Qt.Key.Key_Home: "home", Qt.Key.Key_End: "end",
+        Qt.Key.Key_PageUp: "pageup", Qt.Key.Key_PageDown: "pagedown",
+    }
+
     def keyPressEvent(self, event) -> None:  # type: ignore[override]
         key = event.key() if event else None
-        if key == Qt.Key.Key_Up:
-            self.move_focus.emit(self.preset.id, "up"); return
-        if key == Qt.Key.Key_Down:
-            self.move_focus.emit(self.preset.id, "down"); return
+        if key in self._NAV_KEYS:
+            self.move_focus.emit(self.preset.id, self._NAV_KEYS[key]); return
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.run_clicked.emit(self.preset.id); return
         if key == Qt.Key.Key_Space:
@@ -229,22 +233,50 @@ class PresetsPanel(QWidget):
         self._theme = theme
         self.reload()
 
-    def focus_first(self) -> bool:
-        """Move keyboard focus into the presets column: the first preset card,
-        else the '+ New' button (used by panel-jump / Tab)."""
-        target = self._cards[0] if self._cards else self._add_btn
-        target.setFocus(Qt.FocusReason.TabFocusReason)
+    def focus_list(self) -> bool:
+        """Focus the presets-list group (first preset card). Returns False when
+        there are no presets, so Tab skips this group."""
+        if not self._cards:
+            return False
+        self._cards[0].setFocus(Qt.FocusReason.TabFocusReason)
+        self.scroll.ensureWidgetVisible(self._cards[0], 0, 20)
         return True
+
+    def focus_nav(self) -> bool:
+        """Focus the presets-nav group (the '+ New' button)."""
+        self._add_btn.setFocus(Qt.FocusReason.TabFocusReason)
+        return True
+
+    def owns_list_focus(self, widget) -> bool:
+        return isinstance(widget, PresetCard) and widget in self._cards
+
+    def owns_nav_focus(self, widget) -> bool:
+        return widget is self._add_btn
+
+    def _visible_count(self) -> int:
+        if not self._cards:
+            return 1
+        row_h = self._cards[0].height() + self._list.spacing()
+        vh = self.scroll.viewport().height()
+        return max(1, vh // max(1, row_h))
 
     def _on_move_focus(self, preset_id: str, direction: str) -> None:
         ids = [c.preset.id for c in self._cards]
         if preset_id not in ids:
             return
-        j = ids.index(preset_id) + (1 if direction == "down" else -1)
-        if 0 <= j < len(self._cards):
-            card = self._cards[j]
-            card.setFocus(Qt.FocusReason.OtherFocusReason)
-            self.scroll.ensureWidgetVisible(card, 0, 20)
+        n = len(self._cards)
+        i = ids.index(preset_id)
+        page = self._visible_count()
+        j = {"up": i - 1, "down": i + 1, "home": 0, "end": n - 1,
+             "pageup": i - page, "pagedown": i + page}.get(direction)
+        if j is None:
+            return
+        j = max(0, min(n - 1, j))
+        if j == i:
+            return
+        card = self._cards[j]
+        card.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.scroll.ensureWidgetVisible(card, 0, 20)
 
     def reload(self) -> None:
         for i in reversed(range(self._list.count() - 1)):
