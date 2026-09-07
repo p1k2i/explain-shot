@@ -92,7 +92,7 @@ class GalleryWindow(FramelessWindow):
         self.title_bar.request_close.connect(self.close)
         # File / Edit / View / Help live inside the title bar row. Wired further
         # down once the panels the menu drives exist.
-        self.menu_bar = GalleryMenuBar(self)
+        self.menu_bar = GalleryMenuBar(accent=settings.ui.accent, parent=self)
         self.title_bar.add_menu_bar(self.menu_bar)
         root.addWidget(self.title_bar)
 
@@ -229,7 +229,10 @@ class GalleryWindow(FramelessWindow):
             QTimer.singleShot(0, self._focus_initial)
 
     def _focus_initial(self) -> None:
-        self._cycle_group(forward=True)   # lands on the first focusable group
+        # Start on the screenshots grid (content), not the menu bar; fall back
+        # through the cycle if there are no screenshots yet.
+        if not self.screenshots_panel.focus_grid():
+            self._cycle_group(forward=True)
 
     def changeEvent(self, event) -> None:  # type: ignore[override]
         super().changeEvent(event)
@@ -281,8 +284,8 @@ class GalleryWindow(FramelessWindow):
                 self._cycle_group(forward=not (mods & Qt.KeyboardModifier.ShiftModifier))
                 return
             if ctrl and key in (Qt.Key.Key_1, Qt.Key.Key_2, Qt.Key.Key_3):
-                # groups: 0 screenshots list, 2 chat editor, 4 presets list
-                self._focus_group({Qt.Key.Key_1: 0, Qt.Key.Key_2: 2, Qt.Key.Key_3: 4}[key])
+                # jump to the three lists: 1 screenshots, 3 chat editor, 5 presets
+                self._focus_group({Qt.Key.Key_1: 1, Qt.Key.Key_2: 3, Qt.Key.Key_3: 5}[key])
                 return
         super().keyPressEvent(event)
 
@@ -296,6 +299,7 @@ class GalleryWindow(FramelessWindow):
     def _groups(self) -> list[tuple]:
         sp, cp, pp = self.screenshots_panel, self.chat_panel, self.presets_panel
         return [
+            (self._focus_menubar, self._owns_menubar_focus),   # 0 menu bar
             (sp.focus_grid,    sp.owns_grid_focus),
             (sp.focus_toolbar, sp.owns_toolbar_focus),
             (cp.focus_editor,  cp.owns_editor_focus),
@@ -303,6 +307,17 @@ class GalleryWindow(FramelessWindow):
             (pp.focus_list,    pp.owns_list_focus),
             (pp.focus_nav,     pp.owns_nav_focus),
         ]
+
+    def _focus_menubar(self) -> bool:
+        """Focus the menu bar group. The menu bar highlights its first menu on
+        focus (painted, no dropdown) and handles arrow/Enter/Esc itself."""
+        if not self.menu_bar.actions():
+            return False
+        self.menu_bar.setFocus(Qt.FocusReason.TabFocusReason)
+        return True
+
+    def _owns_menubar_focus(self, widget) -> bool:
+        return widget is self.menu_bar
 
     def _focus_group(self, index: int) -> bool:
         return bool(self._groups()[index][0]())
@@ -350,9 +365,16 @@ class GalleryWindow(FramelessWindow):
         m.refresh_requested.connect(self._do_refresh)
         # Help
         m.about_requested.connect(self._show_about)
+        # Esc while keyboard-navigating the menu bar returns focus to content.
+        m.exited.connect(self._on_menubar_exited)
         # Initial state: nothing selected yet; reflect the saved view mode.
         m.set_screenshot_actions_enabled(False)
         m.set_view_mode(self.settings.ui.gallery_view)
+
+    def _on_menubar_exited(self) -> None:
+        # Return focus to the screenshots grid (or the first focusable group).
+        if not self.screenshots_panel.focus_grid():
+            self._cycle_group(forward=True)
 
     def _open_screenshots_folder(self) -> None:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.screenshots.directory)))

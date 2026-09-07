@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup
-from PyQt6.QtWidgets import QMenu, QMenuBar, QWidget
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QActionGroup, QColor, QPainter, QPen
+from PyQt6.QtWidgets import QApplication, QMenu, QMenuBar, QWidget
 
 
 class GalleryMenuBar(QMenuBar):
@@ -33,13 +33,91 @@ class GalleryMenuBar(QMenuBar):
     refresh_requested = pyqtSignal()
     # Help
     about_requested = pyqtSignal()
+    # Emitted when the user presses Esc while keyboard-navigating the bar (with
+    # no dropdown open) — the window uses it to move focus back to the content.
+    exited = pyqtSignal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, accent: str = "#0067c0", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("GalleryMenuBar")
+        self._accent = QColor(accent)
+        # Index of the keyboard-highlighted top-level menu (-1 = not in keyboard
+        # mode). We drive this ourselves: QMenuBar's setActiveAction pops the
+        # menu open, which we don't want on mere focus.
+        self._kb_current = -1
         # Actions that only make sense with a screenshot selected.
         self._screenshot_actions: list[QAction] = []
         self._build()
+
+    # -- keyboard navigation (Tab-group) ---------------------------------------
+    #
+    # On focus we highlight a menu title (painted below) WITHOUT opening it;
+    # Left/Right/Home/End move the highlight; Down/Enter/Space/Return open the
+    # highlighted menu; Esc leaves; losing focus clears everything.
+
+    def focusInEvent(self, event) -> None:  # type: ignore[override]
+        # Fresh keyboard entry highlights the first menu. Returning from one of
+        # our own popups (PopupFocusReason) keeps the current highlight.
+        if self._kb_current < 0 and self.actions():
+            self._kb_current = 0
+        self.update()
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event) -> None:  # type: ignore[override]
+        # Leaving the bar for good (Tab away, click elsewhere) closes any open
+        # dropdown and drops the highlight. A focus-out INTO our own popup
+        # (PopupFocusReason) is how a menu opens, so leave that be.
+        if event is None or event.reason() != Qt.FocusReason.PopupFocusReason:
+            popup = QApplication.activePopupWidget()
+            if isinstance(popup, QMenu):
+                popup.close()
+            self._kb_current = -1
+            self.update()
+        super().focusOutEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        key = event.key() if event else None
+        acts = self.actions()
+        if self._kb_current >= 0 and acts:
+            if key in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Home, Qt.Key.Key_End):
+                if key == Qt.Key.Key_Left:
+                    self._kb_current = (self._kb_current - 1) % len(acts)
+                elif key == Qt.Key.Key_Right:
+                    self._kb_current = (self._kb_current + 1) % len(acts)
+                elif key == Qt.Key.Key_Home:
+                    self._kb_current = 0
+                else:
+                    self._kb_current = len(acts) - 1
+                self.update()
+                return
+            if key in (Qt.Key.Key_Down, Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                # Open the highlighted menu (this is the one place we want the
+                # popup). QMenuBar takes over navigation while it's open.
+                self.setActiveAction(acts[self._kb_current])
+                return
+            if key == Qt.Key.Key_Escape:
+                self._kb_current = -1
+                self.update()
+                self.exited.emit()
+                return
+        super().keyPressEvent(event)
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        super().paintEvent(event)
+        # Underline the keyboard-highlighted menu title (skip while a dropdown
+        # is open — QMenuBar draws its own active highlight then).
+        if self._kb_current < 0 or QApplication.activePopupWidget() is not None:
+            return
+        acts = self.actions()
+        if not (0 <= self._kb_current < len(acts)):
+            return
+        rect = self.actionGeometry(acts[self._kb_current])
+        painter = QPainter(self)
+        pen = QPen(self._accent)
+        pen.setWidth(2)
+        painter.setPen(pen)
+        y = rect.bottom() - 1
+        painter.drawLine(rect.left() + 6, y, rect.right() - 6, y)
 
     # -- construction ----------------------------------------------------------
 
