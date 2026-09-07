@@ -79,12 +79,16 @@ class Application(QObject):
         self._gallery: GalleryWindow | None = None
         self._settings_window: SettingsWindow | None = None
         self._capture_overlay: CaptureOverlay | None = None
+        self._toasts: list = []   # in-flight capture pop-ups (keep alive)
 
         # Hotkeys — pynput's background thread signals cross into the main
         # thread via Qt's automatic QueuedConnection.
         self.signals.hotkey_capture_region.connect(self._request_capture)
+        self.signals.hotkey_capture_fullscreen.connect(self._capture_fullscreen_silent)
         self.signals.hotkey_toggle_gallery.connect(self.toggle_gallery)
         self.signals.hotkey_open_settings.connect(self.show_settings)
+        # Menu bar "Exit" (and any other quit request) routes through here.
+        self.signals.shutdown_requested.connect(self.quit)
 
     # -- lifecycle -------------------------------------------------------------
 
@@ -176,6 +180,44 @@ class Application(QObject):
 
     def _on_capture_cancelled(self) -> None:
         pass
+
+    # -- silent full-screen capture -------------------------------------------
+
+    def _capture_fullscreen_silent(self) -> None:
+        """Grab the whole (virtual) desktop and save it straight to the gallery
+        — no region selector, no window. save_pixmap emits screenshot_captured,
+        so an open gallery updates itself. Confirmation is either a neat corner
+        pop-up (if enabled) or the system tray toast."""
+        try:
+            pixmap = self.screenshots.grab_desktop()
+        except Exception as exc:
+            log.exception("full-screen capture failed")
+            self.tray.notify("Capture failed", str(exc))
+            return
+        record = self._persist_capture(pixmap)
+        if record is None:
+            return
+        if self.settings.ui.capture_toast:
+            self._show_capture_toast(record, pixmap)
+        else:
+            self.tray.notify("Screenshot saved", record.filename)
+
+    def _show_capture_toast(self, record, pixmap: QPixmap) -> None:
+        from .ui.toast import CaptureToast
+        toast = CaptureToast(
+            "Screenshot saved", record.filename, pixmap,
+            duration_ms=int(round(float(self.settings.ui.capture_toast_seconds) * 1000)),
+        )
+        toast.clicked.connect(lambda rid=record.id: self._open_from_toast(rid))
+        toast.closed.connect(lambda t=toast: self._toasts.remove(t) if t in self._toasts else None)
+        self._toasts.append(toast)
+        toast.show_toast()
+
+    def _open_from_toast(self, screenshot_id: str) -> None:
+        self.show_gallery()
+        if self._gallery is not None:
+            self._gallery.screenshots_panel.reload()
+            self._gallery.screenshots_panel.select(screenshot_id)
 
     # -- settings-saved handling ----------------------------------------------
 

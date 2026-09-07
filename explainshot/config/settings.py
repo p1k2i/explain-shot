@@ -25,6 +25,9 @@ class HotkeyConfig:
     # displays it natively; the hotkey normaliser maps it to pynput's
     # <print_screen> at bind time.
     capture_region: str = "print"
+    # Ctrl+Print Screen — grab the whole screen and save it straight to the
+    # gallery, no region selector, no window popping up (just a tray toast).
+    capture_fullscreen: str = "ctrl+print"
     # Ctrl+Shift+G — memorable ("G" for gallery) and unlikely to clash
     # with common text-editing shortcuts.
     toggle_gallery: str = "ctrl+shift+g"
@@ -59,6 +62,10 @@ class UIConfig:
     theme: str = "dark"        # "dark" | "light"
     accent: str = "#0067c0"    # Windows 11 default accent
     thumbnail_px: int = 160
+    gallery_view: str = "grid"  # "grid" (thumbnail cards) | "list" (compact rows)
+    # Small corner pop-up shown after a silent full-screen capture.
+    capture_toast: bool = True
+    capture_toast_seconds: float = 2.0   # how long it stays (fractional allowed)
 
 
 @dataclass

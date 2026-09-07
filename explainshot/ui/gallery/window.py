@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtCore import QEvent, QTimer, Qt, QUrl
+from PyQt6.QtGui import QDesktopServices, QKeyEvent
 from PyQt6.QtWidgets import (
+    QApplication,
     QFrame,
     QSplitter,
     QVBoxLayout,
@@ -25,13 +26,14 @@ from ...ai.history import ChatHistory, MessageNode
 from ...capture.models import ScreenshotRecord
 from ...capture.screenshot import ScreenshotService
 from ...capture.thumbnails import ThumbnailCache
-from ...config.settings import Settings
+from ...config.settings import Settings, update_setting
 from ...core.database import Database
 from ...core.signals import AppSignals
 from ...presets.manager import PresetManager
 from ..chrome import FramelessWindow, TitleBar
 from ..icons import app_icon
 from .chat_panel import ChatPanel, set_chat_theme
+from .menubar import GalleryMenuBar
 from .presets_panel import PresetsPanel
 from .preview import PreviewWindow
 from .screenshots_panel import ScreenshotsPanel
@@ -74,7 +76,10 @@ class GalleryWindow(FramelessWindow):
         self.setWindowTitle("ExplainShot")
         self.setWindowIcon(app_icon())
         self.resize(1280, 800)
-        self.setMinimumSize(960, 600)
+        # Adequate minimum: below this the three columns start clipping their
+        # controls (the chat's input button row is the tightest). Per-column
+        # minimum widths are set on the splitter children just below.
+        self.setMinimumSize(720, 460)
 
         set_chat_theme(settings.ui.theme)
 
@@ -82,9 +87,13 @@ class GalleryWindow(FramelessWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # --- chrome ---
-        self.title_bar = TitleBar(self, title="ExplainShot")
+        # --- chrome: title bar with an in-bar menu (VS Code style) ---
+        self.title_bar = TitleBar(self, title="ExplainShot", center_title=True)
         self.title_bar.request_close.connect(self.close)
+        # File / Edit / View / Help live inside the title bar row. Wired further
+        # down once the panels the menu drives exist.
+        self.menu_bar = GalleryMenuBar(accent=settings.ui.accent, parent=self)
+        self.title_bar.add_menu_bar(self.menu_bar)
         root.addWidget(self.title_bar)
 
         # --- body ---
@@ -93,37 +102,52 @@ class GalleryWindow(FramelessWindow):
         body_layout.setContentsMargins(12, 12, 12, 12)
         body_layout.setSpacing(0)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(6)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(6)
 
         self.screenshots_panel = ScreenshotsPanel(
             self.screenshots, self.thumbnails, settings.ui.thumbnail_px,
+            settings.ui.gallery_view,
         )
-        splitter.addWidget(self._wrap(self.screenshots_panel))
+        self.splitter.addWidget(self._wrap(self.screenshots_panel))
 
         self.chat_panel = ChatPanel()
-        splitter.addWidget(self._wrap(self.chat_panel))
+        self.splitter.addWidget(self._wrap(self.chat_panel))
 
         self.presets_panel = PresetsPanel(self.presets)
-        splitter.addWidget(self._wrap(self.presets_panel))
+        self.splitter.addWidget(self._wrap(self.presets_panel))
 
-        splitter.setStretchFactor(0, 4)
-        splitter.setStretchFactor(1, 5)
-        splitter.setStretchFactor(2, 3)
-        splitter.setSizes([460, 560, 340])
-        body_layout.addWidget(splitter)
+        self.splitter.setStretchFactor(0, 4)
+        self.splitter.setStretchFactor(1, 5)
+        self.splitter.setStretchFactor(2, 3)
+        # Per-column minimum widths so a drag (or a small window) can't crush a
+        # panel below the point its controls stay usable. The chat is widest —
+        # its input button row (gauge + Compact + Clear + Send) sets the floor.
+        for i, min_w in ((0, 180), (1, 300), (2, 200)):
+            w = self.splitter.widget(i)
+            if w is not None:
+                w.setMinimumWidth(min_w)
+        self.splitter.setSizes([460, 560, 340])
+        # Restore the user's saved column widths (see _restore_splitter).
+        self._restore_splitter()
+        body_layout.addWidget(self.splitter)
 
         root.addWidget(body, 1)
 
         self._selected: ScreenshotRecord | None = None
         self._preview_windows: list[PreviewWindow] = []
+        self._did_initial_focus = False
+
+        # Now that the panels exist, connect the menu bar to them.
+        self._wire_menu_bar()
 
         # Wire panels
         self.screenshots_panel.selection_changed.connect(self._on_selection)
         self.screenshots_panel.preview_requested.connect(self._on_preview_requested)
         self.screenshots_panel.delete_requested.connect(self._on_screenshot_delete)
         self.screenshots_panel.rename_requested.connect(self._on_screenshot_rename)
+        self.screenshots_panel.prefs_changed.connect(self._on_gallery_prefs_changed)
         self.chat_panel.message_submitted.connect(self._on_prompt_submitted)
         self.chat_panel.edit_submitted.connect(self._on_edit_submitted)
         self.chat_panel.regenerate_requested.connect(self._on_regenerate_requested)
@@ -167,7 +191,29 @@ class GalleryWindow(FramelessWindow):
 
         self.screenshots_panel.reload()
 
+        # Tab / Shift+Tab switch between the three sections instead of walking
+        # every control (arrows navigate *inside* a section). We intercept at
+        # the application level, scoped to focus within this window, so it never
+        # touches dialogs (separate top-levels) or the settings/preview windows.
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
+
     # -- lifecycle -------------------------------------------------------------
+
+    def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
+        if event is not None and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+                mods = event.modifiers()
+                # Plain Tab / Shift+Tab only (leave Ctrl/Alt+Tab to the OS/app).
+                if not (mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)):
+                    focus = QApplication.focusWidget()
+                    if focus is not None and self.isAncestorOf(focus):
+                        forward = key == Qt.Key.Key_Tab and not (mods & Qt.KeyboardModifier.ShiftModifier)
+                        self._cycle_group(forward=forward)
+                        return True
+        return super().eventFilter(obj, event)
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -175,6 +221,18 @@ class GalleryWindow(FramelessWindow):
         if added:
             self.screenshots_panel.reload()
         self.title_bar.refresh_max_glyph()
+        # Put keyboard focus somewhere deterministic on first show (the
+        # screenshots grid), so Tab/arrows behave predictably from the start
+        # instead of landing on whatever toolbar control Qt picked first.
+        if not self._did_initial_focus:
+            self._did_initial_focus = True
+            QTimer.singleShot(0, self._focus_initial)
+
+    def _focus_initial(self) -> None:
+        # Start on the screenshots grid (content), not the menu bar; fall back
+        # through the cycle if there are no screenshots yet.
+        if not self.screenshots_panel.focus_grid():
+            self._cycle_group(forward=True)
 
     def changeEvent(self, event) -> None:  # type: ignore[override]
         super().changeEvent(event)
@@ -186,30 +244,167 @@ class GalleryWindow(FramelessWindow):
     def closeEvent(self, event) -> None:  # type: ignore[override]
         # NOTE: never cancel a running completion here — the controller
         # owns those tasks and they finish independently of us.
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
         try:
             self.db.save_window_state("gallery", bytes(self.saveGeometry()), self.isMaximized())
+            # Column widths ride in their own window_state row (no schema change).
+            self.db.save_window_state("gallery_splitter", bytes(self.splitter.saveState()), False)
         except Exception:
             log.debug("could not save window state", exc_info=True)
         super().closeEvent(event)
 
+    def _restore_splitter(self) -> None:
+        """Reapply the user's saved column widths, if any."""
+        try:
+            state = self.db.load_window_state("gallery_splitter")
+            if state and state[0]:
+                self.splitter.restoreState(state[0])
+        except Exception:
+            log.debug("could not restore splitter state", exc_info=True)
+
     def keyPressEvent(self, event: QKeyEvent | None) -> None:  # type: ignore[override]
         if event is not None:
-            if event.key() == Qt.Key.Key_F5:
+            key = event.key()
+            mods = event.modifiers()
+            ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+            if key == Qt.Key.Key_F5:
                 self.thumbnails.clear()
                 self.screenshots_panel.reload()
                 return
-            if event.key() == Qt.Key.Key_Escape:
+            if key == Qt.Key.Key_Escape:
                 self.close()
                 return
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_K:
+            if ctrl and key == Qt.Key.Key_K:
                 self._on_clear()
                 return
+            # F6 mirrors Tab (cycle groups); Ctrl+1/2/3 jump to the three lists.
+            if key == Qt.Key.Key_F6:
+                self._cycle_group(forward=not (mods & Qt.KeyboardModifier.ShiftModifier))
+                return
+            if ctrl and key in (Qt.Key.Key_1, Qt.Key.Key_2, Qt.Key.Key_3):
+                # jump to the three lists: 1 screenshots, 3 chat editor, 5 presets
+                self._focus_group({Qt.Key.Key_1: 1, Qt.Key.Key_2: 3, Qt.Key.Key_3: 5}[key])
+                return
         super().keyPressEvent(event)
+
+    # -- keyboard group navigation --------------------------------------------
+    #
+    # Six Tab-groups; Tab/Shift+Tab move between them, arrows navigate inside.
+    #   0 screenshots list        1 screenshots nav (view/size/refresh)
+    #   2 chat text field         3 chat buttons (Compact/Clear/Send)
+    #   4 presets list            5 presets nav (+ New)
+
+    def _groups(self) -> list[tuple]:
+        sp, cp, pp = self.screenshots_panel, self.chat_panel, self.presets_panel
+        return [
+            (self._focus_menubar, self._owns_menubar_focus),   # 0 menu bar
+            (sp.focus_grid,    sp.owns_grid_focus),
+            (sp.focus_toolbar, sp.owns_toolbar_focus),
+            (cp.focus_editor,  cp.owns_editor_focus),
+            (cp.focus_buttons, cp.owns_buttons_focus),
+            (pp.focus_list,    pp.owns_list_focus),
+            (pp.focus_nav,     pp.owns_nav_focus),
+        ]
+
+    def _focus_menubar(self) -> bool:
+        """Focus the menu bar group. The menu bar highlights its first menu on
+        focus (painted, no dropdown) and handles arrow/Enter/Esc itself."""
+        if not self.menu_bar.actions():
+            return False
+        self.menu_bar.setFocus(Qt.FocusReason.TabFocusReason)
+        return True
+
+    def _owns_menubar_focus(self, widget) -> bool:
+        return widget is self.menu_bar
+
+    def _focus_group(self, index: int) -> bool:
+        return bool(self._groups()[index][0]())
+
+    def _current_group_index(self) -> int:
+        widget = QApplication.focusWidget()
+        if widget is None:
+            return -1
+        for i, (_enter, owns) in enumerate(self._groups()):
+            if owns(widget):
+                return i
+        return -1
+
+    def _cycle_group(self, *, forward: bool) -> None:
+        groups = self._groups()
+        n = len(groups)
+        current = self._current_group_index()
+        if current < 0:
+            order = list(range(n)) if forward else list(range(n - 1, -1, -1))
+        else:
+            step = 1 if forward else -1
+            order = [(current + step * k) % n for k in range(1, n + 1)]
+        # Land on the first group that can take focus (skips a disabled chat or
+        # an empty list), so Tab never appears to do nothing.
+        for idx in order:
+            if groups[idx][0]():
+                return
+
+    # -- menu bar --------------------------------------------------------------
+
+    def _wire_menu_bar(self) -> None:
+        m = self.menu_bar
+        # File — capture/settings/quit are app-level, routed via the signal bus.
+        m.capture_requested.connect(self.signals.hotkey_capture_region.emit)
+        m.open_folder_requested.connect(self._open_screenshots_folder)
+        m.settings_requested.connect(self.signals.hotkey_open_settings.emit)
+        m.quit_requested.connect(self.signals.shutdown_requested.emit)
+        # Edit — act on the current conversation / selected screenshot.
+        m.clear_requested.connect(self.chat_panel.confirm_clear)
+        m.compact_requested.connect(self.chat_panel.confirm_compact)
+        m.rename_requested.connect(self._menu_rename_selected)
+        m.delete_requested.connect(self._menu_delete_selected)
+        # View
+        m.view_mode_requested.connect(self.screenshots_panel.choose_view_mode)
+        m.refresh_requested.connect(self._do_refresh)
+        # Help
+        m.about_requested.connect(self._show_about)
+        # Esc while keyboard-navigating the menu bar returns focus to content.
+        m.exited.connect(self._on_menubar_exited)
+        # Initial state: nothing selected yet; reflect the saved view mode.
+        m.set_screenshot_actions_enabled(False)
+        m.set_view_mode(self.settings.ui.gallery_view)
+
+    def _on_menubar_exited(self) -> None:
+        # Return focus to the screenshots grid (or the first focusable group).
+        if not self.screenshots_panel.focus_grid():
+            self._cycle_group(forward=True)
+
+    def _open_screenshots_folder(self) -> None:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.screenshots.directory)))
+
+    def _do_refresh(self) -> None:
+        self.thumbnails.clear()
+        self.screenshots_panel.reload()
+
+    def _menu_rename_selected(self) -> None:
+        if self._selected is not None:
+            self.screenshots_panel.prompt_rename(self._selected.id)
+
+    def _menu_delete_selected(self) -> None:
+        if self._selected is not None:
+            self.screenshots_panel.confirm_delete(self._selected.id)
+
+    def _show_about(self) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+        from ... import APP_NAME, APP_VERSION
+        QMessageBox.about(
+            self, f"About {APP_NAME}",
+            f"<b>{APP_NAME}</b> {APP_VERSION}<br><br>"
+            "Capture the screen, get AI to explain it.",
+        )
 
     # -- selection -------------------------------------------------------------
 
     def _on_selection(self, record: ScreenshotRecord | None) -> None:
         self._selected = record
+        self.menu_bar.set_screenshot_actions_enabled(record is not None)
         if record is None:
             self.chat_panel.clear()
             self.chat_panel.set_context(None)
@@ -285,6 +480,16 @@ class GalleryWindow(FramelessWindow):
         if updated is not None:
             self.screenshots_panel.reload()
             self.screenshots_panel.select(updated.id)
+
+    def _on_gallery_prefs_changed(self, view_mode: str, thumb_px: int) -> None:
+        """Persist the gallery's view mode / thumbnail size when the user
+        changes them from the panel toolbar. We keep the shared in-memory
+        Settings in sync too so the settings window and next launch agree."""
+        self.settings.ui.gallery_view = view_mode
+        self.settings.ui.thumbnail_px = thumb_px
+        update_setting("ui.gallery_view", view_mode)
+        update_setting("ui.thumbnail_px", thumb_px)
+        self.menu_bar.set_view_mode(view_mode)   # keep the View menu check in sync
 
     # -- user actions in the chat -> controller ------------------------------
 

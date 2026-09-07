@@ -91,6 +91,23 @@ QPushButton[flat="true"] {
 QPushButton[flat="true"]:hover { background: @bg_layer_alt; }
 QPushButton[flat="true"]:pressed { background: @bg_layer; }
 
+/* --- Focus-visible (keyboard navigation) --------------------------------- */
+/* Every focusable control shows a clear accent ring when reached by keyboard.
+ * Accent-filled controls use a light inner border so the ring reads against
+ * their own accent background. */
+QPushButton:focus,
+QPushButton[chip="true"]:focus,
+QPushButton[flat="true"]:focus {
+    border: 1px solid @accent;
+    outline: none;
+}
+QPushButton[accent="true"]:focus { border: 2px solid @accent_text; }
+QSplitter::handle:focus { background: @accent; }
+/* NOTE: no `QSlider:focus` rule. Any focus rule on a stylesheet-styled QSlider
+ * makes Qt mis-paint a frame / fill over the whole widget, which looked like a
+ * stuck white border. The slider signals focus through its own value changing
+ * on Left/Right instead. */
+
 /* --- Inputs --------------------------------------------------------------- */
 
 QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox,
@@ -205,6 +222,23 @@ QAbstractScrollArea { background: transparent; }
 
 /* --- Toolbars, menus, tooltips ------------------------------------------- */
 
+/* App menu bar (File / Edit / View / Help) — embedded in the title bar row,
+ * so it stays transparent and borderless and lets the title bar show through. */
+QMenuBar#GalleryMenuBar {
+    background: transparent;
+    color: @text_primary;
+    border: none;
+    padding: 0;
+}
+QMenuBar#GalleryMenuBar::item {
+    background: transparent;
+    padding: 5px 9px;
+    border-radius: 4px;
+    margin: 0 1px;
+}
+QMenuBar#GalleryMenuBar::item:selected { background: @bg_layer_alt; }
+QMenuBar#GalleryMenuBar::item:pressed { background: @accent; color: @accent_text; }
+
 QMenu {
     background: @bg_elevated;
     color: @text_primary;
@@ -212,6 +246,7 @@ QMenu {
     border-radius: 6px;
     padding: 4px;
 }
+QMenu::item:disabled { color: @text_disabled; }
 QMenu::item {
     padding: 6px 20px 6px 24px;
     border-radius: 4px;
@@ -267,6 +302,31 @@ QLabel#ChatContext {
     border-bottom: 1px solid @stroke;
     font-size: 12px;
 }
+
+/* Corner capture pop-up (see explainshot/ui/toast.py). */
+QFrame#ToastCard {
+    background: @bg_elevated;
+    border: 1px solid @stroke_strong;
+    border-radius: 10px;
+}
+QLabel#ToastTitle { color: @text_primary; font-weight: 600; }
+QLabel#ToastSub { color: @text_secondary; font-size: 11px; }
+QLabel#ToastThumb {
+    background: @bg_layer;
+    border: 1px solid @stroke;
+    border-radius: 4px;
+}
+/* The "×" is vector-painted (see _CloseButton); `color` still drives the pen. */
+QPushButton#ToastClose {
+    background: transparent;
+    border: none;
+    color: @text_secondary;
+    padding: 0;
+    border-radius: 6px;
+    min-height: 0;
+}
+QPushButton#ToastClose:hover { background: @bg_layer_alt; color: @text_primary; }
+QPushButton#ToastClose:pressed { background: @bg_layer; }
 
 QLabel#ContextGauge {
     background: @bg_layer_alt;
@@ -427,6 +487,18 @@ QPushButton[chip="true"]:hover {
 QPushButton[chip="true"]:disabled {
     color: @text_disabled;
     background: transparent;
+}
+/* Checkable chips (e.g. the gallery view/size switchers) show their active
+ * option in accent so the current mode reads at a glance. */
+QPushButton[chip="true"]:checked {
+    background: @accent;
+    color: @accent_text;
+    border-color: @accent;
+}
+QPushButton[chip="true"]:checked:hover {
+    background: @accent_pressed;
+    border-color: @accent_pressed;
+    color: @accent_text;
 }
 
 /* --- Capture editor toolbar -------------------------------------------- */

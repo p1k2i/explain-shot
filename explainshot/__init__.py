@@ -1,6 +1,6 @@
 """ExplainShot — capture the screen, get AI to explain it."""
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 APP_NAME = "ExplainShot"
 APP_VERSION = __version__

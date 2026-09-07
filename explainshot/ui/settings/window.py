@@ -14,6 +14,7 @@ from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -193,6 +194,10 @@ class SettingsWindow(FramelessWindow):
         self.hk_capture.setClearButtonEnabled(True)
         form.addRow("Capture region", self.hk_capture)
 
+        self.hk_fullscreen = QKeySequenceEdit(QKeySequence(self.settings.hotkeys.capture_fullscreen))
+        self.hk_fullscreen.setClearButtonEnabled(True)
+        form.addRow("Capture full screen", self.hk_fullscreen)
+
         self.hk_gallery = QKeySequenceEdit(QKeySequence(self.settings.hotkeys.toggle_gallery))
         self.hk_gallery.setClearButtonEnabled(True)
         form.addRow("Open gallery", self.hk_gallery)
@@ -226,6 +231,20 @@ class SettingsWindow(FramelessWindow):
         self.thumb.setSuffix(" px")
         self.thumb.setValue(int(self.settings.ui.thumbnail_px))
         form.addRow("Thumbnail size", self.thumb)
+
+        self.toast_check = QCheckBox("Corner pop-up after full-screen capture")
+        self.toast_check.setChecked(self.settings.ui.capture_toast)
+        form.addRow("", self.toast_check)
+
+        self.toast_secs = QDoubleSpinBox()
+        self.toast_secs.setRange(0.5, 15.0)
+        self.toast_secs.setDecimals(1)
+        self.toast_secs.setSingleStep(0.1)
+        self.toast_secs.setSuffix(" s")
+        self.toast_secs.setValue(float(self.settings.ui.capture_toast_seconds))
+        self.toast_secs.setEnabled(self.toast_check.isChecked())
+        self.toast_check.toggled.connect(self.toast_secs.setEnabled)
+        form.addRow("Pop-up duration", self.toast_secs)
 
         self.autostart = QCheckBox("Launch when Windows starts")
         self.autostart.setChecked(self.settings.autostart)
@@ -283,6 +302,8 @@ class SettingsWindow(FramelessWindow):
         s.screenshot.jpeg_quality = int(self.quality.value())
 
         s.hotkeys.capture_region = self.hk_capture.keySequence().toString().lower() or s.hotkeys.capture_region
+        # Full-screen capture is optional — allow clearing it to unbind.
+        s.hotkeys.capture_fullscreen = self.hk_fullscreen.keySequence().toString().lower()
         s.hotkeys.toggle_gallery = self.hk_gallery.keySequence().toString().lower() or s.hotkeys.toggle_gallery
         s.hotkeys.open_settings = self.hk_settings.keySequence().toString().lower() or s.hotkeys.open_settings
 
@@ -291,6 +312,8 @@ class SettingsWindow(FramelessWindow):
         if accent:
             s.ui.accent = accent
         s.ui.thumbnail_px = int(self.thumb.value())
+        s.ui.capture_toast = self.toast_check.isChecked()
+        s.ui.capture_toast_seconds = round(float(self.toast_secs.value()), 1)
 
         s.autostart = self.autostart.isChecked()
 
@@ -334,6 +357,7 @@ class SettingsWindow(FramelessWindow):
 
         # Hotkeys
         self.hk_capture.setKeySequence(QKeySequence(defaults.hotkeys.capture_region))
+        self.hk_fullscreen.setKeySequence(QKeySequence(defaults.hotkeys.capture_fullscreen))
         self.hk_gallery.setKeySequence(QKeySequence(defaults.hotkeys.toggle_gallery))
         self.hk_settings.setKeySequence(QKeySequence(defaults.hotkeys.open_settings))
 
@@ -341,5 +365,8 @@ class SettingsWindow(FramelessWindow):
         self.theme.setCurrentText(defaults.ui.theme)
         self.accent.setText(defaults.ui.accent)
         self.thumb.setValue(int(defaults.ui.thumbnail_px))
+        self.toast_check.setChecked(defaults.ui.capture_toast)
+        self.toast_secs.setValue(float(defaults.ui.capture_toast_seconds))
+        self.toast_secs.setEnabled(defaults.ui.capture_toast)
 
         self.autostart.setChecked(defaults.autostart)
