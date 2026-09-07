@@ -63,6 +63,9 @@ class UIConfig:
     accent: str = "#0067c0"    # Windows 11 default accent
     thumbnail_px: int = 160
     gallery_view: str = "grid"  # "grid" (thumbnail cards) | "list" (compact rows)
+    # Small corner pop-up shown after a silent full-screen capture.
+    capture_toast: bool = True
+    capture_toast_seconds: int = 2   # how long it stays before fading out
 
 
 @dataclass

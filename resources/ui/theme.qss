@@ -303,6 +303,20 @@ QLabel#ChatContext {
     font-size: 12px;
 }
 
+/* Corner capture pop-up (see explainshot/ui/toast.py). */
+QFrame#ToastCard {
+    background: @bg_elevated;
+    border: 1px solid @stroke_strong;
+    border-radius: 10px;
+}
+QLabel#ToastTitle { color: @text_primary; font-weight: 600; }
+QLabel#ToastSub { color: @text_secondary; font-size: 11px; }
+QLabel#ToastThumb {
+    background: @bg_layer;
+    border: 1px solid @stroke;
+    border-radius: 4px;
+}
+
 QLabel#ContextGauge {
     background: @bg_layer_alt;
     color: @text_secondary;
