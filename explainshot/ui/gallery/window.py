@@ -87,16 +87,14 @@ class GalleryWindow(FramelessWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # --- chrome ---
-        self.title_bar = TitleBar(self, title="ExplainShot")
+        # --- chrome: title bar with an in-bar menu (VS Code style) ---
+        self.title_bar = TitleBar(self, title="ExplainShot", center_title=True)
         self.title_bar.request_close.connect(self.close)
-        root.addWidget(self.title_bar)
-
-        # --- menu bar (File / Edit / View / Help) ---
-        # Built here so it sits directly under the title bar; wired further down
-        # once the panels it drives exist.
+        # File / Edit / View / Help live inside the title bar row. Wired further
+        # down once the panels the menu drives exist.
         self.menu_bar = GalleryMenuBar(self)
-        root.addWidget(self.menu_bar)
+        self.title_bar.add_menu_bar(self.menu_bar)
+        root.addWidget(self.title_bar)
 
         # --- body ---
         body = QWidget()

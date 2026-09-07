@@ -139,6 +139,7 @@ class TitleBar(QFrame):
         *,
         title: str = "",
         show_maximise: bool = True,
+        center_title: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -160,6 +161,22 @@ class TitleBar(QFrame):
         self._icon_label.context_menu_requested.connect(self._show_system_menu)
         layout.addWidget(self._icon_label)
 
+        # Slot for an in-titlebar menu bar (VS Code style). Sits right after the
+        # icon; sized to its content so the rest of the bar stays draggable.
+        # Transparent so it doesn't paint over the title bar's bottom separator
+        # (the global `QWidget { background }` rule would otherwise fill it).
+        self._menu_host = QWidget()
+        self._menu_host.setObjectName("TitleBarMenuHost")
+        self._menu_host.setStyleSheet("#TitleBarMenuHost { background: transparent; }")
+        self._menu_layout = QHBoxLayout(self._menu_host)
+        self._menu_layout.setContentsMargins(4, 0, 0, 0)
+        self._menu_layout.setSpacing(0)
+        layout.addWidget(self._menu_host)
+
+        # When a menu bar is present we centre the title between the menu and the
+        # caption buttons (again, VS Code style); otherwise it stays left-aligned.
+        if center_title:
+            layout.addStretch(1)
         self._title_label = QLabel(title)
         self._title_label.setObjectName("TitleBarTitle")
         layout.addWidget(self._title_label)
@@ -193,6 +210,15 @@ class TitleBar(QFrame):
 
     def add_extra(self, widget: QWidget) -> None:
         self._extras_layout.addWidget(widget)
+
+    def add_menu_bar(self, menu_bar: QWidget) -> None:
+        """Embed a QMenuBar into the title bar row (VS Code style)."""
+        from PyQt6.QtWidgets import QSizePolicy as _SP
+        menu_bar.setSizePolicy(_SP.Policy.Maximum, _SP.Policy.Preferred)
+        # Keep the bar shorter than the title bar and vertically centred, so its
+        # (opaque) panel never paints over the title bar's 1px bottom separator.
+        menu_bar.setFixedHeight(30)
+        self._menu_layout.addWidget(menu_bar, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def set_title(self, title: str) -> None:
         self._title_label.setText(title)

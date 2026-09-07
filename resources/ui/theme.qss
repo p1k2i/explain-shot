@@ -222,18 +222,19 @@ QAbstractScrollArea { background: transparent; }
 
 /* --- Toolbars, menus, tooltips ------------------------------------------- */
 
-/* App menu bar (File / Edit / View / Help) — its own row under the title bar. */
+/* App menu bar (File / Edit / View / Help) — embedded in the title bar row,
+ * so it stays transparent and borderless and lets the title bar show through. */
 QMenuBar#GalleryMenuBar {
-    background: @bg_base;
+    background: transparent;
     color: @text_primary;
-    border-bottom: 1px solid @stroke;
-    padding: 2px 6px;
+    border: none;
+    padding: 0;
 }
 QMenuBar#GalleryMenuBar::item {
     background: transparent;
-    padding: 5px 10px;
+    padding: 5px 9px;
     border-radius: 4px;
-    margin: 1px 1px;
+    margin: 0 1px;
 }
 QMenuBar#GalleryMenuBar::item:selected { background: @bg_layer_alt; }
 QMenuBar#GalleryMenuBar::item:pressed { background: @accent; color: @accent_text; }
