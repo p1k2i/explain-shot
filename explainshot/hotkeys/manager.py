@@ -11,6 +11,7 @@ that automatically without extra work.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Callable
 
 from pynput import keyboard
@@ -78,6 +79,9 @@ class HotkeyManager:
         self.config = config
         self.signals = signals
         self._listener: keyboard.GlobalHotKeys | None = None
+        # Monotonic time the full-screen hotkey last fired. Used to swallow the
+        # region hotkey that pynput fires for the SAME Ctrl+Print press.
+        self._fullscreen_at = 0.0
 
     def start(self) -> None:
         self.stop()
@@ -106,8 +110,27 @@ class HotkeyManager:
 
     def _build_bindings(self) -> dict[str, Callable[[], None]]:
         signals = self.signals
-        return {
-            _normalize(self.config.capture_region): signals.hotkey_capture_region.emit,
-            _normalize(self.config.toggle_gallery): signals.hotkey_toggle_gallery.emit,
-            _normalize(self.config.open_settings): signals.hotkey_open_settings.emit,
-        }
+        bindings: dict[str, Callable[[], None]] = {}
+        # Full-screen FIRST so its wrapper records the timestamp before the
+        # region hotkey — which shares the Print Screen key — is evaluated for
+        # the same press (pynput fires every matching hotkey independently).
+        if self.config.capture_fullscreen.strip():
+            bindings[_normalize(self.config.capture_fullscreen)] = self._emit_fullscreen
+        bindings[_normalize(self.config.capture_region)] = self._emit_region
+        bindings[_normalize(self.config.toggle_gallery)] = signals.hotkey_toggle_gallery.emit
+        bindings[_normalize(self.config.open_settings)] = signals.hotkey_open_settings.emit
+        return bindings
+
+    def _emit_fullscreen(self) -> None:
+        self._fullscreen_at = time.monotonic()
+        self.signals.hotkey_capture_fullscreen.emit()
+
+    def _emit_region(self) -> None:
+        # On Ctrl+Print, pynput fires BOTH the bare-Print (region) and the
+        # Ctrl+Print (full-screen) hotkeys. When the more-specific full-screen
+        # one just fired for this same physical press, the user meant full
+        # screen — swallow the region trigger. Same-press fires are microseconds
+        # apart, so a tiny window reliably tells them from two separate presses.
+        if time.monotonic() - self._fullscreen_at < 0.05:
+            return
+        self.signals.hotkey_capture_region.emit()

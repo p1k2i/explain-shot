@@ -83,6 +83,7 @@ class Application(QObject):
         # Hotkeys — pynput's background thread signals cross into the main
         # thread via Qt's automatic QueuedConnection.
         self.signals.hotkey_capture_region.connect(self._request_capture)
+        self.signals.hotkey_capture_fullscreen.connect(self._capture_fullscreen_silent)
         self.signals.hotkey_toggle_gallery.connect(self.toggle_gallery)
         self.signals.hotkey_open_settings.connect(self.show_settings)
         # Menu bar "Exit" (and any other quit request) routes through here.
@@ -178,6 +179,22 @@ class Application(QObject):
 
     def _on_capture_cancelled(self) -> None:
         pass
+
+    # -- silent full-screen capture -------------------------------------------
+
+    def _capture_fullscreen_silent(self) -> None:
+        """Grab the whole (virtual) desktop and save it straight to the gallery
+        — no region selector, no window. save_pixmap emits screenshot_captured,
+        so an open gallery updates itself; a tray toast confirms the save."""
+        try:
+            pixmap = self.screenshots.grab_desktop()
+        except Exception as exc:
+            log.exception("full-screen capture failed")
+            self.tray.notify("Capture failed", str(exc))
+            return
+        record = self._persist_capture(pixmap)
+        if record is not None:
+            self.tray.notify("Screenshot saved", record.filename)
 
     # -- settings-saved handling ----------------------------------------------
 

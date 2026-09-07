@@ -25,6 +25,9 @@ class HotkeyConfig:
     # displays it natively; the hotkey normaliser maps it to pynput's
     # <print_screen> at bind time.
     capture_region: str = "print"
+    # Ctrl+Print Screen — grab the whole screen and save it straight to the
+    # gallery, no region selector, no window popping up (just a tray toast).
+    capture_fullscreen: str = "ctrl+print"
     # Ctrl+Shift+G — memorable ("G" for gallery) and unlikely to clash
     # with common text-editing shortcuts.
     toggle_gallery: str = "ctrl+shift+g"

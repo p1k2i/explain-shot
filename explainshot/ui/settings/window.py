@@ -193,6 +193,10 @@ class SettingsWindow(FramelessWindow):
         self.hk_capture.setClearButtonEnabled(True)
         form.addRow("Capture region", self.hk_capture)
 
+        self.hk_fullscreen = QKeySequenceEdit(QKeySequence(self.settings.hotkeys.capture_fullscreen))
+        self.hk_fullscreen.setClearButtonEnabled(True)
+        form.addRow("Capture full screen", self.hk_fullscreen)
+
         self.hk_gallery = QKeySequenceEdit(QKeySequence(self.settings.hotkeys.toggle_gallery))
         self.hk_gallery.setClearButtonEnabled(True)
         form.addRow("Open gallery", self.hk_gallery)
@@ -283,6 +287,8 @@ class SettingsWindow(FramelessWindow):
         s.screenshot.jpeg_quality = int(self.quality.value())
 
         s.hotkeys.capture_region = self.hk_capture.keySequence().toString().lower() or s.hotkeys.capture_region
+        # Full-screen capture is optional — allow clearing it to unbind.
+        s.hotkeys.capture_fullscreen = self.hk_fullscreen.keySequence().toString().lower()
         s.hotkeys.toggle_gallery = self.hk_gallery.keySequence().toString().lower() or s.hotkeys.toggle_gallery
         s.hotkeys.open_settings = self.hk_settings.keySequence().toString().lower() or s.hotkeys.open_settings
 
@@ -334,6 +340,7 @@ class SettingsWindow(FramelessWindow):
 
         # Hotkeys
         self.hk_capture.setKeySequence(QKeySequence(defaults.hotkeys.capture_region))
+        self.hk_fullscreen.setKeySequence(QKeySequence(defaults.hotkeys.capture_fullscreen))
         self.hk_gallery.setKeySequence(QKeySequence(defaults.hotkeys.toggle_gallery))
         self.hk_settings.setKeySequence(QKeySequence(defaults.hotkeys.open_settings))
 

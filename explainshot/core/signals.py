@@ -32,6 +32,7 @@ class AppSignals(QObject):
 
     # Hotkeys — these fire in the pynput thread; connect with QueuedConnection
     hotkey_capture_region = pyqtSignal()
+    hotkey_capture_fullscreen = pyqtSignal()   # grab whole screen, save silently
     hotkey_toggle_gallery = pyqtSignal()
     hotkey_open_settings = pyqtSignal()
 
