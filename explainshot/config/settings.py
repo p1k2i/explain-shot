@@ -65,7 +65,7 @@ class UIConfig:
     gallery_view: str = "grid"  # "grid" (thumbnail cards) | "list" (compact rows)
     # Small corner pop-up shown after a silent full-screen capture.
     capture_toast: bool = True
-    capture_toast_seconds: int = 2   # how long it stays before fading out
+    capture_toast_seconds: float = 2.0   # how long it stays (fractional allowed)
 
 
 @dataclass

@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -52,7 +53,7 @@ class CaptureToast(QWidget):
         card = QFrame()
         card.setObjectName("ToastCard")
         row = QHBoxLayout(card)
-        row.setContentsMargins(12, 10, 14, 10)
+        row.setContentsMargins(12, 8, 8, 10)
         row.setSpacing(12)
 
         if pixmap is not None and not pixmap.isNull():
@@ -82,6 +83,18 @@ class CaptureToast(QWidget):
             sub.setProperty("muted", True)
             text.addWidget(sub)
         row.addLayout(text, 1)
+
+        # Small "×" to dismiss the pop-up WITHOUT opening the gallery. It sits
+        # top-right and consumes its own click, so it never triggers the
+        # body-click that opens the shot.
+        close_btn = QPushButton("×")   # ×
+        close_btn.setObjectName("ToastClose")
+        close_btn.setFixedSize(18, 18)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        close_btn.setToolTip("Dismiss")
+        close_btn.clicked.connect(lambda: self._dismiss())
+        row.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignTop)
 
         outer.addWidget(card)
 

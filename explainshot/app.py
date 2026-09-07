@@ -206,7 +206,7 @@ class Application(QObject):
         from .ui.toast import CaptureToast
         toast = CaptureToast(
             "Screenshot saved", record.filename, pixmap,
-            duration_ms=max(1, int(self.settings.ui.capture_toast_seconds)) * 1000,
+            duration_ms=int(round(float(self.settings.ui.capture_toast_seconds) * 1000)),
         )
         toast.clicked.connect(lambda rid=record.id: self._open_from_toast(rid))
         toast.closed.connect(lambda t=toast: self._toasts.remove(t) if t in self._toasts else None)

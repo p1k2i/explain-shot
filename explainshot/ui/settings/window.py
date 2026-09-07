@@ -14,6 +14,7 @@ from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -235,10 +236,12 @@ class SettingsWindow(FramelessWindow):
         self.toast_check.setChecked(self.settings.ui.capture_toast)
         form.addRow("", self.toast_check)
 
-        self.toast_secs = QSpinBox()
-        self.toast_secs.setRange(1, 15)
+        self.toast_secs = QDoubleSpinBox()
+        self.toast_secs.setRange(0.5, 15.0)
+        self.toast_secs.setDecimals(1)
+        self.toast_secs.setSingleStep(0.1)
         self.toast_secs.setSuffix(" s")
-        self.toast_secs.setValue(int(self.settings.ui.capture_toast_seconds))
+        self.toast_secs.setValue(float(self.settings.ui.capture_toast_seconds))
         self.toast_secs.setEnabled(self.toast_check.isChecked())
         self.toast_check.toggled.connect(self.toast_secs.setEnabled)
         form.addRow("Pop-up duration", self.toast_secs)
@@ -310,7 +313,7 @@ class SettingsWindow(FramelessWindow):
             s.ui.accent = accent
         s.ui.thumbnail_px = int(self.thumb.value())
         s.ui.capture_toast = self.toast_check.isChecked()
-        s.ui.capture_toast_seconds = int(self.toast_secs.value())
+        s.ui.capture_toast_seconds = round(float(self.toast_secs.value()), 1)
 
         s.autostart = self.autostart.isChecked()
 
@@ -363,7 +366,7 @@ class SettingsWindow(FramelessWindow):
         self.accent.setText(defaults.ui.accent)
         self.thumb.setValue(int(defaults.ui.thumbnail_px))
         self.toast_check.setChecked(defaults.ui.capture_toast)
-        self.toast_secs.setValue(int(defaults.ui.capture_toast_seconds))
+        self.toast_secs.setValue(float(defaults.ui.capture_toast_seconds))
         self.toast_secs.setEnabled(defaults.ui.capture_toast)
 
         self.autostart.setChecked(defaults.autostart)

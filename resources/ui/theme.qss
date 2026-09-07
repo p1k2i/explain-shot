@@ -316,6 +316,17 @@ QLabel#ToastThumb {
     border: 1px solid @stroke;
     border-radius: 4px;
 }
+QPushButton#ToastClose {
+    background: transparent;
+    border: none;
+    color: @text_secondary;
+    font-size: 14px;
+    padding: 0;
+    border-radius: 4px;
+    min-height: 0;
+}
+QPushButton#ToastClose:hover { background: @bg_layer_alt; color: @text_primary; }
+QPushButton#ToastClose:pressed { background: @bg_layer; }
 
 QLabel#ContextGauge {
     background: @bg_layer_alt;
