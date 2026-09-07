@@ -139,6 +139,10 @@ class HoverAnimator(QObject):
         self._hovered = False
         self._pressed = False
         self._selected = False
+        # Keyboard focus reuses the hover visual so a focus ring appears when a
+        # card is Tab/arrow-focused, giving mouse-free users a clear "you are
+        # here" indicator without a second style.
+        self._focused = False
         # Selector defaults to the widget's class + objectName so we don't
         # accidentally style children.
         cls = type(widget).__name__
@@ -162,6 +166,12 @@ class HoverAnimator(QObject):
             return
         self._selected = selected
         self._transition(instant=instant)
+
+    def set_focused(self, focused: bool) -> None:
+        if focused == self._focused:
+            return
+        self._focused = focused
+        self._transition()
 
     def set_states(self, states: HoverStates) -> None:
         self._states = states
@@ -187,7 +197,9 @@ class HoverAnimator(QObject):
         return False
 
     def _transition(self, *, instant: bool = False) -> None:
-        target = self._states.state_for(self._hovered, self._selected, self._pressed)
+        # Focus lights up the same ring as hover (unless already selected).
+        hovered = self._hovered or self._focused
+        target = self._states.state_for(hovered, self._selected, self._pressed)
         if instant:
             self._anim.snap_to(target)
         else:

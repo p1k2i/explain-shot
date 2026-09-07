@@ -21,7 +21,7 @@ from datetime import datetime
 from typing import Callable
 
 import markdown2
-from PyQt6.QtCore import QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QGuiApplication, QKeyEvent
 from PyQt6.QtWidgets import (
     QFrame,
@@ -448,6 +448,7 @@ class _MessageRow(QWidget):
 
 class _PromptEditor(QTextEdit):
     submitted = pyqtSignal()
+    focus_next = pyqtSignal()   # Down pressed on the last line -> input buttons
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -462,6 +463,12 @@ class _PromptEditor(QTextEdit):
                 return
             self.submitted.emit()
             return
+        # Down on the last line steps out of the editor onto the input buttons,
+        # so a keyboard user can reach Send/Compact/Clear with the arrows.
+        if event and event.key() == Qt.Key.Key_Down:
+            if self.textCursor().blockNumber() == self.document().blockCount() - 1:
+                self.focus_next.emit()
+                return
         super().keyPressEvent(event)
 
 
@@ -597,6 +604,7 @@ class ChatPanel(QWidget):
         input_row = QVBoxLayout()
         self.editor = _PromptEditor()
         self.editor.submitted.connect(self._on_submit)
+        self.editor.focus_next.connect(self._focus_input_row)
         input_row.addWidget(self.editor)
 
         button_row = QHBoxLayout()
@@ -615,7 +623,42 @@ class ChatPanel(QWidget):
         input_row.addLayout(button_row)
         layout.addLayout(input_row)
 
+        # Arrow-key navigation across the input-row buttons (Left/Right between
+        # them, Up back to the editor), so the chat section is fully keyboard
+        # operable without Tab (which switches sections).
+        self._input_buttons = [self.compact_btn, self._clear_btn, self.send]
+        for btn in self._input_buttons:
+            btn.installEventFilter(self)
+
         self.set_context(None)
+
+    def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
+        if event is not None and event.type() == QEvent.Type.KeyPress and obj in self._input_buttons:
+            row = [b for b in self._input_buttons if b.isEnabled()]
+            if obj in row:
+                key = event.key()
+                idx = row.index(obj)
+                if key == Qt.Key.Key_Left and idx > 0:
+                    row[idx - 1].setFocus(Qt.FocusReason.OtherFocusReason)
+                    return True
+                if key == Qt.Key.Key_Right and idx < len(row) - 1:
+                    row[idx + 1].setFocus(Qt.FocusReason.OtherFocusReason)
+                    return True
+                if key == Qt.Key.Key_Up:
+                    self.focus_editor()
+                    return True
+        return super().eventFilter(obj, event)
+
+    def _focus_input_row(self) -> None:
+        """Focus the primary input button (Send when available, else the first
+        enabled one) — used when Down steps out of the editor."""
+        if self.send.isEnabled():
+            self.send.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        for btn in self._input_buttons:
+            if btn.isEnabled():
+                btn.setFocus(Qt.FocusReason.OtherFocusReason)
+                return
 
     # -- public interface ------------------------------------------------------
 
@@ -808,6 +851,15 @@ class ChatPanel(QWidget):
     def replace_prompt(self, text: str) -> None:
         self.editor.setPlainText(text)
         self.editor.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def focus_editor(self) -> bool:
+        """Put keyboard focus in the prompt box. Returns False when the chat is
+        disabled (no screenshot selected) so Tab skips this section instead of
+        appearing to do nothing — a disabled widget can't take focus."""
+        if not self.editor.isEnabled():
+            return False
+        self.editor.setFocus(Qt.FocusReason.TabFocusReason)
+        return True
 
     def begin_streaming(self, placeholder_node: MessageNode) -> None:
         # A brand-new reply is the user's own action — re-engage bottom-follow

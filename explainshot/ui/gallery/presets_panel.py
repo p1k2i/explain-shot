@@ -86,11 +86,18 @@ class PresetCard(QWidget):
     paste_clicked = pyqtSignal(str)
     edit_clicked = pyqtSignal(str)
     delete_clicked = pyqtSignal(str)
+    move_focus = pyqtSignal(str, str)   # id, direction (up/down)
 
     def __init__(self, preset: Preset, theme: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.preset = preset
         self.setObjectName("PresetCard")
+        # Focusable so keyboard users can arrow through the presets column.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        hint = "Enter: run · Space: paste"
+        if not preset.builtin:
+            hint += " · F2: edit · Del: delete"
+        self.setToolTip(f"{preset.name}\n{hint}")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -151,7 +158,31 @@ class PresetCard(QWidget):
         layout.addLayout(actions)
 
         states = _STATES_DARK if theme == "dark" else _STATES_LIGHT
-        HoverAnimator.attach(self, states)
+        self._anim = HoverAnimator.attach(self, states)
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        key = event.key() if event else None
+        if key == Qt.Key.Key_Up:
+            self.move_focus.emit(self.preset.id, "up"); return
+        if key == Qt.Key.Key_Down:
+            self.move_focus.emit(self.preset.id, "down"); return
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.run_clicked.emit(self.preset.id); return
+        if key == Qt.Key.Key_Space:
+            self.paste_clicked.emit(self.preset.id); return
+        if key == Qt.Key.Key_F2 and not self.preset.builtin:
+            self.edit_clicked.emit(self.preset.id); return
+        if key == Qt.Key.Key_Delete and not self.preset.builtin:
+            self.delete_clicked.emit(self.preset.id); return
+        super().keyPressEvent(event)
+
+    def focusInEvent(self, event) -> None:  # type: ignore[override]
+        self._anim.set_focused(True)
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event) -> None:  # type: ignore[override]
+        self._anim.set_focused(False)
+        super().focusOutEvent(event)
 
 
 class PresetsPanel(QWidget):
@@ -162,6 +193,7 @@ class PresetsPanel(QWidget):
         super().__init__(parent)
         self.manager = manager
         self._theme = "dark"
+        self._cards: list[PresetCard] = []   # visual order, for arrow nav
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -176,6 +208,7 @@ class PresetsPanel(QWidget):
         add.setProperty("chip", True)
         add.clicked.connect(self._on_new)
         header.addWidget(add)
+        self._add_btn = add
         layout.addLayout(header)
 
         self.scroll = QScrollArea()
@@ -196,6 +229,23 @@ class PresetsPanel(QWidget):
         self._theme = theme
         self.reload()
 
+    def focus_first(self) -> bool:
+        """Move keyboard focus into the presets column: the first preset card,
+        else the '+ New' button (used by panel-jump / Tab)."""
+        target = self._cards[0] if self._cards else self._add_btn
+        target.setFocus(Qt.FocusReason.TabFocusReason)
+        return True
+
+    def _on_move_focus(self, preset_id: str, direction: str) -> None:
+        ids = [c.preset.id for c in self._cards]
+        if preset_id not in ids:
+            return
+        j = ids.index(preset_id) + (1 if direction == "down" else -1)
+        if 0 <= j < len(self._cards):
+            card = self._cards[j]
+            card.setFocus(Qt.FocusReason.OtherFocusReason)
+            self.scroll.ensureWidgetVisible(card, 0, 20)
+
     def reload(self) -> None:
         for i in reversed(range(self._list.count() - 1)):
             item = self._list.itemAt(i)
@@ -205,6 +255,7 @@ class PresetsPanel(QWidget):
             if widget:
                 widget.deleteLater()
                 self._list.removeItem(item)
+        self._cards.clear()
 
         for preset in self.manager.list():
             card = PresetCard(preset, self._theme)
@@ -212,7 +263,9 @@ class PresetsPanel(QWidget):
             card.paste_clicked.connect(self.preset_paste.emit)
             card.edit_clicked.connect(self._on_edit)
             card.delete_clicked.connect(self._on_delete)
+            card.move_focus.connect(self._on_move_focus)
             self._list.insertWidget(self._list.count() - 1, card)
+            self._cards.append(card)
 
     def _on_new(self) -> None:
         name, ok = QInputDialog.getText(self, "New preset", "Name:")

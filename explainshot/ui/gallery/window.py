@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, QTimer, Qt
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import (
+    QApplication,
     QFrame,
     QSplitter,
     QVBoxLayout,
@@ -74,7 +75,10 @@ class GalleryWindow(FramelessWindow):
         self.setWindowTitle("ExplainShot")
         self.setWindowIcon(app_icon())
         self.resize(1280, 800)
-        self.setMinimumSize(960, 600)
+        # Adequate minimum: below this the three columns start clipping their
+        # controls (the chat's input button row is the tightest). Per-column
+        # minimum widths are set on the splitter children just below.
+        self.setMinimumSize(720, 460)
 
         set_chat_theme(settings.ui.theme)
 
@@ -93,32 +97,42 @@ class GalleryWindow(FramelessWindow):
         body_layout.setContentsMargins(12, 12, 12, 12)
         body_layout.setSpacing(0)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(6)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(6)
 
         self.screenshots_panel = ScreenshotsPanel(
             self.screenshots, self.thumbnails, settings.ui.thumbnail_px,
             settings.ui.gallery_view,
         )
-        splitter.addWidget(self._wrap(self.screenshots_panel))
+        self.splitter.addWidget(self._wrap(self.screenshots_panel))
 
         self.chat_panel = ChatPanel()
-        splitter.addWidget(self._wrap(self.chat_panel))
+        self.splitter.addWidget(self._wrap(self.chat_panel))
 
         self.presets_panel = PresetsPanel(self.presets)
-        splitter.addWidget(self._wrap(self.presets_panel))
+        self.splitter.addWidget(self._wrap(self.presets_panel))
 
-        splitter.setStretchFactor(0, 4)
-        splitter.setStretchFactor(1, 5)
-        splitter.setStretchFactor(2, 3)
-        splitter.setSizes([460, 560, 340])
-        body_layout.addWidget(splitter)
+        self.splitter.setStretchFactor(0, 4)
+        self.splitter.setStretchFactor(1, 5)
+        self.splitter.setStretchFactor(2, 3)
+        # Per-column minimum widths so a drag (or a small window) can't crush a
+        # panel below the point its controls stay usable. The chat is widest —
+        # its input button row (gauge + Compact + Clear + Send) sets the floor.
+        for i, min_w in ((0, 180), (1, 300), (2, 200)):
+            w = self.splitter.widget(i)
+            if w is not None:
+                w.setMinimumWidth(min_w)
+        self.splitter.setSizes([460, 560, 340])
+        # Restore the user's saved column widths (see _restore_splitter).
+        self._restore_splitter()
+        body_layout.addWidget(self.splitter)
 
         root.addWidget(body, 1)
 
         self._selected: ScreenshotRecord | None = None
         self._preview_windows: list[PreviewWindow] = []
+        self._did_initial_focus = False
 
         # Wire panels
         self.screenshots_panel.selection_changed.connect(self._on_selection)
@@ -169,7 +183,29 @@ class GalleryWindow(FramelessWindow):
 
         self.screenshots_panel.reload()
 
+        # Tab / Shift+Tab switch between the three sections instead of walking
+        # every control (arrows navigate *inside* a section). We intercept at
+        # the application level, scoped to focus within this window, so it never
+        # touches dialogs (separate top-levels) or the settings/preview windows.
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
+
     # -- lifecycle -------------------------------------------------------------
+
+    def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
+        if event is not None and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+                mods = event.modifiers()
+                # Plain Tab / Shift+Tab only (leave Ctrl/Alt+Tab to the OS/app).
+                if not (mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)):
+                    focus = QApplication.focusWidget()
+                    if focus is not None and self.isAncestorOf(focus):
+                        forward = key == Qt.Key.Key_Tab and not (mods & Qt.KeyboardModifier.ShiftModifier)
+                        self._cycle_panel(forward=forward)
+                        return True
+        return super().eventFilter(obj, event)
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -177,6 +213,16 @@ class GalleryWindow(FramelessWindow):
         if added:
             self.screenshots_panel.reload()
         self.title_bar.refresh_max_glyph()
+        # Put keyboard focus somewhere deterministic on first show (the
+        # screenshots grid), so Tab/arrows behave predictably from the start
+        # instead of landing on whatever toolbar control Qt picked first.
+        if not self._did_initial_focus:
+            self._did_initial_focus = True
+            QTimer.singleShot(0, self._focus_initial)
+
+    def _focus_initial(self) -> None:
+        if not self.screenshots_panel.focus_selected_or_first():
+            self.chat_panel.focus_editor()
 
     def changeEvent(self, event) -> None:  # type: ignore[override]
         super().changeEvent(event)
@@ -188,25 +234,82 @@ class GalleryWindow(FramelessWindow):
     def closeEvent(self, event) -> None:  # type: ignore[override]
         # NOTE: never cancel a running completion here — the controller
         # owns those tasks and they finish independently of us.
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
         try:
             self.db.save_window_state("gallery", bytes(self.saveGeometry()), self.isMaximized())
+            # Column widths ride in their own window_state row (no schema change).
+            self.db.save_window_state("gallery_splitter", bytes(self.splitter.saveState()), False)
         except Exception:
             log.debug("could not save window state", exc_info=True)
         super().closeEvent(event)
 
+    def _restore_splitter(self) -> None:
+        """Reapply the user's saved column widths, if any."""
+        try:
+            state = self.db.load_window_state("gallery_splitter")
+            if state and state[0]:
+                self.splitter.restoreState(state[0])
+        except Exception:
+            log.debug("could not restore splitter state", exc_info=True)
+
     def keyPressEvent(self, event: QKeyEvent | None) -> None:  # type: ignore[override]
         if event is not None:
-            if event.key() == Qt.Key.Key_F5:
+            key = event.key()
+            mods = event.modifiers()
+            ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+            if key == Qt.Key.Key_F5:
                 self.thumbnails.clear()
                 self.screenshots_panel.reload()
                 return
-            if event.key() == Qt.Key.Key_Escape:
+            if key == Qt.Key.Key_Escape:
                 self.close()
                 return
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_K:
+            if ctrl and key == Qt.Key.Key_K:
                 self._on_clear()
                 return
+            # Panel jumping for keyboard-only use.
+            if key == Qt.Key.Key_F6:
+                self._cycle_panel(forward=not (mods & Qt.KeyboardModifier.ShiftModifier))
+                return
+            if ctrl and key in (Qt.Key.Key_1, Qt.Key.Key_2, Qt.Key.Key_3):
+                self._focus_panel({Qt.Key.Key_1: 0, Qt.Key.Key_2: 1, Qt.Key.Key_3: 2}[key])
+                return
         super().keyPressEvent(event)
+
+    # -- keyboard panel navigation --------------------------------------------
+
+    def _focus_panel(self, index: int) -> bool:
+        """Focus the section's entry control. Returns False when the section
+        can't take focus right now (e.g. the chat is disabled because no
+        screenshot is selected) so the caller can skip past it."""
+        return bool((self.screenshots_panel.focus_selected_or_first,
+                     self.chat_panel.focus_editor,
+                     self.presets_panel.focus_first)[index]())
+
+    def _current_panel_index(self) -> int:
+        widget = QApplication.focusWidget()
+        panels = (self.screenshots_panel, self.chat_panel, self.presets_panel)
+        while widget is not None:
+            for i, panel in enumerate(panels):
+                if widget is panel:
+                    return i
+            widget = widget.parentWidget()
+        return -1
+
+    def _cycle_panel(self, *, forward: bool) -> None:
+        current = self._current_panel_index()
+        if current < 0:
+            order = [0, 1, 2] if forward else [2, 1, 0]
+        else:
+            step = 1 if forward else -1
+            order = [(current + step * k) % 3 for k in range(1, 4)]
+        # Land on the first section that can actually take focus (skips a
+        # disabled chat), so Tab never appears to do nothing.
+        for idx in order:
+            if self._focus_panel(idx):
+                return
 
     # -- selection -------------------------------------------------------------
 

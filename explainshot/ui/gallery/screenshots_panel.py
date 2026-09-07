@@ -12,10 +12,10 @@ persisted by the window via the `prefs_changed` signal.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import (
-    QButtonGroup,
+    QApplication,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
@@ -69,8 +69,11 @@ _STATES_LIGHT = HoverStates(
 
 class ScreenshotCard(QWidget):
     clicked = pyqtSignal(str)
-    activated = pyqtSignal(str)    # double-click → open preview
+    activated = pyqtSignal(str)    # double-click / Enter → open preview
     context_menu = pyqtSignal(str, object)   # right-click at global pos
+    move_focus = pyqtSignal(str, str)         # id, direction (up/down/left/right)
+    delete_key = pyqtSignal(str)              # Delete pressed on a focused card
+    rename_key = pyqtSignal(str)              # F2 pressed on a focused card
 
     def __init__(
         self,
@@ -87,6 +90,9 @@ class ScreenshotCard(QWidget):
         self.mode = mode if mode in ("grid", "list") else "grid"
         self.setObjectName("ScreenshotCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Focusable so keyboard-only users can Tab to the grid and arrow around.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setToolTip(f"{record.filename}\nEnter: open · Space: select · F2: rename · Del: delete")
 
         if mode == "list":
             self._build_list(record, list_px)
@@ -170,6 +176,43 @@ class ScreenshotCard(QWidget):
             self.activated.emit(self.record.id)
         super().mouseDoubleClickEvent(event)
 
+    # -- keyboard ---------------------------------------------------------------
+
+    _NAV_KEYS = {
+        Qt.Key.Key_Left: "left", Qt.Key.Key_Right: "right",
+        Qt.Key.Key_Up: "up", Qt.Key.Key_Down: "down",
+    }
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        key = event.key() if event else None
+        if key in self._NAV_KEYS:
+            self.move_focus.emit(self.record.id, self._NAV_KEYS[key])
+            return
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.activated.emit(self.record.id)   # open preview
+            return
+        if key == Qt.Key.Key_Space:
+            self.clicked.emit(self.record.id)     # select
+            return
+        if key == Qt.Key.Key_Delete:
+            self.delete_key.emit(self.record.id)
+            return
+        if key == Qt.Key.Key_F2:
+            self.rename_key.emit(self.record.id)
+            return
+        if key == Qt.Key.Key_Menu:                # context-menu key
+            self.context_menu.emit(self.record.id, self.mapToGlobal(self.rect().center()))
+            return
+        super().keyPressEvent(event)
+
+    def focusInEvent(self, event) -> None:  # type: ignore[override]
+        self._anim.set_focused(True)
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event) -> None:  # type: ignore[override]
+        self._anim.set_focused(False)
+        super().focusOutEvent(event)
+
 
 class ScreenshotsPanel(QWidget):
     selection_changed = pyqtSignal(object)   # ScreenshotRecord or None
@@ -194,6 +237,9 @@ class ScreenshotsPanel(QWidget):
         self._cards: dict[str, ScreenshotCard] = {}
         self._selected_id: str | None = None
         self._theme = "dark"
+        # Column count of the current grid layout (1 in list mode). Used to
+        # translate arrow-key presses into the right neighbouring card.
+        self._columns = 1
         # The size slider re-decodes every thumbnail on change, so we coalesce
         # rapid drags into a single apply once the value settles.
         self._size_debounce = QTimer(self)
@@ -239,12 +285,11 @@ class ScreenshotsPanel(QWidget):
         tools.setContentsMargins(0, 0, 0, 0)
         tools.setSpacing(6)
 
-        # View-mode toggle (grid vs list), mutually exclusive.
-        self._view_group = QButtonGroup(self)
-        self._view_group.setExclusive(True)
-        self._grid_btn = self._toggle_button("▦", "Grid view", "grid")
-        self._list_btn = self._toggle_button("☰", "List view", "list")
-        (self._grid_btn if self._view_mode == "grid" else self._list_btn).setChecked(True)
+        # View-mode toggles. Not a QButtonGroup: an exclusive group steals the
+        # arrow keys to switch buttons, which fights our own toolbar arrow-nav
+        # (see eventFilter). We keep exactly one checked via _sync_toggle_checks.
+        self._grid_btn = self._toggle_button("▦", "Grid view — Space to apply", "grid")
+        self._list_btn = self._toggle_button("☰", "List view — Space to apply", "list")
         tools.addWidget(self._grid_btn)
         tools.addWidget(self._list_btn)
 
@@ -263,9 +308,16 @@ class ScreenshotsPanel(QWidget):
         self._size_slider.setPageStep(32)
         self._size_slider.setFixedWidth(140)
         self._size_slider.setValue(self.thumb_px)
-        self._size_slider.setToolTip("Thumbnail size")
+        self._size_slider.setToolTip("Thumbnail size — Left/Right to adjust")
         self._size_slider.valueChanged.connect(self._on_size_slider_changed)
         tools.addWidget(self._size_slider)
+
+        # Keyboard nav across the toolbar strip (Left/Right between stops, Down
+        # into the grid, Up from the grid's top row back here). See eventFilter.
+        self._toolbar_stops = [self._grid_btn, self._list_btn, self._size_slider]
+        for w in self._toolbar_stops:
+            w.installEventFilter(self)
+        self._sync_toggle_checks()
         return tools
 
     def _toggle_button(self, glyph: str, tooltip: str, mode: str) -> QPushButton:
@@ -276,16 +328,50 @@ class ScreenshotsPanel(QWidget):
         b.setToolTip(tooltip)
         b.setFixedWidth(34)
         b.clicked.connect(lambda _checked=False, m=mode: self._on_view_pick(m))
-        self._view_group.addButton(b)
         return b
 
+    def _sync_toggle_checks(self) -> None:
+        """Keep exactly the active view's toggle checked (we manage this by
+        hand now that the buttons aren't in an exclusive QButtonGroup)."""
+        self._grid_btn.setChecked(self._view_mode == "grid")
+        self._list_btn.setChecked(self._view_mode == "list")
+
     def _on_view_pick(self, mode: str) -> None:
-        if mode == self._view_mode:
-            return
-        self._view_mode = mode
-        records = [c.record for c in self._cards.values()]
-        self._rebuild(records)
-        self.prefs_changed.emit(self._view_mode, self.thumb_px)
+        if mode != self._view_mode:
+            self._view_mode = mode
+            self._rebuild([c.record for c in self._cards.values()])
+            self.prefs_changed.emit(self._view_mode, self.thumb_px)
+        # Re-assert checks even when unchanged: clicking a checkable button
+        # toggles it, so without this the active toggle could end up unchecked.
+        self._sync_toggle_checks()
+
+    def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
+        """Arrow navigation across the size/view toolbar strip.
+
+        Left/Right move focus between stops (the slider keeps Left/Right for its
+        own value); Down drops into the grid; Up (on the slider) steps back a
+        stop. This makes the toolbar reachable without Tab (which is reserved
+        for switching sections)."""
+        if event is not None and event.type() == QEvent.Type.KeyPress and obj in self._toolbar_stops:
+            key = event.key()
+            stops = self._toolbar_stops
+            idx = stops.index(obj)
+            if key == Qt.Key.Key_Down:
+                self.focus_selected_or_first()
+                return True
+            if obj is self._size_slider:
+                if key == Qt.Key.Key_Up and idx > 0:
+                    stops[idx - 1].setFocus(Qt.FocusReason.OtherFocusReason)
+                    return True
+                # Left/Right pass through to the slider so it adjusts its value.
+            else:
+                if key == Qt.Key.Key_Left and idx > 0:
+                    stops[idx - 1].setFocus(Qt.FocusReason.OtherFocusReason)
+                    return True
+                if key == Qt.Key.Key_Right and idx < len(stops) - 1:
+                    stops[idx + 1].setFocus(Qt.FocusReason.OtherFocusReason)
+                    return True
+        return super().eventFilter(obj, event)
 
     def _on_size_slider_changed(self, _value: int) -> None:
         # Defer the (expensive) re-decode/rebuild until the drag settles.
@@ -345,6 +431,44 @@ class ScreenshotsPanel(QWidget):
             self.scroll.ensureWidgetVisible(card, 0, 20)
         self.selection_changed.emit(card.record if card else None)
 
+    # -- keyboard navigation ---------------------------------------------------
+
+    def focus_selected_or_first(self) -> bool:
+        """Move keyboard focus into the grid — onto the selected card, else the
+        first one. Returns whether anything was focused (used by panel-jump)."""
+        card = self._cards.get(self._selected_id or "")
+        if card is None and self._cards:
+            card = next(iter(self._cards.values()))
+        if card is None:
+            return False
+        card.setFocus(Qt.FocusReason.TabFocusReason)
+        self.scroll.ensureWidgetVisible(card, 0, 20)
+        return True
+
+    def _on_move_focus(self, screenshot_id: str, direction: str) -> None:
+        """Arrow-key navigation: move focus to the neighbouring card and select
+        it (selection follows the caret, like a file browser)."""
+        ids = list(self._cards.keys())
+        if screenshot_id not in ids:
+            return
+        i = ids.index(screenshot_id)
+        cols = self._columns if self._view_mode == "grid" else 1
+        # Up from the top row leaves the grid and lands on the toolbar, so the
+        # view toggles and size slider are reachable without the mouse.
+        if direction == "up" and i - cols < 0:
+            self._grid_btn.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        step = {"left": -1, "right": 1, "up": -cols, "down": cols}.get(direction)
+        if step is None:
+            return
+        j = i + step
+        if not (0 <= j < len(ids)):
+            return
+        target = self._cards[ids[j]]
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.scroll.ensureWidgetVisible(target, 0, 20)
+        self.select(ids[j])
+
     def set_thumb_size(self, px: int) -> None:
         """Change the thumbnail size. Re-decodes the cache at the new (grid)
         edge and rebuilds; safe to call from outside (e.g. settings sync) — it
@@ -365,12 +489,16 @@ class ScreenshotsPanel(QWidget):
         if mode not in ("grid", "list") or mode == self._view_mode:
             return
         self._view_mode = mode
-        (self._grid_btn if mode == "grid" else self._list_btn).setChecked(True)
+        self._sync_toggle_checks()
         self._rebuild([c.record for c in self._cards.values()])
 
     # -- layout ----------------------------------------------------------------
 
     def _rebuild(self, records: list[ScreenshotRecord]) -> None:
+        # A rebuild recreates every card, so a keyboard user focused on one
+        # would lose their place (Qt hands focus to the next widget — e.g. the
+        # size slider). Remember whether a card held focus and restore it after.
+        had_card_focus = QApplication.focusWidget() in set(self._cards.values())
         self._clear_grid()
 
         if self._view_mode == "list":
@@ -382,6 +510,9 @@ class ScreenshotsPanel(QWidget):
             self._cards[self._selected_id].set_selected(True, instant=True)
         else:
             self._selected_id = None
+
+        if had_card_focus and self._cards:
+            self.focus_selected_or_first()
 
     def _clear_grid(self) -> None:
         """Tear down the current cards. Reparent to None *immediately* (not
@@ -414,6 +545,9 @@ class ScreenshotsPanel(QWidget):
         card.clicked.connect(self.select)
         card.activated.connect(self.preview_requested.emit)
         card.context_menu.connect(self._on_context_menu)
+        card.move_focus.connect(self._on_move_focus)
+        card.delete_key.connect(self._confirm_delete)
+        card.rename_key.connect(self._prompt_rename)
         self._cards[record.id] = card
         pixmap = self.thumbnails.request(record.id, record.path)
         if pixmap is not None:
@@ -422,6 +556,7 @@ class ScreenshotsPanel(QWidget):
 
     def _lay_out_grid(self, records: list[ScreenshotRecord]) -> None:
         columns = max(1, self.width() // (self.thumb_px + 36))
+        self._columns = columns
         for index, record in enumerate(records):
             card = self._make_card(record)
             row, col = divmod(index, columns)
@@ -430,6 +565,7 @@ class ScreenshotsPanel(QWidget):
         self._grid.setColumnStretch(columns, 1)
 
     def _lay_out_list(self, records: list[ScreenshotRecord]) -> None:
+        self._columns = 1
         for index, record in enumerate(records):
             card = self._make_card(record)
             self._grid.addWidget(card, index, 0)

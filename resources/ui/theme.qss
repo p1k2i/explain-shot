@@ -91,6 +91,23 @@ QPushButton[flat="true"] {
 QPushButton[flat="true"]:hover { background: @bg_layer_alt; }
 QPushButton[flat="true"]:pressed { background: @bg_layer; }
 
+/* --- Focus-visible (keyboard navigation) --------------------------------- */
+/* Every focusable control shows a clear accent ring when reached by keyboard.
+ * Accent-filled controls use a light inner border so the ring reads against
+ * their own accent background. */
+QPushButton:focus,
+QPushButton[chip="true"]:focus,
+QPushButton[flat="true"]:focus {
+    border: 1px solid @accent;
+    outline: none;
+}
+QPushButton[accent="true"]:focus { border: 2px solid @accent_text; }
+QSplitter::handle:focus { background: @accent; }
+/* NOTE: no `QSlider:focus` rule. Any focus rule on a stylesheet-styled QSlider
+ * makes Qt mis-paint a frame / fill over the whole widget, which looked like a
+ * stuck white border. The slider signals focus through its own value changing
+ * on Left/Right instead. */
+
 /* --- Inputs --------------------------------------------------------------- */
 
 QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox,
