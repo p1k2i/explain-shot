@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QEvent, QTimer, Qt
-from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtCore import QEvent, QTimer, Qt, QUrl
+from PyQt6.QtGui import QDesktopServices, QKeyEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -33,6 +33,7 @@ from ...presets.manager import PresetManager
 from ..chrome import FramelessWindow, TitleBar
 from ..icons import app_icon
 from .chat_panel import ChatPanel, set_chat_theme
+from .menubar import GalleryMenuBar
 from .presets_panel import PresetsPanel
 from .preview import PreviewWindow
 from .screenshots_panel import ScreenshotsPanel
@@ -91,6 +92,12 @@ class GalleryWindow(FramelessWindow):
         self.title_bar.request_close.connect(self.close)
         root.addWidget(self.title_bar)
 
+        # --- menu bar (File / Edit / View / Help) ---
+        # Built here so it sits directly under the title bar; wired further down
+        # once the panels it drives exist.
+        self.menu_bar = GalleryMenuBar(self)
+        root.addWidget(self.menu_bar)
+
         # --- body ---
         body = QWidget()
         body_layout = QVBoxLayout(body)
@@ -133,6 +140,9 @@ class GalleryWindow(FramelessWindow):
         self._selected: ScreenshotRecord | None = None
         self._preview_windows: list[PreviewWindow] = []
         self._did_initial_focus = False
+
+        # Now that the panels exist, connect the menu bar to them.
+        self._wire_menu_bar()
 
         # Wire panels
         self.screenshots_panel.selection_changed.connect(self._on_selection)
@@ -323,10 +333,58 @@ class GalleryWindow(FramelessWindow):
             if groups[idx][0]():
                 return
 
+    # -- menu bar --------------------------------------------------------------
+
+    def _wire_menu_bar(self) -> None:
+        m = self.menu_bar
+        # File — capture/settings/quit are app-level, routed via the signal bus.
+        m.capture_requested.connect(self.signals.hotkey_capture_region.emit)
+        m.open_folder_requested.connect(self._open_screenshots_folder)
+        m.settings_requested.connect(self.signals.hotkey_open_settings.emit)
+        m.quit_requested.connect(self.signals.shutdown_requested.emit)
+        # Edit — act on the current conversation / selected screenshot.
+        m.clear_requested.connect(self.chat_panel.confirm_clear)
+        m.compact_requested.connect(self.chat_panel.confirm_compact)
+        m.rename_requested.connect(self._menu_rename_selected)
+        m.delete_requested.connect(self._menu_delete_selected)
+        # View
+        m.view_mode_requested.connect(self.screenshots_panel.choose_view_mode)
+        m.refresh_requested.connect(self._do_refresh)
+        # Help
+        m.about_requested.connect(self._show_about)
+        # Initial state: nothing selected yet; reflect the saved view mode.
+        m.set_screenshot_actions_enabled(False)
+        m.set_view_mode(self.settings.ui.gallery_view)
+
+    def _open_screenshots_folder(self) -> None:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.screenshots.directory)))
+
+    def _do_refresh(self) -> None:
+        self.thumbnails.clear()
+        self.screenshots_panel.reload()
+
+    def _menu_rename_selected(self) -> None:
+        if self._selected is not None:
+            self.screenshots_panel.prompt_rename(self._selected.id)
+
+    def _menu_delete_selected(self) -> None:
+        if self._selected is not None:
+            self.screenshots_panel.confirm_delete(self._selected.id)
+
+    def _show_about(self) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+        from ... import APP_NAME, APP_VERSION
+        QMessageBox.about(
+            self, f"About {APP_NAME}",
+            f"<b>{APP_NAME}</b> {APP_VERSION}<br><br>"
+            "Capture the screen, get AI to explain it.",
+        )
+
     # -- selection -------------------------------------------------------------
 
     def _on_selection(self, record: ScreenshotRecord | None) -> None:
         self._selected = record
+        self.menu_bar.set_screenshot_actions_enabled(record is not None)
         if record is None:
             self.chat_panel.clear()
             self.chat_panel.set_context(None)
@@ -411,6 +469,7 @@ class GalleryWindow(FramelessWindow):
         self.settings.ui.thumbnail_px = thumb_px
         update_setting("ui.gallery_view", view_mode)
         update_setting("ui.thumbnail_px", thumb_px)
+        self.menu_bar.set_view_mode(view_mode)   # keep the View menu check in sync
 
     # -- user actions in the chat -> controller ------------------------------
 

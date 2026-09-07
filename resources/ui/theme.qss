@@ -222,6 +222,22 @@ QAbstractScrollArea { background: transparent; }
 
 /* --- Toolbars, menus, tooltips ------------------------------------------- */
 
+/* App menu bar (File / Edit / View / Help) — its own row under the title bar. */
+QMenuBar#GalleryMenuBar {
+    background: @bg_base;
+    color: @text_primary;
+    border-bottom: 1px solid @stroke;
+    padding: 2px 6px;
+}
+QMenuBar#GalleryMenuBar::item {
+    background: transparent;
+    padding: 5px 10px;
+    border-radius: 4px;
+    margin: 1px 1px;
+}
+QMenuBar#GalleryMenuBar::item:selected { background: @bg_layer_alt; }
+QMenuBar#GalleryMenuBar::item:pressed { background: @accent; color: @accent_text; }
+
 QMenu {
     background: @bg_elevated;
     color: @text_primary;
@@ -229,6 +245,7 @@ QMenu {
     border-radius: 6px;
     padding: 4px;
 }
+QMenu::item:disabled { color: @text_disabled; }
 QMenu::item {
     padding: 6px 20px 6px 24px;
     border-radius: 4px;

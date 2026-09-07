@@ -85,6 +85,8 @@ class Application(QObject):
         self.signals.hotkey_capture_region.connect(self._request_capture)
         self.signals.hotkey_toggle_gallery.connect(self.toggle_gallery)
         self.signals.hotkey_open_settings.connect(self.show_settings)
+        # Menu bar "Exit" (and any other quit request) routes through here.
+        self.signals.shutdown_requested.connect(self.quit)
 
     # -- lifecycle -------------------------------------------------------------
 

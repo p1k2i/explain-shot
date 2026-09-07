@@ -334,7 +334,7 @@ class ScreenshotsPanel(QWidget):
         b.setCursor(Qt.CursorShape.PointingHandCursor)
         b.setToolTip(tooltip)
         b.setFixedWidth(34)
-        b.clicked.connect(lambda _checked=False, m=mode: self._on_view_pick(m))
+        b.clicked.connect(lambda _checked=False, m=mode: self.choose_view_mode(m))
         return b
 
     def _sync_toggle_checks(self) -> None:
@@ -343,7 +343,7 @@ class ScreenshotsPanel(QWidget):
         self._grid_btn.setChecked(self._view_mode == "grid")
         self._list_btn.setChecked(self._view_mode == "list")
 
-    def _on_view_pick(self, mode: str) -> None:
+    def choose_view_mode(self, mode: str) -> None:
         if mode != self._view_mode:
             self._view_mode = mode
             self._rebuild([c.record for c in self._cards.values()])
@@ -583,8 +583,8 @@ class ScreenshotsPanel(QWidget):
         card.activated.connect(self.preview_requested.emit)
         card.context_menu.connect(self._on_context_menu)
         card.move_focus.connect(self._on_move_focus)
-        card.delete_key.connect(self._confirm_delete)
-        card.rename_key.connect(self._prompt_rename)
+        card.delete_key.connect(self.confirm_delete)
+        card.rename_key.connect(self.prompt_rename)
         self._cards[record.id] = card
         pixmap = self.thumbnails.request(record.id, record.path)
         if pixmap is not None:
@@ -633,18 +633,18 @@ class ScreenshotsPanel(QWidget):
         menu.addAction(open_action)
 
         rename_action = QAction("Rename…", menu)
-        rename_action.triggered.connect(lambda: self._prompt_rename(screenshot_id))
+        rename_action.triggered.connect(lambda: self.prompt_rename(screenshot_id))
         menu.addAction(rename_action)
 
         menu.addSeparator()
 
         delete_action = QAction("Delete", menu)
-        delete_action.triggered.connect(lambda: self._confirm_delete(screenshot_id))
+        delete_action.triggered.connect(lambda: self.confirm_delete(screenshot_id))
         menu.addAction(delete_action)
 
         menu.exec(global_pos)
 
-    def _prompt_rename(self, screenshot_id: str) -> None:
+    def prompt_rename(self, screenshot_id: str) -> None:
         card = self._cards.get(screenshot_id)
         if not card:
             return
@@ -654,7 +654,7 @@ class ScreenshotsPanel(QWidget):
         if ok and new_stem.strip() and new_stem.strip() != current_stem:
             self.rename_requested.emit(screenshot_id, new_stem.strip())
 
-    def _confirm_delete(self, screenshot_id: str) -> None:
+    def confirm_delete(self, screenshot_id: str) -> None:
         card = self._cards.get(screenshot_id)
         if not card:
             return

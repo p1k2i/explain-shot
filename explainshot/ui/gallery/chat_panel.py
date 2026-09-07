@@ -554,12 +554,12 @@ class ChatPanel(QWidget):
         self.compact_btn = QPushButton("Compact")
         self.compact_btn.setProperty("chip", True)
         self.compact_btn.setToolTip("Summarise earlier turns to free up context")
-        self.compact_btn.clicked.connect(self._confirm_compact)
+        self.compact_btn.clicked.connect(self.confirm_compact)
 
         self._clear_btn = QPushButton("Clear")
         self._clear_btn.setProperty("chip", True)
         self._clear_btn.setToolTip("Delete the entire conversation")
-        self._clear_btn.clicked.connect(self._confirm_clear)
+        self._clear_btn.clicked.connect(self.confirm_clear)
 
         self._busy = False
         self._enabled_for_screenshot = False
@@ -949,7 +949,7 @@ class ChatPanel(QWidget):
         self.editor.clear()
         self.message_submitted.emit(text)
 
-    def _confirm_compact(self) -> None:
+    def confirm_compact(self) -> None:
         """Confirm before compacting: it fires an LLM call and the result
         replaces earlier context on this branch, so the user should opt in."""
         box = QMessageBox(self)
@@ -971,7 +971,7 @@ class ChatPanel(QWidget):
         if box.exec() == QMessageBox.StandardButton.Ok:
             self.compact_requested.emit()
 
-    def _confirm_clear(self) -> None:
+    def confirm_clear(self) -> None:
         """Confirm before clearing: destructive and unrecoverable."""
         box = QMessageBox(self)
         box.setWindowTitle("Clear conversation?")
