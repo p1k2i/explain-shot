@@ -42,6 +42,7 @@ The executable ends up at `dist\ExplainShot\ExplainShot.exe`.
   - `Ctrl+Shift+S` — capture a region
   - `Ctrl+Shift+G` — toggle the gallery
   - `Ctrl+Shift+P` — open settings
+- **Region selector.** Use **Copy** (or `Ctrl+C`) to put the selected, annotated region on the clipboard; use **Save** to keep it in the gallery.
 - **Gallery.** Three columns: screenshots (left), AI conversation (middle), reusable prompt presets (right).
 - **F5** in the gallery clears thumbnail cache and reloads the list. **Esc** closes it.
 
