@@ -118,6 +118,7 @@ class _Toolbox(QFrame):
     undo_requested = pyqtSignal()
     redo_requested = pyqtSignal()
     cancel_requested = pyqtSignal()
+    copy_requested = pyqtSignal()
     save_only_requested = pyqtSignal()
     save_and_open_requested = pyqtSignal()
     dragged = pyqtSignal(QPoint)   # new top-left after user drag
@@ -200,6 +201,12 @@ class _Toolbox(QFrame):
         cancel_btn = self._icon_btn("✕", "Cancel (Esc)", danger=True)
         cancel_btn.clicked.connect(self.cancel_requested.emit)
         row.addWidget(cancel_btn)
+
+        copy_btn = QPushButton("Copy")
+        copy_btn.setToolTip("Copy selection to clipboard (Ctrl+C)")
+        copy_btn.setProperty("chip", True)
+        copy_btn.clicked.connect(self.copy_requested.emit)
+        row.addWidget(copy_btn)
 
         # Save (silent) — floppy glyph
         save_btn = QPushButton("Save")
@@ -398,6 +405,7 @@ class CaptureOverlay(QWidget):
         self._toolbox.undo_requested.connect(self._undo)
         self._toolbox.redo_requested.connect(self._redo_op)
         self._toolbox.cancel_requested.connect(self._cancel)
+        self._toolbox.copy_requested.connect(self._commit_copy)
         self._toolbox.save_only_requested.connect(self._commit_save_only)
         self._toolbox.save_and_open_requested.connect(self._commit_save_and_open)
         self._toolbox.dragged.connect(self._on_toolbox_dragged)
@@ -622,6 +630,9 @@ class CaptureOverlay(QWidget):
                 self._commit_save_and_open()
             return
         if mods & Qt.KeyboardModifier.ControlModifier:
+            if key == Qt.Key.Key_C and self._selection is not None:
+                self._commit_copy()
+                return
             if key == Qt.Key.Key_Z:
                 self._undo()
                 return
@@ -770,6 +781,14 @@ class CaptureOverlay(QWidget):
             self.update()
 
     # -- commit paths ----------------------------------------------------------
+
+    def _commit_copy(self) -> None:
+        pixmap = self._render_final()
+        if pixmap is None:
+            return
+        QGuiApplication.clipboard().setPixmap(pixmap)
+        self.hide()
+        self.close()
 
     def _render_final(self) -> QPixmap | None:
         if self._selection is None:
